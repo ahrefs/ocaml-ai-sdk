@@ -25,6 +25,7 @@
   (yojson (>= 2.2))
   (ppx_deriving_yojson (>= 3.9))
   (cohttp-lwt-unix (>= 5.3))
+  (lwt_ssl (>= 1.2))
   (devkit (>= 1.20240429))
   (alcotest :with-test)))
 
