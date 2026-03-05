@@ -1,4 +1,4 @@
 (tests
- (names test_config_catalog test_anthropic_types test_convert_prompt test_convert_tools test_convert_response test_sse test_convert_stream test_api test_anthropic_model test_factory)
+ (names test_config_catalog test_anthropic_types test_convert_prompt test_convert_tools test_convert_response test_sse test_convert_stream test_api test_anthropic_model test_factory test_e2e)
  (libraries ai_provider ai_provider_anthropic alcotest yojson lwt lwt.unix unix)
  (preprocess (pps lwt_ppx)))
