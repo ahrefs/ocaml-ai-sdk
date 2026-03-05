@@ -9,3 +9,7 @@ module Usage = Usage
 module Warning = Warning
 module Provider_error = Provider_error
 module Prompt = Prompt
+module Tool = Tool
+module Tool_choice = Tool_choice
+module Mode = Mode
+module Content = Content
