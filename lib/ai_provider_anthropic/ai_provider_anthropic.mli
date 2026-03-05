@@ -15,3 +15,5 @@ module Convert_usage = Convert_usage
 module Convert_response = Convert_response
 module Sse = Sse
 module Convert_stream = Convert_stream
+module Beta_headers = Beta_headers
+module Anthropic_api = Anthropic_api
