@@ -2,4 +2,4 @@
  (public_name ocaml-ai-sdk)
  (package ocaml-ai-sdk)
  (name main)
- (libraries ocaml_ai_sdk))
+ (libraries ai_provider ai_provider_anthropic))

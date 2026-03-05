@@ -22,17 +22,17 @@ let parse_content_block json =
          { tool_call_type = "function"; tool_call_id = id; tool_name = name; args = Yojson.Safe.to_string input })
   | "thinking" ->
     let text = member "thinking" json |> to_string in
-    let signature = try Some (member "signature" json |> to_string) with _ -> None in
+    let signature = try Some (member "signature" json |> to_string) with Type_error _ -> None in
     Some (Ai_provider.Content.Reasoning { text; signature; provider_options = Ai_provider.Provider_options.empty })
   | _ -> None
 
 let parse_response json =
   let open Yojson.Safe.Util in
-  let id = try Some (member "id" json |> to_string) with _ -> None in
-  let model = try Some (member "model" json |> to_string) with _ -> None in
+  let id = try Some (member "id" json |> to_string) with Type_error _ -> None in
+  let model = try Some (member "model" json |> to_string) with Type_error _ -> None in
   let content_json = member "content" json |> to_list in
   let content = List.filter_map parse_content_block content_json in
-  let stop_reason = try Some (member "stop_reason" json |> to_string) with _ -> None in
+  let stop_reason = try Some (member "stop_reason" json |> to_string) with Type_error _ -> None in
   let usage_json = member "usage" json in
   let usage = Convert_usage.anthropic_usage_of_yojson usage_json in
   {

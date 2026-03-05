@@ -1,3 +1,0 @@
-(test
- (name test_ocaml_ai_sdk)
- (libraries ocaml_ai_sdk))

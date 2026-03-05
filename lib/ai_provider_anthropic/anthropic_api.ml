@@ -10,8 +10,8 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
   | None -> ());
   (* Tools *)
   (match tools with
-  | Some ts when ts <> [] -> add "tools" (`List (List.map Convert_tools.anthropic_tool_to_yojson ts))
-  | Some _ | None -> ());
+  | Some (_ :: _ as ts) -> add "tools" (`List (List.map Convert_tools.anthropic_tool_to_yojson ts))
+  | Some [] | None -> ());
   (* Tool choice *)
   (match tool_choice with
   | Some tc -> add "tool_choice" (Convert_tools.anthropic_tool_choice_to_yojson tc)
@@ -34,8 +34,8 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
   | None -> ());
   (* Stop sequences *)
   (match stop_sequences with
-  | Some ss when ss <> [] -> add "stop_sequences" (`List (List.map (fun s -> `String s) ss))
-  | Some _ | None -> ());
+  | Some (_ :: _ as ss) -> add "stop_sequences" (`List (List.map (fun s -> `String s) ss))
+  | Some [] | None -> ());
   (* Thinking *)
   (match thinking with
   | Some t when t.Thinking.enabled ->
