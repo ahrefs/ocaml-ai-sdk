@@ -1,0 +1,5 @@
+(executables
+ (names one_shot streaming tool_use thinking)
+ (libraries ai_provider ai_provider_anthropic lwt lwt.unix)
+ (preprocess
+  (pps lwt_ppx)))
