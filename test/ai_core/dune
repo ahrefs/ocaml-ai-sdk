@@ -1,0 +1,4 @@
+(tests
+ (names test_core_types)
+ (libraries ai_provider ai_core alcotest lwt lwt.unix yojson)
+ (preprocess (pps lwt_ppx)))

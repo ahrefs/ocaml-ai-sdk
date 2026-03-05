@@ -1,0 +1,6 @@
+(library
+ (name ai_core)
+ (public_name ocaml-ai-sdk.ai_core)
+ (libraries ai_provider lwt lwt.unix cohttp-lwt-unix yojson)
+ (preprocess
+  (pps lwt_ppx ppx_deriving_yojson ppx_deriving.show)))
