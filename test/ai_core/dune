@@ -1,4 +1,4 @@
 (tests
- (names test_core_types test_ui_message_chunk test_ui_message_stream test_prompt_builder test_generate_text test_stream_text)
+ (names test_core_types test_ui_message_chunk test_ui_message_stream test_prompt_builder test_generate_text test_stream_text test_to_ui_stream)
  (libraries ai_provider ai_core alcotest lwt lwt.unix yojson)
  (preprocess (pps lwt_ppx)))
