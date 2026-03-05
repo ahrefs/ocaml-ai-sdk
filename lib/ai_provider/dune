@@ -1,0 +1,6 @@
+(library
+ (name ai_provider)
+ (public_name ocaml-ai-sdk.ai_provider)
+ (libraries lwt yojson)
+ (preprocess
+  (pps ppx_deriving_yojson ppx_deriving.show)))
