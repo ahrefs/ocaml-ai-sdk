@@ -1,0 +1,5 @@
+(executables
+ (names one_shot multi_turn session_resume)
+ (libraries claude_agent_sdk lwt lwt.unix containers)
+ (preprocess
+  (pps lwt_ppx)))

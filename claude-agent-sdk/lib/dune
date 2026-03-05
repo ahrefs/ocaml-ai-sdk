@@ -1,0 +1,6 @@
+(library
+ (name claude_agent_sdk)
+ (synopsis "port of the official claude-agent-sdk, in OCaml")
+ (libraries lwt lwt.unix yojson trace.core devkit)
+ (preprocess
+  (pps lwt_ppx ppx_deriving_yojson ppx_deriving.show)))

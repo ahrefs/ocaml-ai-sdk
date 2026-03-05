@@ -1,0 +1,5 @@
+(test
+ (name test_parse)
+ (libraries claude_agent_sdk alcotest lwt lwt.unix)
+ (preprocess
+  (pps lwt_ppx ppx_deriving_yojson)))
