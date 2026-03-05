@@ -26,7 +26,7 @@ let make_sse_response ?(status = `OK) ?(extra_headers = []) sse_stream =
 
 let handle_chat ~model ?tools ?max_steps ?system ?send_reasoning ?provider_options _conn _req body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
-  let body_json = try Yojson.Safe.from_string body_str with _exn -> `Assoc [ "messages", `List [] ] in
+  let body_json = try Yojson.Safe.from_string body_str with Yojson.Json_error _ -> `Assoc [ "messages", `List [] ] in
   let messages = parse_messages_from_body body_json in
   let messages =
     match system with

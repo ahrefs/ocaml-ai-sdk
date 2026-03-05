@@ -2,7 +2,7 @@
 let execute_tool_call ~tools (content : Ai_provider.Content.t) =
   match content with
   | Tool_call { tool_call_id; tool_name; args; _ } ->
-    let args_json = try Yojson.Safe.from_string args with _ -> `String args in
+    let args_json = try Yojson.Safe.from_string args with Yojson.Json_error _ -> `String args in
     (match List.assoc_opt tool_name tools with
     | None ->
       Lwt.return
@@ -37,7 +37,7 @@ let parse_content (content : Ai_provider.Content.t list) =
         if Buffer.length reasoning > 0 then Buffer.add_char reasoning '\n';
         Buffer.add_string reasoning t
       | Tool_call { tool_call_id; tool_name; args; _ } ->
-        let args_json = try Yojson.Safe.from_string args with _ -> `String args in
+        let args_json = try Yojson.Safe.from_string args with Yojson.Json_error _ -> `String args in
         tool_calls := { Generate_text_result.tool_call_id; tool_name; args = args_json } :: !tool_calls
       | File _ -> ())
     content;

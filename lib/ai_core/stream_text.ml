@@ -94,7 +94,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk provider_stream =
           (match Hashtbl.find_opt tool_calls tool_call_id with
           | Some (tool_name, buf) ->
             let args_str = Buffer.contents buf in
-            let args = try Yojson.Safe.from_string args_str with _ -> `String args_str in
+            let args = try Yojson.Safe.from_string args_str with Yojson.Json_error _ -> `String args_str in
             completed_tool_calls := { Generate_text_result.tool_call_id; tool_name; args } :: !completed_tool_calls;
             emit (Text_stream_part.Tool_call { tool_call_id; tool_name; args });
             Hashtbl.remove tool_calls tool_call_id
@@ -161,9 +161,9 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         emit
           (Text_stream_part.Finish { finish_reason = Ai_provider.Finish_reason.Other "max_steps"; usage = total_usage });
         push_full None;
-        Lwt.wakeup usage_resolver total_usage;
-        Lwt.wakeup finish_resolver (Ai_provider.Finish_reason.Other "max_steps");
-        Lwt.wakeup steps_resolver (List.rev steps);
+        Lwt.wakeup_later usage_resolver total_usage;
+        Lwt.wakeup_later finish_resolver (Ai_provider.Finish_reason.Other "max_steps");
+        Lwt.wakeup_later steps_resolver (List.rev steps);
         Lwt.return_unit
       end
       else begin
@@ -303,10 +303,10 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           emit (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
           emit (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
           push_full None;
-          Lwt.wakeup usage_resolver new_total;
-          Lwt.wakeup finish_resolver fr;
+          Lwt.wakeup_later usage_resolver new_total;
+          Lwt.wakeup_later finish_resolver fr;
           let all_steps = List.rev (step :: steps) in
-          Lwt.wakeup steps_resolver all_steps;
+          Lwt.wakeup_later steps_resolver all_steps;
           (* Call on_finish if provided *)
           (match on_finish with
           | Some f ->
@@ -350,9 +350,9 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         let msg = Printexc.to_string exn in
         push_full (Some (Text_stream_part.Error { error = msg }));
         push_full None;
-        Lwt.wakeup_exn usage_resolver exn;
-        Lwt.wakeup_exn finish_resolver exn;
-        Lwt.wakeup_exn steps_resolver exn;
+        Lwt.wakeup_later_exn usage_resolver exn;
+        Lwt.wakeup_later_exn finish_resolver exn;
+        Lwt.wakeup_later_exn steps_resolver exn;
         Lwt.return_unit));
   {
     Stream_text_result.text_stream;
