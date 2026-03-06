@@ -52,6 +52,20 @@ type t =
       url : string;
       media_type : string;
     }
+  | Message_metadata of { message_metadata : Yojson.Safe.t }
+  | Tool_input_error of {
+      tool_call_id : string;
+      tool_name : string;
+      input : Yojson.Safe.t;
+      error_text : string;
+    }
+  | Tool_output_denied of { tool_call_id : string }
+  | Source_document of {
+      source_id : string;
+      media_type : string;
+      title : string;
+      filename : string option;
+    }
   | Error of { error_text : string }
   | Data of {
       data_type : string;
@@ -122,6 +136,28 @@ let to_yojson = function
         opt_string "title" title;
       ]
   | File { url; media_type } -> `Assoc [ "type", `String "file"; "url", `String url; "mediaType", `String media_type ]
+  | Message_metadata { message_metadata } ->
+    `Assoc [ "type", `String "message-metadata"; "messageMetadata", message_metadata ]
+  | Tool_input_error { tool_call_id; tool_name; input; error_text } ->
+    `Assoc
+      [
+        "type", `String "tool-input-error";
+        "toolCallId", `String tool_call_id;
+        "toolName", `String tool_name;
+        "input", input;
+        "errorText", `String error_text;
+      ]
+  | Tool_output_denied { tool_call_id } ->
+    `Assoc [ "type", `String "tool-output-denied"; "toolCallId", `String tool_call_id ]
+  | Source_document { source_id; media_type; title; filename } ->
+    obj
+      [
+        some ("type", `String "source-document");
+        some ("sourceId", `String source_id);
+        some ("mediaType", `String media_type);
+        some ("title", `String title);
+        opt_string "filename" filename;
+      ]
   | Error { error_text } -> `Assoc [ "type", `String "error"; "errorText", `String error_text ]
   | Data { data_type; id; data } ->
     obj [ some ("type", `String (Printf.sprintf "data-%s" data_type)); opt_string "id" id; some ("data", data) ]

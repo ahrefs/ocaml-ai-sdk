@@ -101,6 +101,50 @@ let test_data () =
   let json = json_str (Data { data_type = "message"; id = Some "d_1"; data = `Assoc [ "content", `String "hi" ] }) in
   Alcotest.(check string) "data" {|{"type":"data-message","id":"d_1","data":{"content":"hi"}}|} json
 
+(* V6 extras *)
+let test_message_metadata () =
+  let json = json_str (Message_metadata { message_metadata = `Assoc [ "key", `String "value" ] }) in
+  Alcotest.(check string) "message-metadata" {|{"type":"message-metadata","messageMetadata":{"key":"value"}}|} json
+
+let test_tool_input_error () =
+  let json =
+    json_str
+      (Tool_input_error
+         {
+           tool_call_id = "tc_1";
+           tool_name = "search";
+           input = `Assoc [ "q", `String "test" ];
+           error_text = "Invalid input";
+         })
+  in
+  Alcotest.(check string)
+    "tool-input-error"
+    {|{"type":"tool-input-error","toolCallId":"tc_1","toolName":"search","input":{"q":"test"},"errorText":"Invalid input"}|}
+    json
+
+let test_tool_output_denied () =
+  let json = json_str (Tool_output_denied { tool_call_id = "tc_1" }) in
+  Alcotest.(check string) "tool-output-denied" {|{"type":"tool-output-denied","toolCallId":"tc_1"}|} json
+
+let test_source_document () =
+  let json =
+    json_str
+      (Source_document
+         { source_id = "src_1"; media_type = "application/pdf"; title = "Report"; filename = Some "report.pdf" })
+  in
+  Alcotest.(check string)
+    "source-document"
+    {|{"type":"source-document","sourceId":"src_1","mediaType":"application/pdf","title":"Report","filename":"report.pdf"}|}
+    json
+
+let test_source_document_no_filename () =
+  let json =
+    json_str (Source_document { source_id = "src_2"; media_type = "text/plain"; title = "Notes"; filename = None })
+  in
+  Alcotest.(check string)
+    "source-document no filename"
+    {|{"type":"source-document","sourceId":"src_2","mediaType":"text/plain","title":"Notes"}|} json
+
 let () =
   Alcotest.run "Ui_message_chunk"
     [
@@ -138,5 +182,13 @@ let () =
           Alcotest.test_case "source_url" `Quick test_source_url;
           Alcotest.test_case "file" `Quick test_file;
           Alcotest.test_case "data" `Quick test_data;
+        ] );
+      ( "v6_extras",
+        [
+          Alcotest.test_case "message_metadata" `Quick test_message_metadata;
+          Alcotest.test_case "tool_input_error" `Quick test_tool_input_error;
+          Alcotest.test_case "tool_output_denied" `Quick test_tool_output_denied;
+          Alcotest.test_case "source_document" `Quick test_source_document;
+          Alcotest.test_case "source_document_no_filename" `Quick test_source_document_no_filename;
         ] );
     ]

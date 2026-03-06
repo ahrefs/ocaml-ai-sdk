@@ -58,6 +58,20 @@ type t =
       url : string;
       media_type : string;
     }
+  | Message_metadata of { message_metadata : Yojson.Safe.t }
+  | Tool_input_error of {
+      tool_call_id : string;
+      tool_name : string;
+      input : Yojson.Safe.t;
+      error_text : string;
+    }
+  | Tool_output_denied of { tool_call_id : string }
+  | Source_document of {
+      source_id : string;
+      media_type : string;
+      title : string;
+      filename : string option;
+    }
   | Error of { error_text : string }
   | Data of {
       data_type : string;

@@ -286,6 +286,70 @@ data: [DONE]
   let actual = sse_of_chunks chunks in
   Alcotest.(check string) "abort SSE" expected actual
 
+(* === Snapshot: V6 extras === *)
+
+let test_v6_extras_snapshot () =
+  let chunks : Ai_core.Ui_message_chunk.t list =
+    [
+      Start { message_id = Some "msg_7"; message_metadata = None };
+      Message_metadata { message_metadata = `Assoc [ "model", `String "claude-sonnet-4-6" ] };
+      Start_step;
+      Tool_input_start { tool_call_id = "tc_1"; tool_name = "db_query" };
+      Tool_input_error
+        {
+          tool_call_id = "tc_1";
+          tool_name = "db_query";
+          input = `Assoc [ "sql", `String "DROP TABLE" ];
+          error_text = "Dangerous query";
+        };
+      Tool_output_denied { tool_call_id = "tc_1" };
+      Finish_step;
+      Start_step;
+      Text_start { id = "txt_1" };
+      Text_delta { id = "txt_1"; delta = "I cannot run that query." };
+      Text_end { id = "txt_1" };
+      Source_document
+        { source_id = "doc_1"; media_type = "application/pdf"; title = "Policy"; filename = Some "policy.pdf" };
+      Finish_step;
+      Finish { finish_reason = Some Ai_provider.Finish_reason.Stop; message_metadata = None };
+    ]
+  in
+  let expected =
+    {|data: {"type":"start","messageId":"msg_7"}
+
+data: {"type":"message-metadata","messageMetadata":{"model":"claude-sonnet-4-6"}}
+
+data: {"type":"start-step"}
+
+data: {"type":"tool-input-start","toolCallId":"tc_1","toolName":"db_query"}
+
+data: {"type":"tool-input-error","toolCallId":"tc_1","toolName":"db_query","input":{"sql":"DROP TABLE"},"errorText":"Dangerous query"}
+
+data: {"type":"tool-output-denied","toolCallId":"tc_1"}
+
+data: {"type":"finish-step"}
+
+data: {"type":"start-step"}
+
+data: {"type":"text-start","id":"txt_1"}
+
+data: {"type":"text-delta","id":"txt_1","delta":"I cannot run that query."}
+
+data: {"type":"text-end","id":"txt_1"}
+
+data: {"type":"source-document","sourceId":"doc_1","mediaType":"application/pdf","title":"Policy","filename":"policy.pdf"}
+
+data: {"type":"finish-step"}
+
+data: {"type":"finish","finishReason":"stop"}
+
+data: [DONE]
+
+|}
+  in
+  let actual = sse_of_chunks chunks in
+  Alcotest.(check string) "v6 extras SSE" expected actual
+
 let () =
   Alcotest.run "SSE Snapshots"
     [
@@ -298,5 +362,6 @@ let () =
           Alcotest.test_case "tool_error" `Quick test_tool_error_snapshot;
           Alcotest.test_case "source" `Quick test_source_snapshot;
           Alcotest.test_case "abort" `Quick test_abort_snapshot;
+          Alcotest.test_case "v6_extras" `Quick test_v6_extras_snapshot;
         ] );
     ]

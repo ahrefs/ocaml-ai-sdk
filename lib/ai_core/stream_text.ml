@@ -157,7 +157,6 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
     in
     emit Text_stream_part.Start;
     let rec step_loop ~current_messages ~steps ~total_usage ~step_num =
-      Printf.eprintf "[stream_text] step_loop step_num=%d max_steps=%d\n%!" step_num max_steps;
       if step_num > max_steps then begin
         emit
           (Text_stream_part.Finish { finish_reason = Ai_provider.Finish_reason.Other "max_steps"; usage = total_usage });
@@ -197,15 +196,10 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             abort_signal = None;
           }
         in
-        Printf.eprintf "[stream_text] calling Language_model.stream...\n%!";
         let%lwt stream_result = Ai_provider.Language_model.stream model opts in
-        Printf.eprintf "[stream_text] got stream_result, consuming provider stream...\n%!";
         let%lwt text, reasoning, tool_calls, fr, step_usage =
           consume_provider_stream ~id_gen ~push:push_full ~on_chunk stream_result.stream
         in
-        Printf.eprintf "[stream_text] consumed: text=%d chars, tool_calls=%d, fr=%s\n%!" (String.length text)
-          (List.length tool_calls)
-          (Ai_provider.Finish_reason.to_string fr);
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls = List.length tool_calls > 0 in
         let should_continue =
@@ -216,10 +210,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           | Some Ai_provider.Tool_choice.None_ -> false
           | _ -> true
         in
-        Printf.eprintf "[stream_text] should_continue=%b has_tool_calls=%b step_num=%d\n%!" should_continue
-          has_tool_calls step_num;
         if should_continue then begin
-          Printf.eprintf "[stream_text] executing %d tool calls...\n%!" (List.length tool_calls);
           (* Execute tools *)
           let%lwt tool_results =
             Lwt_list.map_s
