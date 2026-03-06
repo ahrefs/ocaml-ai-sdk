@@ -45,87 +45,23 @@ let of_model_id s =
   (* Unknown *)
   | s -> Custom s
 
+let base_capabilities =
+  {
+    max_output_tokens = 64_000;
+    supports_thinking = true;
+    supports_structured_output = true;
+    supports_prompt_caching = true;
+    min_cache_tokens = 1024;
+    supports_vision = true;
+    supports_pdf = true;
+  }
+
 let capabilities = function
-  | Claude_opus_4_6 ->
-    {
-      max_output_tokens = 128_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_sonnet_4_6 ->
-    {
-      max_output_tokens = 64_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_haiku_4_5 ->
-    {
-      max_output_tokens = 64_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 4096;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_sonnet_4_5 ->
-    {
-      max_output_tokens = 64_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_opus_4_5 ->
-    {
-      max_output_tokens = 64_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 4096;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_opus_4_1 ->
-    {
-      max_output_tokens = 32_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_sonnet_4 ->
-    {
-      max_output_tokens = 64_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_opus_4 ->
-    {
-      max_output_tokens = 32_000;
-      supports_thinking = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
-      supports_vision = true;
-      supports_pdf = true;
-    }
+  | Claude_opus_4_6 -> { base_capabilities with max_output_tokens = 128_000 }
+  | Claude_sonnet_4_6 | Claude_sonnet_4_5 | Claude_sonnet_4 -> base_capabilities
+  | Claude_haiku_4_5 -> { base_capabilities with min_cache_tokens = 4096 }
+  | Claude_opus_4_5 -> { base_capabilities with min_cache_tokens = 4096 }
+  | Claude_opus_4_1 | Claude_opus_4 -> { base_capabilities with max_output_tokens = 32_000 }
   | Custom _ ->
     {
       max_output_tokens = 4096;

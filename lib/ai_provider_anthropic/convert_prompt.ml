@@ -80,8 +80,7 @@ let convert_user_part (part : Ai_provider.Prompt.user_part) : anthropic_content 
   match part with
   | Text { text; provider_options } -> A_text { text; cache_control = get_cc provider_options }
   | File { data; media_type; provider_options; _ } ->
-    let is_image = String.length media_type >= 6 && String.equal (String.sub media_type 0 6) "image/" in
-    if is_image then
+    if String.starts_with ~prefix:"image/" media_type then
       A_image { source = file_data_to_image_source ~media_type data; cache_control = get_cc provider_options }
     else
       A_document
@@ -90,9 +89,7 @@ let convert_user_part (part : Ai_provider.Prompt.user_part) : anthropic_content 
             (match data with
             | Bytes b -> Base64_document { media_type; data = Base64.encode_string (Bytes.to_string b) }
             | Base64 s -> Base64_document { media_type; data = s }
-            | Url _ ->
-              (* Documents must be base64 for Anthropic *)
-              Base64_document { media_type; data = "" });
+            | Url u -> invalid_arg (Printf.sprintf "Anthropic documents must be base64-encoded, got URL: %s" u));
           cache_control = get_cc provider_options;
         }
 
@@ -140,13 +137,17 @@ let convert_single_message (msg : Ai_provider.Prompt.message) : ([ `User | `Assi
 
 (* Group messages to ensure alternating user/assistant roles.
    Consecutive messages with the same role are merged. *)
+let role_equal (a : [ `User | `Assistant ]) (b : [ `User | `Assistant ]) =
+  match a, b with
+  | `User, `User | `Assistant, `Assistant -> true
+  | `User, `Assistant | `Assistant, `User -> false
+
 let group_messages (msgs : ([ `User | `Assistant ] * anthropic_content list) list) : anthropic_message list =
   let rec go acc = function
     | [] -> List.rev acc
     | (role, content) :: rest ->
     match acc with
-    | { role = prev_role; content = prev_content } :: acc_rest when prev_role = role ->
-      (* Same role - merge content *)
+    | { role = prev_role; content = prev_content } :: acc_rest when role_equal prev_role role ->
       go ({ role; content = prev_content @ content } :: acc_rest) rest
     | _ -> go ({ role; content } :: acc) rest
   in

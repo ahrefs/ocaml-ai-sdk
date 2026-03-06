@@ -84,8 +84,9 @@ let transform events ~warnings =
                       { finish_reason = Convert_response.map_stop_reason stop_reason; usage }))
             | "message_stop" | "ping" -> ()
             | "error" ->
-              let error_type = try member "error" json |> member "type" |> to_string with _ -> "unknown" in
-              let message = try member "error" json |> member "message" |> to_string with _ -> evt.data in
+              let error_obj = try member "error" json with Type_error _ -> json in
+              let error_type = try member "type" error_obj |> to_string with Type_error _ -> "unknown" in
+              let message = try member "message" error_obj |> to_string with Type_error _ -> evt.data in
               push
                 (Some
                    (Ai_provider.Stream_part.Error

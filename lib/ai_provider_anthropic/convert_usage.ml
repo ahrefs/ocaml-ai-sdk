@@ -5,9 +5,15 @@ type anthropic_usage = {
   cache_creation_input_tokens : int option;
 }
 
-let int_or_default json key default = try Yojson.Safe.Util.(member key json |> to_int) with _ -> default
+let int_or_default json key default =
+  match Yojson.Safe.Util.(member key json) with
+  | `Int n -> n
+  | _ -> default
 
-let int_opt json key = try Some Yojson.Safe.Util.(member key json |> to_int) with _ -> None
+let int_opt json key =
+  match Yojson.Safe.Util.(member key json) with
+  | `Int n -> Some n
+  | _ -> None
 
 let anthropic_usage_of_yojson json =
   {

@@ -34,6 +34,6 @@ let of_response ~status ~body =
       let json = Yojson.Safe.from_string body in
       let error_obj = Yojson.Safe.Util.member "error" json in
       Yojson.Safe.Util.(member "message" error_obj |> to_string)
-    with _ -> body
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> body
   in
   { Ai_provider.Provider_error.provider = "anthropic"; kind = Api_error { status; body = message } }
