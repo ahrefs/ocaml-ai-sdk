@@ -1,11 +1,20 @@
-import React from "react";
+import React, { useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+
+// Derive API URL from the current page host — same host, port 28601
+const apiUrl =
+  typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:28601/chat`
+    : "http://localhost:28601/chat";
 
 export default function Chat() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } =
-    useChat({
-      api: "http://localhost:8080/chat",
-    });
+  const [input, setInput] = useState("");
+  const { messages, sendMessage, status } = useChat({
+    transport: new DefaultChatTransport({ api: apiUrl }),
+  });
+
+  const isLoading = status !== "ready";
 
   return (
     <div style={{ maxWidth: 640, margin: "40px auto", fontFamily: "system-ui" }}>
@@ -38,7 +47,7 @@ export default function Chat() {
           >
             <strong>{m.role === "user" ? "You" : "Claude"}</strong>
             <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>
-              {m.parts?.map((part, i) => {
+              {m.parts.map((part, i) => {
                 if (part.type === "text") return <span key={i}>{part.text}</span>;
                 if (part.type === "tool-invocation")
                   return (
@@ -64,10 +73,19 @@ export default function Chat() {
           </div>
         ))}
       </div>
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8 }}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (input.trim()) {
+            sendMessage({ text: input });
+            setInput("");
+          }
+        }}
+        style={{ display: "flex", gap: 8 }}
+      >
         <input
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => setInput(e.target.value)}
           placeholder="Type a message..."
           disabled={isLoading}
           style={{
