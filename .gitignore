@@ -3,3 +3,5 @@ _opam/
 *.install
 *.merlin
 .merlin
+frontend/node_modules/
+frontend/dist/
