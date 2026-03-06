@@ -8,8 +8,9 @@
 let () =
   Lwt_main.run
     begin
-      (* Create a model — uses ANTHROPIC_API_KEY from env *)
-    let claude = Ai_provider_anthropic.model "claude-sonnet-4-6" in
+      (* Create a model using the Model_catalog for type-safe model selection *)
+    let open Ai_provider_anthropic.Model_catalog in
+    let claude = Ai_provider_anthropic.model (to_model_id Claude_sonnet_4_6) in
 
     (* Build the prompt with type-safe message construction *)
     let opts =
