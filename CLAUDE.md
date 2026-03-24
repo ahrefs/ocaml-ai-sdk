@@ -156,6 +156,39 @@ let n = Devkit.Exn.default 0 int_of_string "invalid" in
 
 ## 4. Pattern Matching Over Nested Conditionals
 
+**`else if` is banned. If you have an `else if`, you MUST refactor to pattern matching.**
+
+A simple `if`/`else` is fine. The moment a second condition appears (`else if`), convert the entire chain to `match`.
+
+```
+(* BANNED - else if chains *)
+if String.starts_with ~prefix:":" line then ()
+else if String.starts_with ~prefix:"event:" line then handle_event line
+else if String.starts_with ~prefix:"data:" line then handle_data line
+
+(* DO - pattern matching with guards *)
+match line with
+| line when String.starts_with ~prefix:":" line -> ()
+| line when String.starts_with ~prefix:"event:" line -> handle_event line
+| line when String.starts_with ~prefix:"data:" line -> handle_data line
+| _ -> ()
+
+(* BANNED - else if on different conditions *)
+if status >= 400 then handle_error ()
+else if stream then handle_stream ()
+else handle_json ()
+
+(* DO - match on tuple or unit with guards *)
+match () with
+| () when status >= 400 -> handle_error ()
+| () when stream -> handle_stream ()
+| () -> handle_json ()
+
+(* OK - simple if/else is fine *)
+if is_valid x then process x
+else default_value
+```
+
 ```
 (* Don't: nested if/else *)
 if x > 0 then

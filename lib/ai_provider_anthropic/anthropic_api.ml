@@ -16,6 +16,7 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
         opt "tool_choice" Convert_tools.anthropic_tool_choice_to_yojson tool_choice;
         [
           ( "max_tokens",
+            (* Fallback for direct API use; anthropic_model.ml always passes model-aware default *)
             `Int
               (match max_tokens with
               | Some n -> n
@@ -60,11 +61,12 @@ let body_to_line_stream body =
           let i = ref 0 in
           while !i < len do
             let c = String.get chunk !i in
-            if c = '\n' then begin
+            (match c with
+            | '\n' ->
               push (Some (Buffer.contents buf));
               Buffer.clear buf
-            end
-            else if c <> '\r' then Buffer.add_char buf c;
+            | '\r' -> ()
+            | c -> Buffer.add_char buf c);
             incr i
           done)
         raw_stream
@@ -93,14 +95,13 @@ let messages ~config ~body ~extra_headers ~stream =
     let cohttp_body = Cohttp_lwt.Body.of_string body_str in
     let%lwt resp, resp_body = Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:cohttp_body uri in
     let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-    if status >= 400 then begin
+    (match () with
+    | () when status >= 400 ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let err = Anthropic_error.of_response ~status ~body:body_str in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
-    end
-    else if stream then Lwt.return (`Stream (body_to_line_stream resp_body))
-    else begin
+    | () when stream -> Lwt.return (`Stream (body_to_line_stream resp_body))
+    | () ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let json = Yojson.Safe.from_string body_str in
-      Lwt.return (`Json json)
-    end
+      Lwt.return (`Json json))

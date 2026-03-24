@@ -19,13 +19,13 @@ let parse_events lines =
     let%lwt () =
       Lwt_stream.iter
         (fun line ->
-          if String.length line = 0 then emit ()
-          else if String.starts_with ~prefix:":" line then ()
-          else if String.starts_with ~prefix:"event:" line then begin
+          match line with
+          | "" -> emit ()
+          | line when String.starts_with ~prefix:":" line -> ()
+          | line when String.starts_with ~prefix:"event:" line ->
             let value = String.trim (String.sub line 6 (String.length line - 6)) in
             current_event := value
-          end
-          else if String.starts_with ~prefix:"data:" line then begin
+          | line when String.starts_with ~prefix:"data:" line ->
             let value = String.sub line 5 (String.length line - 5) in
             let value =
               if String.length value > 0 && Char.equal (String.get value 0) ' ' then
@@ -34,7 +34,7 @@ let parse_events lines =
             in
             if Buffer.length current_data > 0 then Buffer.add_char current_data '\n';
             Buffer.add_string current_data value
-          end)
+          | _ -> ())
         lines
     in
     emit ();

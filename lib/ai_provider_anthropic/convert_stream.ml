@@ -98,7 +98,7 @@ let transform events ~warnings =
                           };
                       }))
             | _ -> ()
-          with exn ->
+          with (Yojson.Json_error _ | Yojson.Safe.Util.Type_error _) as exn ->
             push
               (Some
                  (Ai_provider.Stream_part.Error

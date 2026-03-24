@@ -8,7 +8,9 @@ let required_betas ~thinking ~has_pdf ~tool_streaming =
 
 let merge_beta_headers ~user_headers ~required =
   let existing_betas =
-    List.filter_map (fun (k, v) -> if String.lowercase_ascii k = "anthropic-beta" then Some v else None) user_headers
+    List.filter_map
+      (fun (k, v) -> if String.equal (String.lowercase_ascii k) "anthropic-beta" then Some v else None)
+      user_headers
   in
   let existing_values = List.concat_map (fun s -> String.split_on_char ',' s |> List.map String.trim) existing_betas in
   let all_betas = existing_values @ required in
@@ -23,7 +25,9 @@ let merge_beta_headers ~user_headers ~required =
         end)
       all_betas
   in
-  let other_headers = List.filter (fun (k, _) -> String.lowercase_ascii k <> "anthropic-beta") user_headers in
+  let other_headers =
+    List.filter (fun (k, _) -> not (String.equal (String.lowercase_ascii k) "anthropic-beta")) user_headers
+  in
   match deduped with
   | [] -> other_headers
   | betas -> other_headers @ [ "anthropic-beta", String.concat "," betas ]

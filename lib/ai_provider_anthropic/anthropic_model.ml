@@ -1,38 +1,34 @@
 (** Check for unsupported features and emit warnings. *)
 let check_unsupported ~anthropic_opts (opts : Ai_provider.Call_options.t) =
-  let warnings =
-    List.concat
-      [
-        (match opts.frequency_penalty with
-        | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "frequency_penalty"; details = None } ]
-        | None -> []);
-        (match opts.presence_penalty with
-        | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "presence_penalty"; details = None } ]
-        | None -> []);
-        (match opts.seed with
-        | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "seed"; details = None } ]
-        | None -> []);
-        (* Warn if thinking is enabled with temperature *)
-        (match anthropic_opts.Anthropic_options.thinking with
-        | Some t when t.Thinking.enabled && Option.is_some opts.temperature ->
-          [
-            Ai_provider.Warning.Unsupported_feature
-              {
-                feature = "temperature with thinking";
-                details = Some "Anthropic does not support temperature when thinking is enabled";
-              };
-          ]
-        | _ -> []);
-      ]
-  in
-  warnings
+  List.concat
+    [
+      (match opts.frequency_penalty with
+      | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "frequency_penalty"; details = None } ]
+      | None -> []);
+      (match opts.presence_penalty with
+      | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "presence_penalty"; details = None } ]
+      | None -> []);
+      (match opts.seed with
+      | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "seed"; details = None } ]
+      | None -> []);
+      (* Warn if thinking is enabled with temperature *)
+      (match anthropic_opts.Anthropic_options.thinking with
+      | Some t when t.Thinking.enabled && Option.is_some opts.temperature ->
+        [
+          Ai_provider.Warning.Unsupported_feature
+            {
+              feature = "temperature with thinking";
+              details = Some "Anthropic does not support temperature when thinking is enabled";
+            };
+        ]
+      | _ -> []);
+    ]
 
 (** Prepare the request body and warnings — shared by generate and stream. *)
 let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let anthropic_opts =
-    match Anthropic_options.of_provider_options opts.provider_options with
-    | Some o -> o
-    | None -> Anthropic_options.default
+    Anthropic_options.of_provider_options opts.provider_options
+    |> Stdlib.Option.value ~default:Anthropic_options.default
   in
   let warnings = check_unsupported ~anthropic_opts opts in
   let system, remaining = Convert_prompt.extract_system opts.prompt in
@@ -40,11 +36,10 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let tools, tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in
   (* Use model-aware default for max_tokens *)
   let max_tokens =
-    match opts.max_output_tokens with
-    | Some _ -> opts.max_output_tokens
-    | None ->
-      let known = Model_catalog.of_model_id model in
-      Some (Model_catalog.default_max_tokens known)
+    Some
+      (match opts.max_output_tokens with
+      | Some n -> n
+      | None -> Model_catalog.default_max_tokens (Model_catalog.of_model_id model))
   in
   let thinking_enabled =
     match anthropic_opts.thinking with
@@ -56,7 +51,8 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
       ?temperature:opts.temperature ?top_p:opts.top_p ?top_k:opts.top_k ~stop_sequences:opts.stop_sequences
       ?thinking:anthropic_opts.thinking ~stream ()
   in
-  (* Compute beta headers *)
+  (* Merge user headers with required beta headers — the result includes all of opts.headers
+     plus a merged anthropic-beta header, so it replaces opts.headers entirely *)
   let required_betas =
     Beta_headers.required_betas ~thinking:thinking_enabled ~has_pdf:false ~tool_streaming:anthropic_opts.tool_streaming
   in

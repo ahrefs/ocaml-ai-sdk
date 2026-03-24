@@ -59,8 +59,7 @@ let base_capabilities =
 let capabilities = function
   | Claude_opus_4_6 -> { base_capabilities with max_output_tokens = 128_000 }
   | Claude_sonnet_4_6 | Claude_sonnet_4_5 | Claude_sonnet_4 -> base_capabilities
-  | Claude_haiku_4_5 -> { base_capabilities with min_cache_tokens = 4096 }
-  | Claude_opus_4_5 -> { base_capabilities with min_cache_tokens = 4096 }
+  | Claude_haiku_4_5 | Claude_opus_4_5 -> { base_capabilities with min_cache_tokens = 4096 }
   | Claude_opus_4_1 | Claude_opus_4 -> { base_capabilities with max_output_tokens = 32_000 }
   | Custom _ ->
     {

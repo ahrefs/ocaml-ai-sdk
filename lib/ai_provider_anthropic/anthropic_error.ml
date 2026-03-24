@@ -40,7 +40,7 @@ let of_response ~status ~body =
   in
   let body =
     match error_type with
-    | Some t when is_retryable t -> Printf.sprintf "[retryable] %s" message
+    | Some t when is_retryable t -> "[retryable] " ^ message
     | Some _ | None -> message
   in
   { Ai_provider.Provider_error.provider = "anthropic"; kind = Api_error { status; body } }
