@@ -1,43 +1,71 @@
+type thinking_config = {
+  type_ : string; [@key "type"]
+  budget_tokens : int;
+}
+[@@deriving to_yojson]
+
+type request_body = {
+  model : string;
+  messages : Yojson.Safe.t list;
+  system : string option; [@yojson.option]
+  tools : Yojson.Safe.t list option; [@yojson.option]
+  tool_choice : Yojson.Safe.t option; [@yojson.option]
+  max_tokens : int;
+  temperature : float option; [@yojson.option]
+  top_p : float option; [@yojson.option]
+  top_k : int option; [@yojson.option]
+  stop_sequences : string list option; [@yojson.option]
+  thinking : thinking_config option; [@yojson.option]
+  stream : bool option; [@yojson.option]
+}
+[@@deriving to_yojson]
+
 let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?temperature ?top_p ?top_k
   ?stop_sequences ?thinking ?stream () =
-  let opt key f = function
-    | Some v -> [ key, f v ]
-    | None -> []
+  let messages_json = List.map Convert_prompt.anthropic_message_to_yojson messages in
+  let tools_json =
+    match tools with
+    | Some (_ :: _ as ts) -> Some (List.map Convert_tools.anthropic_tool_to_yojson ts)
+    | Some [] | None -> None
   in
-  let fields =
-    List.concat
-      [
-        [ "model", `String model ];
-        [ "messages", `List (List.map Convert_prompt.anthropic_message_to_yojson messages) ];
-        opt "system" (fun s -> `String s) system;
-        (match tools with
-        | Some (_ :: _ as ts) -> [ "tools", `List (List.map Convert_tools.anthropic_tool_to_yojson ts) ]
-        | Some [] | None -> []);
-        opt "tool_choice" Convert_tools.anthropic_tool_choice_to_yojson tool_choice;
-        [
-          ( "max_tokens",
-            (* Fallback for direct API use; anthropic_model.ml always passes model-aware default *)
-            `Int
-              (match max_tokens with
-              | Some n -> n
-              | None -> 4096) );
-        ];
-        opt "temperature" (fun t -> `Float t) temperature;
-        opt "top_p" (fun p -> `Float p) top_p;
-        opt "top_k" (fun k -> `Int k) top_k;
-        (match stop_sequences with
-        | Some (_ :: _ as ss) -> [ "stop_sequences", `List (List.map (fun s -> `String s) ss) ]
-        | Some [] | None -> []);
-        (match thinking with
-        | Some t when t.Thinking.enabled ->
-          [ "thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int (Thinking.to_int t.budget_tokens) ] ]
-        | Some _ | None -> []);
-        (match stream with
-        | Some true -> [ "stream", `Bool true ]
-        | Some false | None -> []);
-      ]
+  let tool_choice_json = Option.map Convert_tools.anthropic_tool_choice_to_yojson tool_choice in
+  let max_tokens =
+    (* Fallback for direct API use; anthropic_model.ml always passes model-aware default *)
+    match max_tokens with
+    | Some n -> n
+    | None -> 4096
   in
-  `Assoc fields
+  let thinking_json =
+    match thinking with
+    | Some t when t.Thinking.enabled ->
+      Some { type_ = "enabled"; budget_tokens = Thinking.to_int t.budget_tokens }
+    | Some _ | None -> None
+  in
+  let stream =
+    match stream with
+    | Some true -> Some true
+    | Some false | None -> None
+  in
+  let stop_sequences =
+    match stop_sequences with
+    | Some (_ :: _ as ss) -> Some ss
+    | Some [] | None -> None
+  in
+  request_body_to_yojson
+    {
+      model;
+      messages = messages_json;
+      system;
+      tools = tools_json;
+      tool_choice = tool_choice_json;
+      max_tokens;
+      temperature;
+      top_p;
+      top_k;
+      stop_sequences;
+      thinking = thinking_json;
+      stream;
+    }
 
 let make_headers ~(config : Config.t) ~extra_headers =
   let base_headers = [ "content-type", "application/json"; "anthropic-version", "2023-06-01" ] in
