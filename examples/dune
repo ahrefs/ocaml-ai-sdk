@@ -1,5 +1,5 @@
 (executables
- (names one_shot streaming tool_use thinking)
- (libraries ai_provider ai_provider_anthropic lwt lwt.unix)
+ (names one_shot streaming tool_use thinking generate stream_chat)
+ (libraries ai_provider ai_provider_anthropic ai_core lwt lwt.unix yojson)
  (preprocess
   (pps lwt_ppx)))

@@ -22,3 +22,8 @@ let to_string { provider; kind } =
   | Network_error { message } -> Printf.sprintf "[%s] Network error: %s" provider message
   | Deserialization_error { message; raw } ->
     Printf.sprintf "[%s] Deserialization error: %s (raw: %s)" provider message raw
+
+let () =
+  Printexc.register_printer (function
+    | Provider_error e -> Some (to_string e)
+    | _ -> None)

@@ -1,0 +1,20 @@
+{
+  "name": "ocaml-ai-sdk-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js && node server.js"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^3.0.0",
+    "ai": "^6.0.0",
+    "hono": "^4.0.0",
+    "@hono/node-server": "^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
