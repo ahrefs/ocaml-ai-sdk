@@ -1,44 +1,50 @@
+type message_part = {
+  type_ : string; [@key "type"]
+  text : string option; [@default None]
+}
+[@@deriving of_yojson { strict = false }]
+
+type chat_message = {
+  role : string;
+  content : string option; [@default None]
+  parts : message_part list option; [@default None]
+}
+[@@deriving of_yojson { strict = false }]
+
+type chat_request = { messages : chat_message list } [@@deriving of_yojson { strict = false }]
+
 (* Extract text from a message — handles both v5 "content" string
    and v6 "parts" array formats from useChat *)
-let extract_text_from_message msg =
-  let open Yojson.Safe.Util in
-  (* Try v6 "parts" array first *)
-  match member "parts" msg with
-  | `List parts ->
+let extract_text (msg : chat_message) =
+  match msg.parts with
+  | Some parts ->
     parts
-    |> List.filter_map (fun part ->
-      match member "type" part |> to_string_option with
-      | Some "text" ->
-        (match member "text" part |> to_string_option with
-        | Some t -> Some t
-        | None -> None)
+    |> List.filter_map (fun (p : message_part) ->
+      match p.type_, p.text with
+      | "text", Some t -> Some t
       | _ -> None)
     |> String.concat ""
-  | _ ->
-  (* Fall back to v5 "content" string *)
-  match member "content" msg |> to_string_option with
-  | Some s -> s
-  | None -> ""
+  | None -> Option.value ~default:"" msg.content
 
 let parse_messages_from_body body_json =
-  let open Yojson.Safe.Util in
-  let messages_json = member "messages" body_json |> to_list in
-  List.filter_map
-    (fun msg ->
-      let role = member "role" msg |> to_string in
-      let text = extract_text_from_message msg in
-      match role with
-      | "system" -> Some (Ai_provider.Prompt.System { content = text })
-      | "user" ->
-        Some
-          (Ai_provider.Prompt.User
-             { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
-      | "assistant" ->
-        Some
-          (Ai_provider.Prompt.Assistant
-             { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
-      | _ -> None)
-    messages_json
+  match chat_request_of_yojson body_json with
+  | Error _ -> []
+  | Ok { messages } ->
+    List.filter_map
+      (fun (msg : chat_message) ->
+        let text = extract_text msg in
+        match msg.role with
+        | "system" -> Some (Ai_provider.Prompt.System { content = text })
+        | "user" ->
+          Some
+            (Ai_provider.Prompt.User
+               { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
+        | "assistant" ->
+          Some
+            (Ai_provider.Prompt.Assistant
+               { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
+        | _ -> None)
+      messages
 
 let cors_headers =
   [
