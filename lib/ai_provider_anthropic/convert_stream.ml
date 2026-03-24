@@ -71,8 +71,8 @@ let transform events ~warnings =
               Hashtbl.remove blocks index
             | "message_delta" ->
               let delta = member "delta" json in
-              let stop_reason = try Some (member "stop_reason" delta |> to_string) with _ -> None in
-              let usage_json = try Some (member "usage" json) with _ -> None in
+              let stop_reason = try Some (member "stop_reason" delta |> to_string) with Type_error _ -> None in
+              let usage_json = try Some (member "usage" json) with Type_error _ -> None in
               let usage =
                 match usage_json with
                 | Some u -> Convert_usage.to_usage (Convert_usage.anthropic_usage_of_yojson u)
@@ -84,8 +84,9 @@ let transform events ~warnings =
                       { finish_reason = Convert_response.map_stop_reason stop_reason; usage }))
             | "message_stop" | "ping" -> ()
             | "error" ->
-              let error_type = try member "error" json |> member "type" |> to_string with _ -> "unknown" in
-              let message = try member "error" json |> member "message" |> to_string with _ -> evt.data in
+              let error_obj = try member "error" json with Type_error _ -> json in
+              let error_type = try member "type" error_obj |> to_string with Type_error _ -> "unknown" in
+              let message = try member "message" error_obj |> to_string with Type_error _ -> evt.data in
               push
                 (Some
                    (Ai_provider.Stream_part.Error
@@ -97,7 +98,7 @@ let transform events ~warnings =
                           };
                       }))
             | _ -> ()
-          with exn ->
+          with (Yojson.Json_error _ | Yojson.Safe.Util.Type_error _) as exn ->
             push
               (Some
                  (Ai_provider.Stream_part.Error

@@ -29,11 +29,18 @@ let is_retryable = function
     false
 
 let of_response ~status ~body =
-  let message =
+  let error_type, message =
     try
       let json = Yojson.Safe.from_string body in
       let error_obj = Yojson.Safe.Util.member "error" json in
-      Yojson.Safe.Util.(member "message" error_obj |> to_string)
-    with _ -> body
+      let typ = Yojson.Safe.Util.(member "type" error_obj |> to_string) in
+      let msg = Yojson.Safe.Util.(member "message" error_obj |> to_string) in
+      Some (error_type_of_string typ), msg
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> None, body
   in
-  { Ai_provider.Provider_error.provider = "anthropic"; kind = Api_error { status; body = message } }
+  let body =
+    match error_type with
+    | Some t when is_retryable t -> "[retryable] " ^ message
+    | Some _ | None -> message
+  in
+  { Ai_provider.Provider_error.provider = "anthropic"; kind = Api_error { status; body } }
