@@ -1,0 +1,16 @@
+(melange.emit
+ (target output)
+ (alias melange_chat)
+ (libraries ai_sdk_react reason-react)
+ (preprocess
+  (pps melange.ppx reason-react-ppx))
+ (module_systems es6))
+
+; Build the JS bundle: `dune build @bundle`
+; Requires: npm install (run once in this directory)
+(rule
+ (alias bundle)
+ (deps
+  (alias melange_chat))
+ (action
+  (bash "cd \"$(git rev-parse --show-toplevel)/examples/melange_chat\" && node build.js")))

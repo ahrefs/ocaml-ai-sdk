@@ -1,0 +1,210 @@
+open Ai_sdk_react
+
+external protocol : string = "protocol" [@@mel.scope "window", "location"]
+external hostname : string = "hostname" [@@mel.scope "window", "location"]
+
+let api_url = protocol ^ "//" ^ hostname ^ ":28601/chat"
+
+let s = React.string
+
+let render_part i part =
+  let key = string_of_int i in
+  match classify part with
+  | Text p ->
+    let content = s (text_ui_part_text p) in
+    <span key> content </span>
+  | Tool_call p ->
+    let state = tool_ui_part_state p in
+    let is_result = String.equal state "output-available" in
+    let is_error = String.equal state "output-error" in
+    let name_str =
+      match tool_ui_part_tool_name p with
+      | Some n -> n
+      | None ->
+        let pt = part_type part in
+        if String.length pt > 5 then String.sub pt 5 (String.length pt - 5)
+        else pt
+    in
+    let tool_name = s name_str in
+    let state_label = s (" (" ^ state ^ ")") in
+    let input_display =
+      match tool_ui_part_input p with
+      | Some json ->
+        let json_str = s (Js.Json.stringify json) in
+        <div style=(ReactDOM.Style.make ~marginTop:"4px" ~color:"#555" ())>
+          json_str
+        </div>
+      | None -> React.null
+    in
+    let output_display =
+      if is_result then
+        match tool_ui_part_output p with
+        | Some json ->
+          let json_str = s (Js.Json.stringify json) in
+          <div style=(ReactDOM.Style.make ~marginTop:"4px" ~color:"#2e7d32" ())>
+            json_str
+          </div>
+        | None -> React.null
+      else React.null
+    in
+    let error_display =
+      if is_error then
+        match tool_ui_part_error_text p with
+        | Some err ->
+          let err_msg = s err in
+          <div style=(ReactDOM.Style.make ~marginTop:"4px" ~color:"#c62828" ())>
+            err_msg
+          </div>
+        | None -> React.null
+      else React.null
+    in
+    <div
+      key
+      style=(ReactDOM.Style.make
+        ~background:(if is_error then "#fee" else "#f5f5f5")
+        ~padding:"8px"
+        ~borderRadius:"4px"
+        ~fontSize:"13px"
+        ~marginTop:"4px"
+        ~fontFamily:"monospace"
+        ())
+    >
+      <div>
+        <strong> tool_name </strong>
+        state_label
+      </div>
+      input_display
+      output_display
+      error_display
+    </div>
+  | Step_start _ -> React.null
+  | _ -> React.null
+
+let render_message msg =
+  let role = ui_message_role msg in
+  let is_user =
+    match role with
+    | User -> true
+    | _ -> false
+  in
+  let bg = if is_user then "#e3f2fd" else "#fff" in
+  let label = s (if is_user then "You" else "Claude") in
+  let parts =
+    ui_message_parts msg
+    |> Array.to_list
+    |> List.mapi render_part
+    |> Array.of_list
+    |> React.array
+  in
+  <div
+    key=(ui_message_id msg)
+    style=(ReactDOM.Style.make
+      ~marginBottom:"12px"
+      ~padding:"8px"
+      ~borderRadius:"6px"
+      ~background:bg
+      ~border:"1px solid #eee"
+      ())
+  >
+    <strong> label </strong>
+    <div style=(ReactDOM.Style.make ~whiteSpace:"pre-wrap" ~marginTop:"4px" ())>
+      parts
+    </div>
+  </div>
+
+[@react.component]
+let make () =
+  let input, set_input = React.useState (fun () -> "") in
+  let transport =
+    Use_chat.Default_chat_transport.(make ~api:api_url () |> to_transport)
+  in
+  let chat = Use_chat.use_chat ~transport () in
+  let messages = Use_chat.messages chat in
+  let status = Use_chat.status chat in
+  let is_loading =
+    match status with
+    | Ready -> false
+    | Submitted | Streaming | Error -> true
+  in
+  let on_submit e =
+    React.Event.Form.preventDefault e;
+    let trimmed = Js.String.trim input in
+    if String.length trimmed > 0 then (
+      Use_chat.send_text chat trimmed;
+      set_input (fun _ -> ""))
+  in
+  let title = s "OCaml AI SDK Chat (Melange)" in
+  let placeholder_msg = s "Send a message to start chatting..." in
+  let empty_state =
+    if Array.length messages = 0 then
+      <p style=(ReactDOM.Style.make ~color:"#999" ())>
+        placeholder_msg
+      </p>
+    else
+      React.null
+  in
+  let message_list =
+    messages
+    |> Array.to_list
+    |> List.map render_message
+    |> Array.of_list
+    |> React.array
+  in
+  let button_label = if is_loading then s "..." else s "Send" in
+  let footer = s "Powered by OCaml AI SDK + Anthropic Claude (Melange frontend)" in
+  <div style=(ReactDOM.Style.make ~maxWidth:"640px" ~margin:"40px auto" ~fontFamily:"system-ui" ())>
+    <h2> title </h2>
+    <div
+      style=(ReactDOM.Style.make
+        ~border:"1px solid #ddd"
+        ~borderRadius:"8px"
+        ~padding:"16px"
+        ~minHeight:"300px"
+        ~maxHeight:"500px"
+        ~overflowY:"auto"
+        ~marginBottom:"16px"
+        ~background:"#fafafa"
+        ())
+    >
+      empty_state
+      message_list
+    </div>
+    <form
+      onSubmit=on_submit
+      style=(ReactDOM.Style.make ~display:"flex" ~gap:"8px" ())
+    >
+      <input
+        value=input
+        onChange=(fun e ->
+          let v : string = (React.Event.Form.target e)##value in
+          set_input (fun _ -> v))
+        placeholder="Type a message..."
+        disabled=is_loading
+        style=(ReactDOM.Style.make
+          ~flex:"1"
+          ~padding:"8px 12px"
+          ~borderRadius:"6px"
+          ~border:"1px solid #ccc"
+          ~fontSize:"14px"
+          ())
+      />
+      <button
+        type_="submit"
+        disabled=(is_loading || String.length (Js.String.trim input) = 0)
+        style=(ReactDOM.Style.make
+          ~padding:"8px 20px"
+          ~borderRadius:"6px"
+          ~border:"none"
+          ~background:(if is_loading then "#ccc" else "#1976d2")
+          ~color:"#fff"
+          ~cursor:(if is_loading then "default" else "pointer")
+          ~fontSize:"14px"
+          ())
+      >
+        button_label
+      </button>
+    </form>
+    <p style=(ReactDOM.Style.make ~marginTop:"12px" ~fontSize:"12px" ~color:"#999" ())>
+      footer
+    </p>
+  </div>

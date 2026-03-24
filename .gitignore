@@ -3,5 +3,6 @@ _opam/
 *.install
 *.merlin
 .merlin
-examples/chat_server/node_modules/
-examples/chat_server/dist/
+node_modules/
+dist/
+

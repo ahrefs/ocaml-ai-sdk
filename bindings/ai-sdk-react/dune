@@ -1,0 +1,6 @@
+(library
+ (name ai_sdk_react)
+ (modes melange)
+ (libraries melange.dom)
+ (preprocess
+  (pps melange.ppx)))
