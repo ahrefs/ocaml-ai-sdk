@@ -75,7 +75,10 @@ let transform events ~warnings =
               let usage_json = try Some (member "usage" json) with Type_error _ -> None in
               let usage =
                 match usage_json with
-                | Some u -> Convert_usage.to_usage (Convert_usage.anthropic_usage_of_yojson u)
+                | Some u ->
+                  (match Convert_usage.anthropic_usage_of_yojson u with
+                  | Ok usage -> Convert_usage.to_usage usage
+                  | Error _ -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None })
                 | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
               in
               push

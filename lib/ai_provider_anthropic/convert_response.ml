@@ -34,7 +34,12 @@ let parse_response json =
   let content = List.filter_map parse_content_block content_json in
   let stop_reason = try Some (member "stop_reason" json |> to_string) with Type_error _ -> None in
   let usage_json = member "usage" json in
-  let usage = Convert_usage.anthropic_usage_of_yojson usage_json in
+  let usage =
+    match Convert_usage.anthropic_usage_of_yojson usage_json with
+    | Ok u -> u
+    | Error _ ->
+      { Convert_usage.input_tokens = 0; output_tokens = 0; cache_read_input_tokens = None; cache_creation_input_tokens = None }
+  in
   {
     Ai_provider.Generate_result.content;
     finish_reason = map_stop_reason stop_reason;

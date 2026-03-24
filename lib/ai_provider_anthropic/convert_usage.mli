@@ -7,8 +7,8 @@ type anthropic_usage = {
   cache_creation_input_tokens : int option;
 }
 
-(** Parse Anthropic usage from JSON. Defaults to 0 for missing fields. *)
-val anthropic_usage_of_yojson : Yojson.Safe.t -> anthropic_usage
+(** Parse Anthropic usage from JSON. *)
+val anthropic_usage_of_yojson : Yojson.Safe.t -> (anthropic_usage, string) result
 
 (** Convert to SDK Usage. *)
 val to_usage : anthropic_usage -> Ai_provider.Usage.t
