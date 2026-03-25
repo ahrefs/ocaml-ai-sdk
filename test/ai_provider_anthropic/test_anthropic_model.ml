@@ -1,9 +1,20 @@
 open Melange_json.Primitives
 open Alcotest
 
-type request_body_json = {
-  system : string option; [@json.default None]
-} [@@json.allow_extra_fields] [@@deriving of_json]
+(** Check if [sub] is a substring of [s]. *)
+let string_contains ~sub s =
+  let sub_len = String.length sub in
+  let s_len = String.length s in
+  if sub_len > s_len then false
+  else
+    let found = ref false in
+    for i = 0 to s_len - sub_len do
+      if not !found && String.sub s i sub_len = sub then found := true
+    done;
+    !found
+
+type request_body_json = { system : string option [@json.default None] }
+[@@json.allow_extra_fields] [@@deriving of_json]
 
 let mock_text_response =
   Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
@@ -11,9 +22,20 @@ let mock_text_response =
       id = Some "msg_test";
       model = Some "claude-sonnet-4-6";
       content =
-        [ { type_ = "text"; text = Some "Hello from Claude!"; id = None; name = None; input = None; thinking = None; signature = None } ];
+        [
+          {
+            type_ = "text";
+            text = Some "Hello from Claude!";
+            id = None;
+            name = None;
+            input = None;
+            thinking = None;
+            signature = None;
+          };
+        ];
       stop_reason = Some "end_turn";
-      usage = { input_tokens = 10; output_tokens = 5; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+      usage =
+        { input_tokens = 10; output_tokens = 5; cache_read_input_tokens = None; cache_creation_input_tokens = None };
     }
 
 let mock_tool_response =
@@ -23,7 +45,15 @@ let mock_tool_response =
       model = Some "claude-sonnet-4-6";
       content =
         [
-          { type_ = "text"; text = Some "Let me search."; id = None; name = None; input = None; thinking = None; signature = None };
+          {
+            type_ = "text";
+            text = Some "Let me search.";
+            id = None;
+            name = None;
+            input = None;
+            thinking = None;
+            signature = None;
+          };
           {
             type_ = "tool_use";
             text = None;
@@ -35,7 +65,8 @@ let mock_tool_response =
           };
         ];
       stop_reason = Some "tool_use";
-      usage = { input_tokens = 20; output_tokens = 15; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+      usage =
+        { input_tokens = 20; output_tokens = 15; cache_read_input_tokens = None; cache_creation_input_tokens = None };
     }
 
 let make_config response =
@@ -93,6 +124,61 @@ let test_generate_with_system () =
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check bool) "fetch called" true !fetch_called
 
+let test_object_json_no_schema () =
+  let fetch ~url:_ ~headers:_ ~body =
+    let json = Yojson.Basic.from_string body in
+    let r = request_body_json_of_json json in
+    (check (option string)) "system has json instruction" (Some "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw JSON only.") r.system;
+    Lwt.return mock_text_response
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let opts = { (make_opts ()) with mode = Object_json None } in
+  let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
+  ()
+
+let test_object_json_with_schema () =
+  let schema : Ai_provider.Mode.json_schema =
+    { name = "person"; schema = `Assoc [ "type", `String "object"; "properties", `Assoc [ "name", `Assoc [ "type", `String "string" ] ] ] }
+  in
+  let fetch ~url:_ ~headers:_ ~body =
+    let json = Yojson.Basic.from_string body in
+    let r = request_body_json_of_json json in
+    let system = Option.get r.system in
+    (check bool) "contains schema name" true (string_contains ~sub:"person" system);
+    (check bool) "contains json instruction" true (string_contains ~sub:"Output raw JSON only" system);
+    Lwt.return mock_text_response
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let opts = { (make_opts ()) with mode = Object_json (Some schema) } in
+  let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
+  ()
+
+let test_object_json_with_existing_system () =
+  let fetch ~url:_ ~headers:_ ~body =
+    let json = Yojson.Basic.from_string body in
+    let r = request_body_json_of_json json in
+    let system = Option.get r.system in
+    (check bool) "starts with original" true (String.length system > 0 && String.sub system 0 10 = "Be helpful");
+    (check bool) "contains json instruction" true (string_contains ~sub:"Output raw JSON only" system);
+    Lwt.return mock_text_response
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let opts =
+    { (Ai_provider.Call_options.default
+         ~prompt:
+           [
+             Ai_provider.Prompt.System { content = "Be helpful" };
+             Ai_provider.Prompt.User
+               { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] };
+           ])
+      with mode = Object_json None }
+  in
+  let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
+  ()
+
 let test_warns_frequency_penalty () =
   let config = make_config mock_text_response in
   let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
@@ -116,6 +202,12 @@ let () =
           test_case "tool_call" `Quick test_generate_tool_call;
           test_case "with_system" `Quick test_generate_with_system;
           test_case "warns_frequency_penalty" `Quick test_warns_frequency_penalty;
+        ] );
+      ( "object_json",
+        [
+          test_case "no_schema" `Quick test_object_json_no_schema;
+          test_case "with_schema" `Quick test_object_json_with_schema;
+          test_case "with_existing_system" `Quick test_object_json_with_existing_system;
         ] );
       "accessors", [ test_case "model_accessors" `Quick test_model_accessors ];
     ]

@@ -33,6 +33,25 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let warnings = check_unsupported ~anthropic_opts opts in
   let system, remaining = Convert_prompt.extract_system opts.prompt in
   let messages = Convert_prompt.convert_messages remaining in
+  (* Handle structured output mode by injecting JSON instructions into system prompt *)
+  let system =
+    let append_instruction instruction =
+      match system with
+      | Some s -> Some (s ^ "\n\n" ^ instruction)
+      | None -> Some instruction
+    in
+    match opts.mode with
+    | Object_json (Some { name; schema }) ->
+      Printf.sprintf
+        "Respond ONLY with a JSON object matching this schema (name: %s):\n%s\n\n\
+         Do not include any other text, markdown formatting, or code blocks. Output raw JSON only." name
+        (Yojson.Basic.pretty_to_string schema)
+      |> append_instruction
+    | Object_json None ->
+      append_instruction
+        "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw JSON only."
+    | Regular | Object_tool _ -> system
+  in
   let tools, tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in
   (* Use model-aware default for max_tokens *)
   let max_tokens =
