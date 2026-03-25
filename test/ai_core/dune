@@ -1,4 +1,27 @@
 (tests
- (names test_core_types test_ui_message_chunk test_ui_message_stream test_prompt_builder test_generate_text test_stream_text test_to_ui_stream test_server_handler test_e2e test_sse_snapshots)
- (libraries ai_provider ai_provider_anthropic ai_core alcotest lwt lwt.unix yojson melange-json-native cohttp cohttp-lwt cohttp-lwt-unix)
- (preprocess (pps lwt_ppx melange-json-native.ppx)))
+ (names
+  test_core_types
+  test_ui_message_chunk
+  test_ui_message_stream
+  test_prompt_builder
+  test_generate_text
+  test_stream_text
+  test_to_ui_stream
+  test_server_handler
+  test_e2e
+  test_sse_snapshots
+  test_json_schema_validator)
+ (libraries
+  ai_provider
+  ai_provider_anthropic
+  ai_core
+  alcotest
+  lwt
+  lwt.unix
+  yojson
+  melange-json-native
+  cohttp
+  cohttp-lwt
+  cohttp-lwt-unix)
+ (preprocess
+  (pps lwt_ppx melange-json-native.ppx)))
