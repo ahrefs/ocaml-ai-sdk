@@ -133,6 +133,26 @@ let make () =
       Use_chat.send_text chat trimmed;
       set_input (fun _ -> ""))
   in
+  let error_banner =
+    match Use_chat.error chat with
+    | Some err ->
+      let msg = match Js.Exn.message err with Some m -> m | None -> "Unknown error" in
+      <div
+        style=(ReactDOM.Style.make
+          ~padding:"8px 12px"
+          ~marginBottom:"12px"
+          ~borderRadius:"6px"
+          ~background:"#fee"
+          ~border:"1px solid #fcc"
+          ~color:"#c62828"
+          ~fontSize:"13px"
+          ())
+      >
+        <strong> (s "Error: ") </strong>
+        (s msg)
+      </div>
+    | None -> React.null
+  in
   let title = s "OCaml AI SDK Chat (Melange)" in
   let placeholder_msg = s "Send a message to start chatting..." in
   let empty_state =
@@ -154,6 +174,7 @@ let make () =
   let footer = s "Powered by OCaml AI SDK + Anthropic Claude (Melange frontend)" in
   <div style=(ReactDOM.Style.make ~maxWidth:"640px" ~margin:"40px auto" ~fontFamily:"system-ui" ())>
     <h2> title </h2>
+    error_banner
     <div
       style=(ReactDOM.Style.make
         ~border:"1px solid #ddd"
