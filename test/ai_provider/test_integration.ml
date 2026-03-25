@@ -1,3 +1,5 @@
+open Alcotest
+
 (* A mock provider that implements Language_model.S to prove
    the abstraction layer works end-to-end. *)
 
@@ -58,40 +60,40 @@ let test_generate_through_abstraction () =
   let opts = make_opts () in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (match result.content with
-  | [ Ai_provider.Content.Text { text } ] -> Alcotest.(check string) "response text" "hello from mock" text
-  | _ -> Alcotest.fail "expected single text content");
-  Alcotest.(check string) "finish reason" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
-  Alcotest.(check int) "input tokens" 10 result.usage.input_tokens;
-  Alcotest.(check int) "output tokens" 5 result.usage.output_tokens
+  | [ Ai_provider.Content.Text { text } ] -> (check string) "response text" "hello from mock" text
+  | _ -> fail "expected single text content");
+  (check string) "finish reason" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
+  (check int) "input tokens" 10 result.usage.input_tokens;
+  (check int) "output tokens" 5 result.usage.output_tokens
 
 let test_stream_through_abstraction () =
   let model : Ai_provider.Language_model.t = (module Mock_model) in
   let opts = make_opts () in
   let result = Lwt_main.run (Ai_provider.Language_model.stream model opts) in
   let parts = Lwt_main.run (Lwt_stream.to_list result.stream) in
-  Alcotest.(check int) "3 parts" 3 (List.length parts);
+  (check int) "3 parts" 3 (List.length parts);
   (* Check first part is text *)
   (match List.nth parts 0 with
-  | Ai_provider.Stream_part.Text { text } -> Alcotest.(check string) "first text" "hello " text
-  | _ -> Alcotest.fail "expected Text part");
+  | Ai_provider.Stream_part.Text { text } -> (check string) "first text" "hello " text
+  | _ -> fail "expected Text part");
   (* Check last part is Finish *)
   match List.nth parts 2 with
   | Ai_provider.Stream_part.Finish { finish_reason; _ } ->
-    Alcotest.(check string) "finish" "stop" (Ai_provider.Finish_reason.to_string finish_reason)
-  | _ -> Alcotest.fail "expected Finish part"
+    (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string finish_reason)
+  | _ -> fail "expected Finish part"
 
 let test_provider_factory () =
   let provider : Ai_provider.Provider.t = (module Mock_provider) in
-  Alcotest.(check string) "provider name" "mock" (Ai_provider.Provider.name provider);
+  (check string) "provider name" "mock" (Ai_provider.Provider.name provider);
   let model = Ai_provider.Provider.language_model provider "any-model" in
-  Alcotest.(check string) "model id" "mock-v1" (Ai_provider.Language_model.model_id model);
-  Alcotest.(check string) "model provider" "mock" (Ai_provider.Language_model.provider model)
+  (check string) "model id" "mock-v1" (Ai_provider.Language_model.model_id model);
+  (check string) "model provider" "mock" (Ai_provider.Language_model.provider model)
 
 let test_model_accessors () =
   let model : Ai_provider.Language_model.t = (module Mock_model) in
-  Alcotest.(check string) "spec version" "V3" (Ai_provider.Language_model.specification_version model);
-  Alcotest.(check string) "provider" "mock" (Ai_provider.Language_model.provider model);
-  Alcotest.(check string) "model_id" "mock-v1" (Ai_provider.Language_model.model_id model)
+  (check string) "spec version" "V3" (Ai_provider.Language_model.specification_version model);
+  (check string) "provider" "mock" (Ai_provider.Language_model.provider model);
+  (check string) "model_id" "mock-v1" (Ai_provider.Language_model.model_id model)
 
 let test_middleware () =
   let call_count = ref 0 in
@@ -110,19 +112,19 @@ let test_middleware () =
   let wrapped = Ai_provider.Middleware.apply middleware model in
   let opts = make_opts () in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate wrapped opts) in
-  Alcotest.(check int) "middleware called" 1 !call_count;
+  (check int) "middleware called" 1 !call_count;
   (* Verify the wrapped model preserves identity *)
-  Alcotest.(check string) "wrapped model_id" "mock-v1" (Ai_provider.Language_model.model_id wrapped)
+  (check string) "wrapped model_id" "mock-v1" (Ai_provider.Language_model.model_id wrapped)
 
 let () =
-  Alcotest.run "Integration"
+  run "Integration"
     [
       ( "language_model",
         [
-          Alcotest.test_case "generate" `Quick test_generate_through_abstraction;
-          Alcotest.test_case "stream" `Quick test_stream_through_abstraction;
-          Alcotest.test_case "accessors" `Quick test_model_accessors;
+          test_case "generate" `Quick test_generate_through_abstraction;
+          test_case "stream" `Quick test_stream_through_abstraction;
+          test_case "accessors" `Quick test_model_accessors;
         ] );
-      "provider", [ Alcotest.test_case "factory" `Quick test_provider_factory ];
-      "middleware", [ Alcotest.test_case "apply" `Quick test_middleware ];
+      "provider", [ test_case "factory" `Quick test_provider_factory ];
+      "middleware", [ test_case "apply" `Quick test_middleware ];
     ]

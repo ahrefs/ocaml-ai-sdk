@@ -1,4 +1,5 @@
 open Melange_json.Primitives
+open Alcotest
 
 type city_args = { city : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -220,11 +221,11 @@ let test_generate_text_simple () =
     Lwt_main.run
       (Ai_core.Generate_text.generate_text ~model ~system:"You are helpful." ~prompt:"What is the capital of France?" ())
   in
-  Alcotest.(check string) "text" "The capital of France is Paris." result.text;
-  Alcotest.(check string) "finish" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
-  Alcotest.(check int) "1 step" 1 (List.length result.steps);
-  Alcotest.(check int) "input tokens" 15 result.usage.input_tokens;
-  Alcotest.(check int) "output tokens" 8 result.usage.output_tokens
+  (check string) "text" "The capital of France is Paris." result.text;
+  (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "input tokens" 15 result.usage.input_tokens;
+  (check int) "output tokens" 8 result.usage.output_tokens
 
 let test_generate_text_with_tools () =
   let config = make_tool_loop_config () in
@@ -236,27 +237,27 @@ let test_generate_text_with_tools () =
          ~max_steps:5 ())
   in
   (* 2 steps: tool call + final answer *)
-  Alcotest.(check int) "2 steps" 2 (List.length result.steps);
-  Alcotest.(check int) "1 tool call" 1 (List.length result.tool_calls);
-  Alcotest.(check int) "1 tool result" 1 (List.length result.tool_results);
+  (check int) "2 steps" 2 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "1 tool result" 1 (List.length result.tool_results);
   (* Verify tool result *)
   let tr = List.nth result.tool_results 0 in
-  Alcotest.(check bool) "not error" false tr.is_error;
-  Alcotest.(check string) "tool name" "get_weather" tr.tool_name;
+  (check bool) "not error" false tr.is_error;
+  (check string) "tool name" "get_weather" tr.tool_name;
   (* Final text should include both steps *)
-  Alcotest.(check bool) "has final answer" true (String.length result.text > 0);
+  (check bool) "has final answer" true (String.length result.text > 0);
   (* Usage aggregated across steps *)
-  Alcotest.(check int) "total input" 50 result.usage.input_tokens;
-  Alcotest.(check int) "total output" 27 result.usage.output_tokens
+  (check int) "total input" 50 result.usage.input_tokens;
+  (check int) "total output" 27 result.usage.output_tokens
 
 let test_generate_text_thinking () =
   let config = make_mock_config mock_thinking_response in
   let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
   let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"How many r's in strawberry?" ()) in
-  Alcotest.(check bool) "has reasoning" true (String.length result.reasoning > 0);
-  Alcotest.(check string) "reasoning content" "Let me count the r's..." result.reasoning;
-  Alcotest.(check bool) "has text" true (String.length result.text > 0);
-  Alcotest.(check string) "text content" "There are 3 r's in strawberry." result.text
+  (check bool) "has reasoning" true (String.length result.reasoning > 0);
+  (check string) "reasoning content" "Let me count the r's..." result.reasoning;
+  (check bool) "has text" true (String.length result.text > 0);
+  (check string) "text content" "There are 3 r's in strawberry." result.text
 
 let test_generate_text_tool_result_content () =
   let config = make_tool_loop_config () in
@@ -270,8 +271,8 @@ let test_generate_text_tool_result_content () =
   (* Verify the tool result contains expected JSON *)
   let tr = List.nth result.tool_results 0 in
   let wr = weather_result_of_json tr.result in
-  Alcotest.(check string) "tool result city" "Paris" wr.city;
-  Alcotest.(check int) "tool result temp" 22 wr.temperature
+  (check string) "tool result city" "Paris" wr.city;
+  (check int) "tool result temp" 22 wr.temperature
 
 let test_generate_text_step_callback () =
   let config = make_tool_loop_config () in
@@ -286,9 +287,9 @@ let test_generate_text_step_callback () =
          ())
   in
   let texts = List.rev !step_texts in
-  Alcotest.(check int) "2 step callbacks" 2 (List.length texts);
-  Alcotest.(check string) "step 1 text" "Let me look that up." (List.nth texts 0);
-  Alcotest.(check string) "step 2 text" "The weather in Paris is 22C and sunny." (List.nth texts 1)
+  (check int) "2 step callbacks" 2 (List.length texts);
+  (check string) "step 1 text" "Let me look that up." (List.nth texts 0);
+  (check string) "step 2 text" "The weather in Paris is 22C and sunny." (List.nth texts 1)
 
 (* === stream_text -> UIMessage stream E2E tests === *)
 
@@ -300,8 +301,8 @@ let test_stream_to_ui_message () =
   in
   (* Verify start has message_id *)
   (match List.nth ui_chunks 0 with
-  | Ai_core.Ui_message_chunk.Start { message_id = Some id; _ } -> Alcotest.(check string) "message_id" "msg_test_1" id
-  | _ -> Alcotest.fail "expected Start with message_id");
+  | Ai_core.Ui_message_chunk.Start { message_id = Some id; _ } -> (check string) "message_id" "msg_test_1" id
+  | _ -> fail "expected Start with message_id");
   (* Verify has text deltas *)
   let text_deltas =
     List.filter_map
@@ -310,9 +311,9 @@ let test_stream_to_ui_message () =
         | _ -> None)
       ui_chunks
   in
-  Alcotest.(check bool) "has text deltas" true (List.length text_deltas > 0);
+  (check bool) "has text deltas" true (List.length text_deltas > 0);
   let full_text = String.concat "" text_deltas in
-  Alcotest.(check string) "reassembled text" "The capital of France is Paris." full_text;
+  (check string) "reassembled text" "The capital of France is Paris." full_text;
   (* Verify has finish *)
   let has_finish =
     List.exists
@@ -321,7 +322,7 @@ let test_stream_to_ui_message () =
         | _ -> false)
       ui_chunks
   in
-  Alcotest.(check bool) "has finish" true has_finish
+  (check bool) "has finish" true has_finish
 
 let test_stream_sse_format () =
   let model = make_stream_model "Hello world" in
@@ -333,13 +334,13 @@ let test_stream_sse_format () =
   (* All lines start with "data: " *)
   List.iter
     (fun line ->
-      Alcotest.(check bool)
+      (check bool)
         "starts with data:" true
         (String.length line >= 6 && String.equal (String.sub line 0 6) "data: "))
     sse_lines;
   (* Last should be DONE *)
   let last = List.nth sse_lines (List.length sse_lines - 1) in
-  Alcotest.(check string) "ends with DONE" "data: [DONE]\n\n" last
+  (check string) "ends with DONE" "data: [DONE]\n\n" last
 
 let test_stream_pipeline_with_tools () =
   let model = make_tool_stream_model () in
@@ -364,15 +365,15 @@ let test_stream_pipeline_with_tools () =
         | _ -> false)
       ui_chunks
   in
-  Alcotest.(check bool) "has tool input" true has_tool_available;
-  Alcotest.(check bool) "has tool output" true has_tool_output;
+  (check bool) "has tool input" true has_tool_available;
+  (check bool) "has tool output" true has_tool_output;
   (* Verify steps *)
   let steps = Lwt_main.run result.steps in
-  Alcotest.(check int) "2 steps" 2 (List.length steps);
+  (check int) "2 steps" 2 (List.length steps);
   (* Verify usage aggregated *)
   let usage = Lwt_main.run result.usage in
-  Alcotest.(check int) "total input" 50 usage.input_tokens;
-  Alcotest.(check int) "total output" 27 usage.output_tokens
+  (check int) "total input" 50 usage.input_tokens;
+  (check int) "total output" 27 usage.output_tokens
 
 let test_stream_pipeline_with_thinking () =
   let model = make_thinking_stream_model () in
@@ -388,7 +389,7 @@ let test_stream_pipeline_with_thinking () =
         | _ -> None)
       ui_chunks
   in
-  Alcotest.(check bool) "has reasoning deltas" true (List.length reasoning_deltas > 0);
+  (check bool) "has reasoning deltas" true (List.length reasoning_deltas > 0);
   (* Verify text deltas present *)
   let text_deltas =
     List.filter_map
@@ -397,7 +398,7 @@ let test_stream_pipeline_with_thinking () =
         | _ -> None)
       ui_chunks
   in
-  Alcotest.(check bool) "has text deltas" true (List.length text_deltas > 0)
+  (check bool) "has text deltas" true (List.length text_deltas > 0)
 
 let test_stream_tool_sse_format () =
   let model = make_tool_stream_model () in
@@ -408,33 +409,33 @@ let test_stream_tool_sse_format () =
   (* All lines are SSE formatted *)
   List.iter
     (fun line ->
-      Alcotest.(check bool)
+      (check bool)
         "starts with data:" true
         (String.length line >= 6 && String.equal (String.sub line 0 6) "data: "))
     sse_lines;
   (* Should have more than just start/finish (tool events too) *)
-  Alcotest.(check bool) "has many SSE events" true (List.length sse_lines > 5);
+  (check bool) "has many SSE events" true (List.length sse_lines > 5);
   (* Last should be DONE *)
   let last = List.nth sse_lines (List.length sse_lines - 1) in
-  Alcotest.(check string) "ends with DONE" "data: [DONE]\n\n" last
+  (check string) "ends with DONE" "data: [DONE]\n\n" last
 
 let () =
-  Alcotest.run "E2E Core SDK"
+  run "E2E Core SDK"
     [
       ( "generate_text_anthropic",
         [
-          Alcotest.test_case "simple text" `Quick test_generate_text_simple;
-          Alcotest.test_case "with tools" `Quick test_generate_text_with_tools;
-          Alcotest.test_case "thinking" `Quick test_generate_text_thinking;
-          Alcotest.test_case "tool result content" `Quick test_generate_text_tool_result_content;
-          Alcotest.test_case "step callback" `Quick test_generate_text_step_callback;
+          test_case "simple text" `Quick test_generate_text_simple;
+          test_case "with tools" `Quick test_generate_text_with_tools;
+          test_case "thinking" `Quick test_generate_text_thinking;
+          test_case "tool result content" `Quick test_generate_text_tool_result_content;
+          test_case "step callback" `Quick test_generate_text_step_callback;
         ] );
       ( "stream_to_ui_message",
         [
-          Alcotest.test_case "ui message chunks" `Quick test_stream_to_ui_message;
-          Alcotest.test_case "sse format" `Quick test_stream_sse_format;
-          Alcotest.test_case "pipeline with tools" `Quick test_stream_pipeline_with_tools;
-          Alcotest.test_case "pipeline with thinking" `Quick test_stream_pipeline_with_thinking;
-          Alcotest.test_case "tool sse format" `Quick test_stream_tool_sse_format;
+          test_case "ui message chunks" `Quick test_stream_to_ui_message;
+          test_case "sse format" `Quick test_stream_sse_format;
+          test_case "pipeline with tools" `Quick test_stream_pipeline_with_tools;
+          test_case "pipeline with thinking" `Quick test_stream_pipeline_with_thinking;
+          test_case "tool sse format" `Quick test_stream_tool_sse_format;
         ] );
     ]

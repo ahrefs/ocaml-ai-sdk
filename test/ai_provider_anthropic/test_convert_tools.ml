@@ -1,4 +1,5 @@
 open Melange_json.Primitives
+open Alcotest
 
 type tool_json = {
   name : string;
@@ -11,11 +12,11 @@ let test_single_tool () =
     [ { name = "search"; description = Some "Search the web"; parameters = `Assoc [ "type", `String "object" ] } ]
   in
   let result, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools ~tool_choice:None in
-  Alcotest.(check int) "1 tool" 1 (List.length result);
+  (check int) "1 tool" 1 (List.length result);
   let tool = List.nth result 0 in
-  Alcotest.(check string) "name" "search" tool.name;
-  Alcotest.(check (option string)) "desc" (Some "Search the web") tool.description;
-  Alcotest.(check bool) "auto choice" true (Option.is_some choice)
+  (check string) "name" "search" tool.name;
+  (check (option string)) "desc" (Some "Search the web") tool.description;
+  (check bool) "auto choice" true (Option.is_some choice)
 
 let test_tool_choice_auto () =
   let _, choice =
@@ -23,7 +24,7 @@ let test_tool_choice_auto () =
   in
   match choice with
   | Some Ai_provider_anthropic.Convert_tools.Tc_auto -> ()
-  | _ -> Alcotest.fail "expected Tc_auto"
+  | _ -> fail "expected Tc_auto"
 
 let test_tool_choice_required () =
   let _, choice =
@@ -31,7 +32,7 @@ let test_tool_choice_required () =
   in
   match choice with
   | Some Ai_provider_anthropic.Convert_tools.Tc_any -> ()
-  | _ -> Alcotest.fail "expected Tc_any"
+  | _ -> fail "expected Tc_any"
 
 let test_tool_choice_none () =
   let tools, choice =
@@ -39,8 +40,8 @@ let test_tool_choice_none () =
       ~tools:[ { Ai_provider.Tool.name = "search"; description = None; parameters = `Null } ]
       ~tool_choice:(Some Ai_provider.Tool_choice.None_)
   in
-  Alcotest.(check int) "0 tools" 0 (List.length tools);
-  Alcotest.(check bool) "no choice" true (Option.is_none choice)
+  (check int) "0 tools" 0 (List.length tools);
+  (check bool) "no choice" true (Option.is_none choice)
 
 let test_tool_choice_specific () =
   let _, choice =
@@ -48,8 +49,8 @@ let test_tool_choice_specific () =
       ~tool_choice:(Some (Ai_provider.Tool_choice.Specific { tool_name = "foo" }))
   in
   match choice with
-  | Some (Ai_provider_anthropic.Convert_tools.Tc_tool { name }) -> Alcotest.(check string) "name" "foo" name
-  | _ -> Alcotest.fail "expected Tc_tool"
+  | Some (Ai_provider_anthropic.Convert_tools.Tc_tool { name }) -> (check string) "name" "foo" name
+  | _ -> fail "expected Tc_tool"
 
 let test_tool_to_json () =
   let tool : Ai_provider_anthropic.Convert_tools.anthropic_tool =
@@ -62,24 +63,24 @@ let test_tool_to_json () =
   in
   let json = Ai_provider_anthropic.Convert_tools.anthropic_tool_to_json tool in
   let r = tool_json_of_json json in
-  Alcotest.(check string) "name" "search" r.name
+  (check string) "name" "search" r.name
 
 let test_empty_tools () =
   let tools, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:None in
-  Alcotest.(check int) "0 tools" 0 (List.length tools);
-  Alcotest.(check bool) "auto" true (Option.is_some choice)
+  (check int) "0 tools" 0 (List.length tools);
+  (check bool) "auto" true (Option.is_some choice)
 
 let () =
-  Alcotest.run "Convert_tools"
+  run "Convert_tools"
     [
       ( "convert",
         [
-          Alcotest.test_case "single_tool" `Quick test_single_tool;
-          Alcotest.test_case "auto" `Quick test_tool_choice_auto;
-          Alcotest.test_case "required" `Quick test_tool_choice_required;
-          Alcotest.test_case "none" `Quick test_tool_choice_none;
-          Alcotest.test_case "specific" `Quick test_tool_choice_specific;
-          Alcotest.test_case "empty" `Quick test_empty_tools;
+          test_case "single_tool" `Quick test_single_tool;
+          test_case "auto" `Quick test_tool_choice_auto;
+          test_case "required" `Quick test_tool_choice_required;
+          test_case "none" `Quick test_tool_choice_none;
+          test_case "specific" `Quick test_tool_choice_specific;
+          test_case "empty" `Quick test_empty_tools;
         ] );
-      "json", [ Alcotest.test_case "tool_to_json" `Quick test_tool_to_json ];
+      "json", [ test_case "tool_to_json" `Quick test_tool_to_json ];
     ]

@@ -1,6 +1,7 @@
 (* make_request_body tests *)
 
 open Melange_json.Primitives
+open Alcotest
 
 type thinking_json = {
   type_ : string; [@json.key "type"]
@@ -29,22 +30,22 @@ type mock_response_fields = {
 let test_minimal_body () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
   let r = request_fields_of_json body in
-  Alcotest.(check string) "model" "claude-sonnet-4-6" r.model;
-  Alcotest.(check int) "default max_tokens" 4096 r.max_tokens
+  (check string) "model" "claude-sonnet-4-6" r.model;
+  (check int) "default max_tokens" 4096 r.max_tokens
 
 let test_body_with_stream () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~stream:true ()
   in
   let r = request_fields_of_json body in
-  Alcotest.(check (option bool)) "stream" (Some true) r.stream
+  (check (option bool)) "stream" (Some true) r.stream
 
 let test_body_with_temperature () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~temperature:0.7 ()
   in
   let r = request_fields_of_json body in
-  Alcotest.(check (option (float 0.01))) "temperature" (Some 0.7) r.temperature
+  (check (option (float 0.01))) "temperature" (Some 0.7) r.temperature
 
 let test_body_with_thinking () =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 2048 in
@@ -54,15 +55,15 @@ let test_body_with_thinking () =
   in
   let r = request_fields_of_json body in
   match r.thinking with
-  | None -> Alcotest.fail "expected thinking"
+  | None -> fail "expected thinking"
   | Some t ->
-    Alcotest.(check string) "type" "enabled" t.type_;
-    Alcotest.(check int) "budget" 2048 t.budget_tokens
+    (check string) "type" "enabled" t.type_;
+    (check int) "budget" 2048 t.budget_tokens
 
 let test_body_omits_none_fields () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
   let r = request_fields_of_json body in
-  Alcotest.(check (option (float 0.01))) "no temperature" None r.temperature
+  (check (option (float 0.01))) "no temperature" None r.temperature
 
 let test_body_with_system () =
   let body =
@@ -70,17 +71,17 @@ let test_body_with_system () =
       ()
   in
   let r = request_fields_of_json body in
-  Alcotest.(check (option string)) "system" (Some "Be helpful") r.system
+  (check (option string)) "system" (Some "Be helpful") r.system
 
 (* Beta headers tests *)
 
 let test_required_betas_thinking () =
   let betas = Ai_provider_anthropic.Beta_headers.required_betas ~thinking:true ~has_pdf:false ~tool_streaming:false in
-  Alcotest.(check int) "1 beta" 1 (List.length betas)
+  (check int) "1 beta" 1 (List.length betas)
 
 let test_required_betas_all () =
   let betas = Ai_provider_anthropic.Beta_headers.required_betas ~thinking:true ~has_pdf:true ~tool_streaming:true in
-  Alcotest.(check int) "3 betas" 3 (List.length betas)
+  (check int) "3 betas" 3 (List.length betas)
 
 let test_merge_deduplicates () =
   let headers =
@@ -92,8 +93,8 @@ let test_merge_deduplicates () =
   match beta_header with
   | Some v ->
     let parts = String.split_on_char ',' v |> List.map String.trim in
-    Alcotest.(check int) "2 unique betas" 2 (List.length parts)
-  | None -> Alcotest.fail "expected anthropic-beta header"
+    (check int) "2 unique betas" 2 (List.length parts)
+  | None -> fail "expected anthropic-beta header"
 
 (* Mock fetch test *)
 let test_messages_with_mock_fetch () =
@@ -120,26 +121,26 @@ let test_messages_with_mock_fetch () =
   match result with
   | `Json json ->
     let r = mock_response_fields_of_json json in
-    Alcotest.(check string) "id" "msg_test" r.id
-  | `Stream _ -> Alcotest.fail "expected Json"
+    (check string) "id" "msg_test" r.id
+  | `Stream _ -> fail "expected Json"
 
 let () =
-  Alcotest.run "Anthropic_api"
+  run "Anthropic_api"
     [
       ( "make_request_body",
         [
-          Alcotest.test_case "minimal" `Quick test_minimal_body;
-          Alcotest.test_case "stream" `Quick test_body_with_stream;
-          Alcotest.test_case "temperature" `Quick test_body_with_temperature;
-          Alcotest.test_case "thinking" `Quick test_body_with_thinking;
-          Alcotest.test_case "omits_none" `Quick test_body_omits_none_fields;
-          Alcotest.test_case "system" `Quick test_body_with_system;
+          test_case "minimal" `Quick test_minimal_body;
+          test_case "stream" `Quick test_body_with_stream;
+          test_case "temperature" `Quick test_body_with_temperature;
+          test_case "thinking" `Quick test_body_with_thinking;
+          test_case "omits_none" `Quick test_body_omits_none_fields;
+          test_case "system" `Quick test_body_with_system;
         ] );
       ( "beta_headers",
         [
-          Alcotest.test_case "thinking" `Quick test_required_betas_thinking;
-          Alcotest.test_case "all" `Quick test_required_betas_all;
-          Alcotest.test_case "dedup" `Quick test_merge_deduplicates;
+          test_case "thinking" `Quick test_required_betas_thinking;
+          test_case "all" `Quick test_required_betas_all;
+          test_case "dedup" `Quick test_merge_deduplicates;
         ] );
-      "messages", [ Alcotest.test_case "mock_fetch" `Quick test_messages_with_mock_fetch ];
+      "messages", [ test_case "mock_fetch" `Quick test_messages_with_mock_fetch ];
     ]

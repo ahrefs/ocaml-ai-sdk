@@ -1,23 +1,25 @@
+open Alcotest
+
 (* SSE encoding tests *)
 
 let test_chunk_to_sse_text_delta () =
   let chunk = Ai_core.Ui_message_chunk.Text_delta { id = "txt_1"; delta = "Hello" } in
   let sse = Ai_core.Ui_message_stream.chunk_to_sse chunk in
-  Alcotest.(check string) "sse format" "data: {\"type\":\"text-delta\",\"id\":\"txt_1\",\"delta\":\"Hello\"}\n\n" sse
+  (check string) "sse format" "data: {\"type\":\"text-delta\",\"id\":\"txt_1\",\"delta\":\"Hello\"}\n\n" sse
 
 let test_chunk_to_sse_start () =
   let chunk = Ai_core.Ui_message_chunk.Start { message_id = Some "msg_1"; message_metadata = None } in
   let sse = Ai_core.Ui_message_stream.chunk_to_sse chunk in
-  Alcotest.(check string) "sse start" "data: {\"type\":\"start\",\"messageId\":\"msg_1\"}\n\n" sse
+  (check string) "sse start" "data: {\"type\":\"start\",\"messageId\":\"msg_1\"}\n\n" sse
 
-let test_done_sse () = Alcotest.(check string) "done" "data: [DONE]\n\n" Ai_core.Ui_message_stream.done_sse
+let test_done_sse () = (check string) "done" "data: [DONE]\n\n" Ai_core.Ui_message_stream.done_sse
 
 let test_headers () =
   let hdrs = Ai_core.Ui_message_stream.headers in
   let content_type = List.assoc "content-type" hdrs in
-  Alcotest.(check string) "content-type" "text/event-stream" content_type;
+  (check string) "content-type" "text/event-stream" content_type;
   let proto = List.assoc "x-vercel-ai-ui-message-stream" hdrs in
-  Alcotest.(check string) "protocol version" "v1" proto
+  (check string) "protocol version" "v1" proto
 
 let test_stream_to_sse () =
   let chunks_stream, push = Lwt_stream.create () in
@@ -32,13 +34,13 @@ let test_stream_to_sse () =
   let sse_stream = Ai_core.Ui_message_stream.stream_to_sse chunks_stream in
   let lines = Lwt_main.run (Lwt_stream.to_list sse_stream) in
   (* 5 chunks + 1 DONE = 6 SSE messages *)
-  Alcotest.(check int) "6 sse messages" 6 (List.length lines);
+  (check int) "6 sse messages" 6 (List.length lines);
   (* First should be start *)
   let first = List.nth lines 0 in
-  Alcotest.(check bool) "starts with data:" true (String.length first > 6 && String.sub first 0 6 = "data: ");
+  (check bool) "starts with data:" true (String.length first > 6 && String.sub first 0 6 = "data: ");
   (* Last should be DONE *)
   let last = List.nth lines 5 in
-  Alcotest.(check string) "ends with DONE" "data: [DONE]\n\n" last
+  (check string) "ends with DONE" "data: [DONE]\n\n" last
 
 let test_stream_to_sse_empty () =
   let chunks_stream, push = Lwt_stream.create () in
@@ -46,22 +48,22 @@ let test_stream_to_sse_empty () =
   let sse_stream = Ai_core.Ui_message_stream.stream_to_sse chunks_stream in
   let lines = Lwt_main.run (Lwt_stream.to_list sse_stream) in
   (* Just the DONE message *)
-  Alcotest.(check int) "1 sse message" 1 (List.length lines);
-  Alcotest.(check string) "DONE" "data: [DONE]\n\n" (List.nth lines 0)
+  (check int) "1 sse message" 1 (List.length lines);
+  (check string) "DONE" "data: [DONE]\n\n" (List.nth lines 0)
 
 let () =
-  Alcotest.run "Ui_message_stream"
+  run "Ui_message_stream"
     [
       ( "sse_encoding",
         [
-          Alcotest.test_case "text_delta" `Quick test_chunk_to_sse_text_delta;
-          Alcotest.test_case "start" `Quick test_chunk_to_sse_start;
-          Alcotest.test_case "done" `Quick test_done_sse;
+          test_case "text_delta" `Quick test_chunk_to_sse_text_delta;
+          test_case "start" `Quick test_chunk_to_sse_start;
+          test_case "done" `Quick test_done_sse;
         ] );
-      "headers", [ Alcotest.test_case "headers" `Quick test_headers ];
+      "headers", [ test_case "headers" `Quick test_headers ];
       ( "stream",
         [
-          Alcotest.test_case "stream_to_sse" `Quick test_stream_to_sse;
-          Alcotest.test_case "empty_stream" `Quick test_stream_to_sse_empty;
+          test_case "stream_to_sse" `Quick test_stream_to_sse;
+          test_case "empty_stream" `Quick test_stream_to_sse_empty;
         ] );
     ]

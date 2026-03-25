@@ -2,6 +2,7 @@
     Provider abstraction -> Anthropic provider -> mock HTTP -> response parsing *)
 
 open Melange_json.Primitives
+open Alcotest
 
 type thinking_json = {
   type_ : string; [@json.key "type"]
@@ -83,19 +84,19 @@ let test_generate_through_abstraction () =
   (* Use the Provider abstraction to get a model *)
   let model = Ai_provider.Provider.language_model provider "claude-sonnet-4-6" in
   (* Verify model metadata through abstraction *)
-  Alcotest.(check string) "provider" "anthropic" (Ai_provider.Language_model.provider model);
-  Alcotest.(check string) "model_id" "claude-sonnet-4-6" (Ai_provider.Language_model.model_id model);
+  (check string) "provider" "anthropic" (Ai_provider.Language_model.provider model);
+  (check string) "model_id" "claude-sonnet-4-6" (Ai_provider.Language_model.model_id model);
   (* Generate through abstraction *)
   let opts = make_opts "Hello, Claude!" in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (* Verify result through abstraction types *)
   (match result.content with
-  | [ Ai_provider.Content.Text { text } ] -> Alcotest.(check string) "response" "Hello from the E2E test!" text
-  | _ -> Alcotest.fail "expected single text content");
-  Alcotest.(check string) "finish" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
-  Alcotest.(check int) "input_tokens" 15 result.usage.input_tokens;
-  Alcotest.(check int) "output_tokens" 8 result.usage.output_tokens;
-  Alcotest.(check (option int)) "total_tokens" (Some 23) result.usage.total_tokens
+  | [ Ai_provider.Content.Text { text } ] -> (check string) "response" "Hello from the E2E test!" text
+  | _ -> fail "expected single text content");
+  (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
+  (check int) "input_tokens" 15 result.usage.input_tokens;
+  (check int) "output_tokens" 8 result.usage.output_tokens;
+  (check (option int)) "total_tokens" (Some 23) result.usage.total_tokens
 
 (* Test 2: Thinking/reasoning content *)
 let test_thinking_response () =
@@ -103,15 +104,15 @@ let test_thinking_response () =
   let model = Ai_provider.Provider.language_model provider "claude-opus-4-6" in
   let opts = make_opts "What is the meaning of life?" in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
-  Alcotest.(check int) "2 content parts" 2 (List.length result.content);
+  (check int) "2 content parts" 2 (List.length result.content);
   (match List.nth result.content 0 with
   | Ai_provider.Content.Reasoning { text; signature; _ } ->
-    Alcotest.(check string) "thinking text" "Let me reason about this..." text;
-    Alcotest.(check (option string)) "signature" (Some "sig_e2e") signature
-  | _ -> Alcotest.fail "expected Reasoning first");
+    (check string) "thinking text" "Let me reason about this..." text;
+    (check (option string)) "signature" (Some "sig_e2e") signature
+  | _ -> fail "expected Reasoning first");
   match List.nth result.content 1 with
-  | Ai_provider.Content.Text { text } -> Alcotest.(check string) "answer" "The answer is 42." text
-  | _ -> Alcotest.fail "expected Text second"
+  | Ai_provider.Content.Text { text } -> (check string) "answer" "The answer is 42." text
+  | _ -> fail "expected Text second"
 
 (* Test 3: Tool call response *)
 let test_tool_call_response () =
@@ -127,16 +128,16 @@ let test_tool_call_response () =
   in
   let opts = { (make_opts "Search for OCaml AI SDK") with tools = [ tool ] } in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
-  Alcotest.(check int) "2 content" 2 (List.length result.content);
-  Alcotest.(check string) "finish" "tool_calls" (Ai_provider.Finish_reason.to_string result.finish_reason);
+  (check int) "2 content" 2 (List.length result.content);
+  (check string) "finish" "tool_calls" (Ai_provider.Finish_reason.to_string result.finish_reason);
   (* Verify tool call through abstraction *)
   match List.nth result.content 1 with
   | Ai_provider.Content.Tool_call { tool_name; tool_call_id; args; _ } ->
-    Alcotest.(check string) "tool name" "web_search" tool_name;
-    Alcotest.(check string) "tool id" "toolu_e2e_1" tool_call_id;
+    (check string) "tool name" "web_search" tool_name;
+    (check string) "tool id" "toolu_e2e_1" tool_call_id;
     (* args is a JSON string *)
-    Alcotest.(check bool) "has args" true (String.length args > 0)
-  | _ -> Alcotest.fail "expected Tool_call second"
+    (check bool) "has args" true (String.length args > 0)
+  | _ -> fail "expected Tool_call second"
 
 (* Test 4: Provider options flow through *)
 let test_provider_options_flow () =
@@ -157,10 +158,10 @@ let test_provider_options_flow () =
   (* Verify thinking was included in the request *)
   let r = request_with_thinking_of_json !request_body in
   match r.thinking with
-  | None -> Alcotest.fail "expected thinking in request"
+  | None -> fail "expected thinking in request"
   | Some t ->
-    Alcotest.(check string) "thinking type" "enabled" t.type_;
-    Alcotest.(check int) "budget" 2048 t.budget_tokens
+    (check string) "thinking type" "enabled" t.type_;
+    (check int) "budget" 2048 t.budget_tokens
 
 (* Test 5: Middleware applies to Anthropic model *)
 let test_middleware_with_anthropic () =
@@ -180,20 +181,20 @@ let test_middleware_with_anthropic () =
   let model = Ai_provider.Provider.language_model provider "claude-sonnet-4-6" in
   let wrapped = Ai_provider.Middleware.apply middleware model in
   (* Middleware preserves model identity *)
-  Alcotest.(check string) "wrapped provider" "anthropic" (Ai_provider.Language_model.provider wrapped);
+  (check string) "wrapped provider" "anthropic" (Ai_provider.Language_model.provider wrapped);
   let opts = make_opts "Hello" in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate wrapped opts) in
-  Alcotest.(check int) "middleware called" 1 !call_count
+  (check int) "middleware called" 1 !call_count
 
 let () =
-  Alcotest.run "E2E Integration"
+  run "E2E Integration"
     [
       ( "generate",
         [
-          Alcotest.test_case "text_through_abstraction" `Quick test_generate_through_abstraction;
-          Alcotest.test_case "thinking" `Quick test_thinking_response;
-          Alcotest.test_case "tool_call" `Quick test_tool_call_response;
+          test_case "text_through_abstraction" `Quick test_generate_through_abstraction;
+          test_case "thinking" `Quick test_thinking_response;
+          test_case "tool_call" `Quick test_tool_call_response;
         ] );
-      "provider_options", [ Alcotest.test_case "thinking_flow" `Quick test_provider_options_flow ];
-      "middleware", [ Alcotest.test_case "with_anthropic" `Quick test_middleware_with_anthropic ];
+      "provider_options", [ test_case "thinking_flow" `Quick test_provider_options_flow ];
+      "middleware", [ test_case "with_anthropic" `Quick test_middleware_with_anthropic ];
     ]

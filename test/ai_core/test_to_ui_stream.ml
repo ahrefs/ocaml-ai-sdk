@@ -1,3 +1,5 @@
+open Alcotest
+
 (* Helper: create a mock streaming model that emits text *)
 let make_mock_stream_model () =
   let module M : Ai_provider.Language_model.S = struct
@@ -58,7 +60,7 @@ let test_text_to_ui_chunks () =
         | _ -> false)
       ui_chunks
   in
-  Alcotest.(check bool) "has Start with msg_id" true has_start;
+  (check bool) "has Start with msg_id" true has_start;
   let text_deltas =
     List.filter_map
       (function
@@ -66,7 +68,7 @@ let test_text_to_ui_chunks () =
         | _ -> None)
       ui_chunks
   in
-  Alcotest.(check string) "combined text" "Hello world!" (String.concat "" text_deltas);
+  (check string) "combined text" "Hello world!" (String.concat "" text_deltas);
   let has_finish =
     List.exists
       (function
@@ -74,7 +76,7 @@ let test_text_to_ui_chunks () =
         | _ -> false)
       ui_chunks
   in
-  Alcotest.(check bool) "has Finish" true has_finish
+  (check bool) "has Finish" true has_finish
 
 let test_sse_output () =
   let model = make_mock_stream_model () in
@@ -85,11 +87,11 @@ let test_sse_output () =
   (* Each line should start with "data: " *)
   List.iter
     (fun line ->
-      Alcotest.(check bool) "starts with data:" true (String.length line >= 6 && String.sub line 0 6 = "data: "))
+      (check bool) "starts with data:" true (String.length line >= 6 && String.sub line 0 6 = "data: "))
     sse_lines;
   (* Last should be [DONE] *)
   let last = List.nth sse_lines (List.length sse_lines - 1) in
-  Alcotest.(check string) "ends with DONE" "data: [DONE]\n\n" last
+  (check string) "ends with DONE" "data: [DONE]\n\n" last
 
 let is_reasoning_chunk = function
   | Ai_core.Ui_message_chunk.Reasoning_start _ | Reasoning_delta _ | Reasoning_end _ -> true
@@ -103,7 +105,7 @@ let test_reasoning_filtered () =
     Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream ~send_reasoning:false result))
   in
   let reasoning_chunks = List.filter is_reasoning_chunk ui_chunks in
-  Alcotest.(check int) "no reasoning chunks when disabled" 0 (List.length reasoning_chunks);
+  (check int) "no reasoning chunks when disabled" 0 (List.length reasoning_chunks);
   (* Text should still be present *)
   let has_text =
     List.exists
@@ -112,7 +114,7 @@ let test_reasoning_filtered () =
         | _ -> false)
       ui_chunks
   in
-  Alcotest.(check bool) "text still present" true has_text
+  (check bool) "text still present" true has_text
 
 let test_reasoning_included () =
   let model = make_reasoning_stream_model () in
@@ -121,7 +123,7 @@ let test_reasoning_included () =
   let ui_chunks = Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream result)) in
   let reasoning_chunks = List.filter is_reasoning_chunk ui_chunks in
   (* Should have Reasoning_start + Reasoning_delta + Reasoning_end *)
-  Alcotest.(check bool) "reasoning chunks present when enabled" true (List.length reasoning_chunks >= 3);
+  (check bool) "reasoning chunks present when enabled" true (List.length reasoning_chunks >= 3);
   let has_start =
     List.exists (function Ai_core.Ui_message_chunk.Reasoning_start _ -> true | _ -> false) ui_chunks
   in
@@ -131,18 +133,18 @@ let test_reasoning_included () =
   let has_end =
     List.exists (function Ai_core.Ui_message_chunk.Reasoning_end _ -> true | _ -> false) ui_chunks
   in
-  Alcotest.(check bool) "has reasoning_start" true has_start;
-  Alcotest.(check bool) "has reasoning_delta" true has_delta;
-  Alcotest.(check bool) "has reasoning_end" true has_end
+  (check bool) "has reasoning_start" true has_start;
+  (check bool) "has reasoning_delta" true has_delta;
+  (check bool) "has reasoning_end" true has_end
 
 let () =
-  Alcotest.run "To_ui_stream"
+  run "To_ui_stream"
     [
       ( "transform",
         [
-          Alcotest.test_case "text_chunks" `Quick test_text_to_ui_chunks;
-          Alcotest.test_case "sse_output" `Quick test_sse_output;
-          Alcotest.test_case "reasoning_filtered" `Quick test_reasoning_filtered;
-          Alcotest.test_case "reasoning_included" `Quick test_reasoning_included;
+          test_case "text_chunks" `Quick test_text_to_ui_chunks;
+          test_case "sse_output" `Quick test_sse_output;
+          test_case "reasoning_filtered" `Quick test_reasoning_filtered;
+          test_case "reasoning_included" `Quick test_reasoning_included;
         ] );
     ]

@@ -1,4 +1,5 @@
 open Melange_json.Primitives
+open Alcotest
 
 type content_json = {
   type_ : string; [@json.key "type"]
@@ -22,8 +23,8 @@ let test_extract_system_single () =
     ]
   in
   let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  Alcotest.(check (option string)) "system" (Some "You are helpful") system;
-  Alcotest.(check int) "rest count" 1 (List.length rest)
+  (check (option string)) "system" (Some "You are helpful") system;
+  (check int) "rest count" 1 (List.length rest)
 
 let test_extract_system_multiple () =
   let msgs =
@@ -34,35 +35,35 @@ let test_extract_system_multiple () =
     ]
   in
   let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  Alcotest.(check (option string)) "system" (Some "Part 1\nPart 2") system;
-  Alcotest.(check int) "rest count" 1 (List.length rest)
+  (check (option string)) "system" (Some "Part 1\nPart 2") system;
+  (check int) "rest count" 1 (List.length rest)
 
 let test_extract_system_none () =
   let msgs = [ Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] } ] in
   let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  Alcotest.(check (option string)) "no system" None system;
-  Alcotest.(check int) "rest count" 1 (List.length rest)
+  (check (option string)) "no system" None system;
+  (check int) "rest count" 1 (List.length rest)
 
 (* convert_messages tests *)
 
 let test_convert_user_text () =
   let msgs = [ Ai_provider.Prompt.User { content = [ Text { text = "Hello"; provider_options = po } ] } ] in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
-  Alcotest.(check int) "1 message" 1 (List.length result);
+  (check int) "1 message" 1 (List.length result);
   let msg = List.nth result 0 in
-  Alcotest.(check string)
+  (check string)
     "role" "user"
     (match msg.role with
     | `User -> "user"
     | `Assistant -> "assistant");
-  Alcotest.(check int) "1 content" 1 (List.length msg.content)
+  (check int) "1 content" 1 (List.length msg.content)
 
 let test_convert_assistant_text () =
   let msgs = [ Ai_provider.Prompt.Assistant { content = [ Text { text = "Hi there"; provider_options = po } ] } ] in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
-  Alcotest.(check int) "1 message" 1 (List.length result);
+  (check int) "1 message" 1 (List.length result);
   let msg = List.nth result 0 in
-  Alcotest.(check string)
+  (check string)
     "role" "assistant"
     (match msg.role with
     | `User -> "user"
@@ -88,10 +89,10 @@ let test_convert_tool_result_as_user () =
     ]
   in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
-  Alcotest.(check int) "1 message" 1 (List.length result);
+  (check int) "1 message" 1 (List.length result);
   let msg = List.nth result 0 in
   (* Tool results become user messages *)
-  Alcotest.(check string)
+  (check string)
     "role" "user"
     (match msg.role with
     | `User -> "user"
@@ -106,9 +107,9 @@ let test_grouping_consecutive_user () =
   in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (* Should be merged into 1 message *)
-  Alcotest.(check int) "1 merged message" 1 (List.length result);
+  (check int) "1 merged message" 1 (List.length result);
   let msg = List.nth result 0 in
-  Alcotest.(check int) "2 content parts" 2 (List.length msg.content)
+  (check int) "2 content parts" 2 (List.length msg.content)
 
 let test_alternating_preserved () =
   let msgs =
@@ -119,11 +120,11 @@ let test_alternating_preserved () =
     ]
   in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
-  Alcotest.(check int) "3 messages" 3 (List.length result)
+  (check int) "3 messages" 3 (List.length result)
 
 let test_empty_messages () =
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages [] in
-  Alcotest.(check int) "0 messages" 0 (List.length result)
+  (check int) "0 messages" 0 (List.length result)
 
 (* JSON serialization tests *)
 
@@ -131,8 +132,8 @@ let test_text_to_json () =
   let content = Ai_provider_anthropic.Convert_prompt.A_text { text = "hello"; cache_control = None } in
   let json = Ai_provider_anthropic.Convert_prompt.anthropic_content_to_json content in
   let r = content_json_of_json json in
-  Alcotest.(check (option string)) "text" (Some "hello") r.text;
-  Alcotest.(check string) "type" "text" r.type_
+  (check (option string)) "text" (Some "hello") r.text;
+  (check string) "type" "text" r.type_
 
 let test_text_with_cache_control () =
   let cc = Ai_provider_anthropic.Cache_control.ephemeral in
@@ -140,30 +141,30 @@ let test_text_with_cache_control () =
   let json = Ai_provider_anthropic.Convert_prompt.anthropic_content_to_json content in
   let r = content_json_of_json json in
   match r.cache_control with
-  | None -> Alcotest.fail "expected cache_control"
-  | Some cc_r -> Alcotest.(check string) "cache type" "ephemeral" cc_r.cc_type
+  | None -> fail "expected cache_control"
+  | Some cc_r -> (check string) "cache type" "ephemeral" cc_r.cc_type
 
 let () =
-  Alcotest.run "Convert_prompt"
+  run "Convert_prompt"
     [
       ( "extract_system",
         [
-          Alcotest.test_case "single" `Quick test_extract_system_single;
-          Alcotest.test_case "multiple" `Quick test_extract_system_multiple;
-          Alcotest.test_case "none" `Quick test_extract_system_none;
+          test_case "single" `Quick test_extract_system_single;
+          test_case "multiple" `Quick test_extract_system_multiple;
+          test_case "none" `Quick test_extract_system_none;
         ] );
       ( "convert_messages",
         [
-          Alcotest.test_case "user_text" `Quick test_convert_user_text;
-          Alcotest.test_case "assistant_text" `Quick test_convert_assistant_text;
-          Alcotest.test_case "tool_result" `Quick test_convert_tool_result_as_user;
-          Alcotest.test_case "grouping" `Quick test_grouping_consecutive_user;
-          Alcotest.test_case "alternating" `Quick test_alternating_preserved;
-          Alcotest.test_case "empty" `Quick test_empty_messages;
+          test_case "user_text" `Quick test_convert_user_text;
+          test_case "assistant_text" `Quick test_convert_assistant_text;
+          test_case "tool_result" `Quick test_convert_tool_result_as_user;
+          test_case "grouping" `Quick test_grouping_consecutive_user;
+          test_case "alternating" `Quick test_alternating_preserved;
+          test_case "empty" `Quick test_empty_messages;
         ] );
       ( "json",
         [
-          Alcotest.test_case "text" `Quick test_text_to_json;
-          Alcotest.test_case "text_with_cache" `Quick test_text_with_cache_control;
+          test_case "text" `Quick test_text_to_json;
+          test_case "text_with_cache" `Quick test_text_with_cache_control;
         ] );
     ]

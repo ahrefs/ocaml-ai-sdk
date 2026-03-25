@@ -1,4 +1,5 @@
 open Melange_json.Primitives
+open Alcotest
 
 type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -98,10 +99,10 @@ let test_simple_stream () =
   (* Collect text *)
   let texts = Lwt_main.run (Lwt_stream.to_list result.text_stream) in
   let full_text = String.concat "" texts in
-  Alcotest.(check string) "text" "Hello" full_text;
+  (check string) "text" "Hello" full_text;
   (* Check usage resolves *)
   let usage = Lwt_main.run result.usage in
-  Alcotest.(check int) "input" 10 usage.input_tokens
+  (check int) "input" 10 usage.input_tokens
 
 let test_full_stream_events () =
   let model = make_text_stream_model "Hi" in
@@ -124,8 +125,8 @@ let test_full_stream_events () =
         | _ -> false)
       parts
   in
-  Alcotest.(check bool) "has Start" true has_start;
-  Alcotest.(check bool) "has Finish" true has_finish
+  (check bool) "has Start" true has_start;
+  (check bool) "has Finish" true has_finish
 
 let test_tool_stream_loop () =
   let model = make_tool_stream_model () in
@@ -150,38 +151,38 @@ let test_tool_stream_loop () =
         | _ -> false)
       parts
   in
-  Alcotest.(check bool) "has Tool_call" true has_tool_call;
-  Alcotest.(check bool) "has Tool_result" true has_tool_result;
+  (check bool) "has Tool_call" true has_tool_call;
+  (check bool) "has Tool_result" true has_tool_result;
   (* Check steps *)
   let steps = Lwt_main.run result.steps in
-  Alcotest.(check int) "2 steps" 2 (List.length steps);
+  (check int) "2 steps" 2 (List.length steps);
   (* Check aggregated usage *)
   let usage = Lwt_main.run result.usage in
-  Alcotest.(check int) "total input" 30 usage.input_tokens
+  (check int) "total input" 30 usage.input_tokens
 
 let test_on_chunk_callback () =
   let chunk_count = ref 0 in
   let model = make_text_stream_model "Hi" in
   let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~on_chunk:(fun _ -> incr chunk_count) () in
   let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
-  Alcotest.(check bool) "chunks received" true (!chunk_count > 0)
+  (check bool) "chunks received" true (!chunk_count > 0)
 
 let test_finish_reason () =
   let model = make_text_stream_model "Done" in
   let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Test" () in
   let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
   let fr = Lwt_main.run result.finish_reason in
-  Alcotest.(check string) "stop" "stop" (Ai_provider.Finish_reason.to_string fr)
+  (check string) "stop" "stop" (Ai_provider.Finish_reason.to_string fr)
 
 let () =
-  Alcotest.run "Stream_text"
+  run "Stream_text"
     [
       ( "basic",
         [
-          Alcotest.test_case "simple" `Quick test_simple_stream;
-          Alcotest.test_case "full_events" `Quick test_full_stream_events;
-          Alcotest.test_case "finish_reason" `Quick test_finish_reason;
+          test_case "simple" `Quick test_simple_stream;
+          test_case "full_events" `Quick test_full_stream_events;
+          test_case "finish_reason" `Quick test_finish_reason;
         ] );
-      "tools", [ Alcotest.test_case "tool_loop" `Quick test_tool_stream_loop ];
-      "callbacks", [ Alcotest.test_case "on_chunk" `Quick test_on_chunk_callback ];
+      "tools", [ test_case "tool_loop" `Quick test_tool_stream_loop ];
+      "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
     ]

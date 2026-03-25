@@ -1,3 +1,5 @@
+open Alcotest
+
 (** SSE wire format snapshot tests.
 
     Verify byte-exact SSE output matching the Vercel AI SDK's
@@ -49,7 +51,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "text generation SSE" expected actual
+  (check string) "text generation SSE" expected actual
 
 (* === Snapshot: Reasoning + text === *)
 
@@ -94,7 +96,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "reasoning SSE" expected actual
+  (check string) "reasoning SSE" expected actual
 
 (* === Snapshot: Tool call flow === *)
 
@@ -157,7 +159,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "tool call SSE" expected actual
+  (check string) "tool call SSE" expected actual
 
 (* === Snapshot: Error === *)
 
@@ -181,7 +183,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "error SSE" expected actual
+  (check string) "error SSE" expected actual
 
 (* === Snapshot: Tool output error === *)
 
@@ -215,7 +217,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "tool error SSE" expected actual
+  (check string) "tool error SSE" expected actual
 
 (* === Snapshot: Source URL === *)
 
@@ -254,7 +256,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "source SSE" expected actual
+  (check string) "source SSE" expected actual
 
 (* === Snapshot: Abort === *)
 
@@ -284,7 +286,7 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "abort SSE" expected actual
+  (check string) "abort SSE" expected actual
 
 (* === Snapshot: V6 extras === *)
 
@@ -348,20 +350,20 @@ data: [DONE]
 |}
   in
   let actual = sse_of_chunks chunks in
-  Alcotest.(check string) "v6 extras SSE" expected actual
+  (check string) "v6 extras SSE" expected actual
 
 let () =
-  Alcotest.run "SSE Snapshots"
+  run "SSE Snapshots"
     [
       ( "wire_format",
         [
-          Alcotest.test_case "text_generation" `Quick test_text_generation_snapshot;
-          Alcotest.test_case "reasoning" `Quick test_reasoning_snapshot;
-          Alcotest.test_case "tool_call" `Quick test_tool_call_snapshot;
-          Alcotest.test_case "error" `Quick test_error_snapshot;
-          Alcotest.test_case "tool_error" `Quick test_tool_error_snapshot;
-          Alcotest.test_case "source" `Quick test_source_snapshot;
-          Alcotest.test_case "abort" `Quick test_abort_snapshot;
-          Alcotest.test_case "v6_extras" `Quick test_v6_extras_snapshot;
+          test_case "text_generation" `Quick test_text_generation_snapshot;
+          test_case "reasoning" `Quick test_reasoning_snapshot;
+          test_case "tool_call" `Quick test_tool_call_snapshot;
+          test_case "error" `Quick test_error_snapshot;
+          test_case "tool_error" `Quick test_tool_error_snapshot;
+          test_case "source" `Quick test_source_snapshot;
+          test_case "abort" `Quick test_abort_snapshot;
+          test_case "v6_extras" `Quick test_v6_extras_snapshot;
         ] );
     ]

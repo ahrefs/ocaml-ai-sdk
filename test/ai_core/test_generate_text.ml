@@ -1,4 +1,5 @@
 open Melange_json.Primitives
+open Alcotest
 
 type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -93,15 +94,15 @@ let search_tool : Ai_core.Core_tool.t =
 let test_simple_text () =
   let model = make_text_model "Hello world!" in
   let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Say hello" ()) in
-  Alcotest.(check string) "text" "Hello world!" result.text;
-  Alcotest.(check string) "finish" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
-  Alcotest.(check int) "1 step" 1 (List.length result.steps);
-  Alcotest.(check int) "no tool calls" 0 (List.length result.tool_calls)
+  (check string) "text" "Hello world!" result.text;
+  (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "no tool calls" 0 (List.length result.tool_calls)
 
 let test_with_system () =
   let model = make_text_model "I am helpful." in
   let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~system:"Be helpful" ~prompt:"Hello" ()) in
-  Alcotest.(check string) "text" "I am helpful." result.text
+  (check string) "text" "I am helpful." result.text
 
 let test_tool_loop () =
   let model = make_tool_model () in
@@ -112,21 +113,21 @@ let test_tool_loop () =
          ~max_steps:3 ())
   in
   (* Should have 2 steps: tool call + final answer *)
-  Alcotest.(check int) "2 steps" 2 (List.length result.steps);
-  Alcotest.(check string) "final text" "Let me search.\nFound the answer!" result.text;
-  Alcotest.(check int) "1 tool call" 1 (List.length result.tool_calls);
-  Alcotest.(check int) "1 tool result" 1 (List.length result.tool_results);
+  (check int) "2 steps" 2 (List.length result.steps);
+  (check string) "final text" "Let me search.\nFound the answer!" result.text;
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "1 tool result" 1 (List.length result.tool_results);
   (* Usage should be aggregated *)
-  Alcotest.(check int) "total input" 30 result.usage.input_tokens;
-  Alcotest.(check int) "total output" 25 result.usage.output_tokens
+  (check int) "total input" 30 result.usage.input_tokens;
+  (check int) "total output" 25 result.usage.output_tokens
 
 let test_tool_not_found () =
   let model = make_tool_model () in
   let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Test" ~tools:[] ~max_steps:3 ()) in
   (* Tool not found -> error result, but continues *)
-  Alcotest.(check int) "2 steps" 2 (List.length result.steps);
+  (check int) "2 steps" 2 (List.length result.steps);
   let tr = List.nth result.tool_results 0 in
-  Alcotest.(check bool) "is_error" true tr.is_error
+  (check bool) "is_error" true tr.is_error
 
 let test_max_steps_1 () =
   let model = make_tool_model () in
@@ -135,9 +136,9 @@ let test_max_steps_1 () =
       (Ai_core.Generate_text.generate_text ~model ~prompt:"Test" ~tools:[ "search", search_tool ] ~max_steps:1 ())
   in
   (* max_steps=1 means only 1 call, tool call returned but not executed *)
-  Alcotest.(check int) "1 step" 1 (List.length result.steps);
-  Alcotest.(check int) "1 tool call" 1 (List.length result.tool_calls);
-  Alcotest.(check int) "0 tool results" 0 (List.length result.tool_results)
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
 
 let test_on_step_finish () =
   let step_count = ref 0 in
@@ -150,7 +151,7 @@ let test_on_step_finish () =
          ~on_step_finish:(fun _step -> incr step_count)
          ())
   in
-  Alcotest.(check int) "2 callbacks" 2 !step_count
+  (check int) "2 callbacks" 2 !step_count
 
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
@@ -163,22 +164,22 @@ let test_prompt_and_messages_conflict () =
              ())
          : Ai_core.Generate_text_result.t)
    with Failure _ -> raised := true);
-  Alcotest.(check bool) "raises" true !raised
+  (check bool) "raises" true !raised
 
 let () =
-  Alcotest.run "Generate_text"
+  run "Generate_text"
     [
       ( "basic",
         [
-          Alcotest.test_case "simple_text" `Quick test_simple_text;
-          Alcotest.test_case "with_system" `Quick test_with_system;
+          test_case "simple_text" `Quick test_simple_text;
+          test_case "with_system" `Quick test_with_system;
         ] );
       ( "tools",
         [
-          Alcotest.test_case "tool_loop" `Quick test_tool_loop;
-          Alcotest.test_case "tool_not_found" `Quick test_tool_not_found;
-          Alcotest.test_case "max_steps_1" `Quick test_max_steps_1;
-          Alcotest.test_case "on_step_finish" `Quick test_on_step_finish;
+          test_case "tool_loop" `Quick test_tool_loop;
+          test_case "tool_not_found" `Quick test_tool_not_found;
+          test_case "max_steps_1" `Quick test_max_steps_1;
+          test_case "on_step_finish" `Quick test_on_step_finish;
         ] );
-      "errors", [ Alcotest.test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
+      "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
     ]

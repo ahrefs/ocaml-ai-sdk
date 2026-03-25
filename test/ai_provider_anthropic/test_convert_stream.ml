@@ -1,3 +1,5 @@
+open Alcotest
+
 let make_event_stream events =
   let stream, push = Lwt_stream.create () in
   List.iter (fun evt -> push (Some evt)) events;
@@ -22,17 +24,17 @@ let test_text_streaming () =
   in
   let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
   (* Should have: Stream_start, Text "Hello", Text " world", Finish *)
-  Alcotest.(check int) "4 parts" 4 (List.length parts);
+  (check int) "4 parts" 4 (List.length parts);
   (match List.nth parts 0 with
   | Ai_provider.Stream_part.Stream_start _ -> ()
-  | _ -> Alcotest.fail "expected Stream_start");
+  | _ -> fail "expected Stream_start");
   (match List.nth parts 1 with
-  | Ai_provider.Stream_part.Text { text } -> Alcotest.(check string) "text 1" "Hello" text
-  | _ -> Alcotest.fail "expected Text");
+  | Ai_provider.Stream_part.Text { text } -> (check string) "text 1" "Hello" text
+  | _ -> fail "expected Text");
   match List.nth parts 3 with
   | Ai_provider.Stream_part.Finish { finish_reason; _ } ->
-    Alcotest.(check string) "finish" "stop" (Ai_provider.Finish_reason.to_string finish_reason)
-  | _ -> Alcotest.fail "expected Finish"
+    (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string finish_reason)
+  | _ -> fail "expected Finish"
 
 let test_tool_call_streaming () =
   let events =
@@ -52,15 +54,15 @@ let test_tool_call_streaming () =
   in
   let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
   (* Stream_start, Tool_call_delta x2, Tool_call_finish, Finish *)
-  Alcotest.(check int) "5 parts" 5 (List.length parts);
+  (check int) "5 parts" 5 (List.length parts);
   (match List.nth parts 1 with
   | Ai_provider.Stream_part.Tool_call_delta { tool_name; tool_call_id; _ } ->
-    Alcotest.(check string) "tool name" "search" tool_name;
-    Alcotest.(check string) "tool id" "tc_1" tool_call_id
-  | _ -> Alcotest.fail "expected Tool_call_delta");
+    (check string) "tool name" "search" tool_name;
+    (check string) "tool id" "tc_1" tool_call_id
+  | _ -> fail "expected Tool_call_delta");
   match List.nth parts 3 with
-  | Ai_provider.Stream_part.Tool_call_finish { tool_call_id } -> Alcotest.(check string) "finish id" "tc_1" tool_call_id
-  | _ -> Alcotest.fail "expected Tool_call_finish"
+  | Ai_provider.Stream_part.Tool_call_finish { tool_call_id } -> (check string) "finish id" "tc_1" tool_call_id
+  | _ -> fail "expected Tool_call_finish"
 
 let test_thinking_streaming () =
   let events =
@@ -80,18 +82,18 @@ let test_thinking_streaming () =
   in
   let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
   (* Stream_start, Reasoning, Text, Finish *)
-  Alcotest.(check int) "4 parts" 4 (List.length parts);
+  (check int) "4 parts" 4 (List.length parts);
   match List.nth parts 1 with
-  | Ai_provider.Stream_part.Reasoning { text } -> Alcotest.(check string) "thinking" "Let me think..." text
-  | _ -> Alcotest.fail "expected Reasoning"
+  | Ai_provider.Stream_part.Reasoning { text } -> (check string) "thinking" "Let me think..." text
+  | _ -> fail "expected Reasoning"
 
 let () =
-  Alcotest.run "Convert_stream"
+  run "Convert_stream"
     [
       ( "transform",
         [
-          Alcotest.test_case "text" `Quick test_text_streaming;
-          Alcotest.test_case "tool_call" `Quick test_tool_call_streaming;
-          Alcotest.test_case "thinking" `Quick test_thinking_streaming;
+          test_case "text" `Quick test_text_streaming;
+          test_case "tool_call" `Quick test_tool_call_streaming;
+          test_case "thinking" `Quick test_thinking_streaming;
         ] );
     ]
