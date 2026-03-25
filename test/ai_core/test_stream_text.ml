@@ -182,11 +182,7 @@ let test_stream_with_object_output () =
       [
         "type", `String "object";
         ( "properties",
-          `Assoc
-            [
-              "name", `Assoc [ "type", `String "string" ];
-              "age", `Assoc [ "type", `String "integer" ];
-            ] );
+          `Assoc [ "name", `Assoc [ "type", `String "string" ]; "age", `Assoc [ "type", `String "integer" ] ] );
         "required", `List [ `String "name"; `String "age" ];
         "additionalProperties", `Bool false;
       ]
@@ -200,9 +196,9 @@ let test_stream_with_object_output () =
   (check bool) "has partial outputs" true (List.length partials > 0);
   (* Check final output resolves to parsed JSON *)
   let final_output = Lwt_main.run result.output in
-  (check bool) "output is Some" true (Option.is_some final_output);
-  let json = Option.get final_output in
-  (check string) "output json" json_text (Yojson.Basic.to_string json)
+  match final_output with
+  | Some json -> (check string) "output json" json_text (Yojson.Basic.to_string json)
+  | None -> fail "expected Some output"
 
 let test_stream_without_output () =
   let model = make_text_stream_model "Hello world" in

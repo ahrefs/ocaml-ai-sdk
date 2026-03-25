@@ -48,14 +48,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
   ?on_step_finish () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
-  let mode =
-    match output with
-    | Some o ->
-      (match o.Output.response_format with
-      | Some schema -> Ai_provider.Mode.Object_json (Some schema)
-      | None -> Ai_provider.Mode.Regular)
-    | None -> Ai_provider.Mode.Regular
-  in
+  let mode = Output.mode_of_output output in
   let tools =
     match tools with
     | Some t -> t
@@ -148,18 +141,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         in
         Option.iter (fun f -> f step) on_step_finish;
         let all_steps = List.rev (step :: steps) in
-        let parsed_output =
-          match output with
-          | Some o ->
-            (match o.response_format with
-            | Some _ ->
-              let final_text = Generate_text_result.join_text all_steps in
-              (match o.parse_complete final_text with
-              | Ok json -> Some json
-              | Error _ -> None)
-            | None -> None)
-          | None -> None
-        in
+        let parsed_output = Output.parse_output output all_steps in
         Lwt.return
           {
             Generate_text_result.text = Generate_text_result.join_text all_steps;

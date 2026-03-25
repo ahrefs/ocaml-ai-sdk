@@ -6,12 +6,12 @@ let string_contains ~sub s =
   let sub_len = String.length sub in
   let s_len = String.length s in
   if sub_len > s_len then false
-  else
+  else (
     let found = ref false in
     for i = 0 to s_len - sub_len do
-      if not !found && String.sub s i sub_len = sub then found := true
+      if (not !found) && String.sub s i sub_len = sub then found := true
     done;
-    !found
+    !found)
 
 type request_body_json = { system : string option [@json.default None] }
 [@@json.allow_extra_fields] [@@deriving of_json]
@@ -128,7 +128,12 @@ let test_object_json_no_schema () =
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    (check (option string)) "system has json instruction" (Some "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw JSON only.") r.system;
+    (check (option string))
+      "system has json instruction"
+      (Some
+         "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw \
+          JSON only.")
+      r.system;
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
@@ -139,12 +144,19 @@ let test_object_json_no_schema () =
 
 let test_object_json_with_schema () =
   let schema : Ai_provider.Mode.json_schema =
-    { name = "person"; schema = `Assoc [ "type", `String "object"; "properties", `Assoc [ "name", `Assoc [ "type", `String "string" ] ] ] }
+    {
+      name = "person";
+      schema = `Assoc [ "type", `String "object"; "properties", `Assoc [ "name", `Assoc [ "type", `String "string" ] ] ];
+    }
   in
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    let system = Option.get r.system in
+    let system =
+      match r.system with
+      | Some s -> s
+      | None -> fail "expected system prompt"
+    in
     (check bool) "contains schema name" true (string_contains ~sub:"person" system);
     (check bool) "contains json instruction" true (string_contains ~sub:"Output raw JSON only" system);
     Lwt.return mock_text_response
@@ -159,7 +171,11 @@ let test_object_json_with_existing_system () =
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    let system = Option.get r.system in
+    let system =
+      match r.system with
+      | Some s -> s
+      | None -> fail "expected system prompt"
+    in
     (check bool) "starts with original" true (String.length system > 0 && String.sub system 0 10 = "Be helpful");
     (check bool) "contains json instruction" true (string_contains ~sub:"Output raw JSON only" system);
     Lwt.return mock_text_response
@@ -167,14 +183,17 @@ let test_object_json_with_existing_system () =
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
   let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
   let opts =
-    { (Ai_provider.Call_options.default
+    {
+      (Ai_provider.Call_options.default
          ~prompt:
            [
              Ai_provider.Prompt.System { content = "Be helpful" };
              Ai_provider.Prompt.User
                { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] };
            ])
-      with mode = Object_json None }
+      with
+      mode = Object_json None;
+    }
   in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   ()

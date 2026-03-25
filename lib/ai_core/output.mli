@@ -19,6 +19,14 @@ type ('complete, 'partial) t = {
           Returns [None] if text is empty or unparseable. No schema validation. *)
 }
 
+(** Derive the provider [Mode.t] from an optional output spec.
+    [Some o] with a schema maps to [Object_json]; otherwise [Regular]. *)
+val mode_of_output : (_, _) t option -> Ai_provider.Mode.t
+
+(** Parse the final output from completed steps. Returns [None] if no
+    output spec, text mode, or parse failure. *)
+val parse_output : (Yojson.Basic.t, _) t option -> Generate_text_result.step list -> Yojson.Basic.t option
+
 (** Default text output — no structured format, returns raw text. *)
 val text : (string, string) t
 

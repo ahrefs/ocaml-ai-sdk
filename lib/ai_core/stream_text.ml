@@ -117,14 +117,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
   ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
-  let mode =
-    match output with
-    | Some o ->
-      (match o.Output.response_format with
-      | Some schema -> Ai_provider.Mode.Object_json (Some schema)
-      | None -> Ai_provider.Mode.Regular)
-    | None -> Ai_provider.Mode.Regular
-  in
+  let mode = Output.mode_of_output output in
   let tools =
     match tools with
     | Some t -> t
@@ -145,8 +138,8 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
   let on_text_accumulated =
     match output with
     | Some o when Option.is_some o.Output.response_format ->
-      (fun accumulated ->
-        match o.Output.parse_partial accumulated with
+      fun accumulated ->
+        (match o.Output.parse_partial accumulated with
         | Some json ->
           let json_str = Yojson.Basic.to_string json in
           (match String.equal json_str !last_partial_json with
@@ -299,18 +292,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
           push_full None;
           let all_steps = List.rev (step :: steps) in
-          let parsed_output =
-            match output with
-            | Some o ->
-              (match o.Output.response_format with
-              | Some _ ->
-                let final_text = Generate_text_result.join_text all_steps in
-                (match o.Output.parse_complete final_text with
-                | Ok json -> Some json
-                | Error _ -> None)
-              | None -> None)
-            | None -> None
-          in
+          let parsed_output = Output.parse_output output all_steps in
           partial_output_push None;
           Lwt.wakeup_later usage_resolver new_total;
           Lwt.wakeup_later finish_resolver fr;

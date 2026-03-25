@@ -89,7 +89,7 @@ let validate_required path schema value =
     let missing =
       List.filter_map
         (function
-          | `String name -> if List.mem_assoc name fields then None else Some name
+          | `String name -> if List.exists (fun (k, _) -> String.equal k name) fields then None else Some name
           | _ -> None)
         required_fields
     in
@@ -106,7 +106,9 @@ let validate_additional_properties path schema value =
       | Some (`Assoc props) -> List.map fst props
       | _ -> []
     in
-    let extra = List.filter_map (fun (key, _) -> if List.mem key allowed then None else Some key) fields in
+    let extra =
+      List.filter_map (fun (key, _) -> if List.exists (String.equal key) allowed then None else Some key) fields
+    in
     (match extra with
     | [] -> Ok ()
     | e -> err path (Printf.sprintf "additional properties not allowed: %s" (String.concat ", " e)))
