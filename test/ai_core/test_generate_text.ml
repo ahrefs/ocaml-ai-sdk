@@ -153,6 +153,70 @@ let test_on_step_finish () =
   in
   (check int) "2 callbacks" 2 !step_count
 
+let make_json_model json_str =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-json"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content = [ Text { text = json_str } ];
+          finish_reason = Stop;
+          usage = { input_tokens = 10; output_tokens = 20; total_tokens = Some 30 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r1"; model = Some "mock-json"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_generate_with_object_output () =
+  let schema =
+    Yojson.Basic.from_string {|{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}|}
+  in
+  let output = Ai_core.Output.object_ ~name:"test" ~schema () in
+  let model = make_json_model {|{"name":"Alice"}|} in
+  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"test" ~output ()) in
+  match result.output with
+  | Some (`Assoc [ ("name", `String "Alice") ]) -> ()
+  | Some json -> fail (Printf.sprintf "unexpected: %s" (Yojson.Basic.to_string json))
+  | None -> fail "expected output"
+
+let test_generate_with_enum_output () =
+  let output = Ai_core.Output.enum ~name:"sentiment" [ "positive"; "negative"; "neutral" ] in
+  let model = make_json_model {|{"result":"positive"}|} in
+  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"test" ~output ()) in
+  match result.output with
+  | Some (`String "positive") -> ()
+  | Some json -> fail (Printf.sprintf "unexpected: %s" (Yojson.Basic.to_string json))
+  | None -> fail "expected output"
+
+let test_generate_with_invalid_output () =
+  let schema =
+    Yojson.Basic.from_string {|{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}|}
+  in
+  let output = Ai_core.Output.object_ ~name:"test" ~schema () in
+  let model = make_json_model "not valid json" in
+  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"test" ~output ()) in
+  match result.output with
+  | None -> ()
+  | Some _ -> fail "expected None for invalid"
+
+let test_generate_without_output () =
+  let model = make_text_model "Hello!" in
+  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"test" ()) in
+  match result.output with
+  | None -> ()
+  | Some _ -> fail "expected None when no output spec"
+
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
   let raised = ref false in
@@ -169,11 +233,7 @@ let test_prompt_and_messages_conflict () =
 let () =
   run "Generate_text"
     [
-      ( "basic",
-        [
-          test_case "simple_text" `Quick test_simple_text;
-          test_case "with_system" `Quick test_with_system;
-        ] );
+      "basic", [ test_case "simple_text" `Quick test_simple_text; test_case "with_system" `Quick test_with_system ];
       ( "tools",
         [
           test_case "tool_loop" `Quick test_tool_loop;
@@ -182,4 +242,11 @@ let () =
           test_case "on_step_finish" `Quick test_on_step_finish;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
+      ( "output",
+        [
+          test_case "object_output" `Quick test_generate_with_object_output;
+          test_case "enum_output" `Quick test_generate_with_enum_output;
+          test_case "invalid_output" `Quick test_generate_with_invalid_output;
+          test_case "no_output" `Quick test_generate_without_output;
+        ] );
     ]

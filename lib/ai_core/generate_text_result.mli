@@ -32,6 +32,7 @@ type t = {
   usage : Ai_provider.Usage.t;
   response : Ai_provider.Generate_result.response_info;
   warnings : Ai_provider.Warning.t list;
+  output : Yojson.Basic.t option;
 }
 
 (** Concatenate text from all steps, separated by newlines. *)

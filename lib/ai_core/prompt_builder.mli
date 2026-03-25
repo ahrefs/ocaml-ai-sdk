@@ -32,6 +32,7 @@ val make_call_options :
   messages:Ai_provider.Prompt.message list ->
   tools:Ai_provider.Tool.t list ->
   ?tool_choice:Ai_provider.Tool_choice.t ->
+  ?mode:Ai_provider.Mode.t ->
   ?max_output_tokens:int ->
   ?temperature:float ->
   ?top_p:float ->

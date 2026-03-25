@@ -72,11 +72,11 @@ let resolve_messages ?system ?prompt ?messages () =
   | Some s -> Ai_provider.Prompt.System { content = s } :: base
   | None -> base
 
-let make_call_options ~messages ~tools ?tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed
-  ?provider_options ?headers () =
+let make_call_options ~messages ~tools ?tool_choice ?(mode = Ai_provider.Mode.Regular) ?max_output_tokens ?temperature
+  ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers () =
   {
     Ai_provider.Call_options.prompt = messages;
-    mode = Regular;
+    mode;
     tools;
     tool_choice;
     max_output_tokens;

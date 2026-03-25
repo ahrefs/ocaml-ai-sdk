@@ -71,6 +71,7 @@ let test_result_construction () =
       usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
       response = { id = Some "r1"; model = Some "test"; headers = []; body = `Null };
       warnings = [];
+      output = None;
     }
   in
   (check string) "text" "Hello world" result.text
@@ -104,10 +105,7 @@ let () =
   run "Core_types"
     [
       ( "core_tool",
-        [
-          test_case "construction" `Quick test_tool_construction;
-          test_case "execute" `Quick test_tool_execute;
-        ] );
+        [ test_case "construction" `Quick test_tool_construction; test_case "execute" `Quick test_tool_execute ] );
       ( "generate_text_result",
         [
           test_case "add_usage" `Quick test_add_usage;
@@ -116,8 +114,5 @@ let () =
           test_case "result" `Quick test_result_construction;
         ] );
       ( "text_stream_part",
-        [
-          test_case "basic_parts" `Quick test_stream_parts;
-          test_case "tool_parts" `Quick test_tool_stream_parts;
-        ] );
+        [ test_case "basic_parts" `Quick test_stream_parts; test_case "tool_parts" `Quick test_tool_stream_parts ] );
     ]

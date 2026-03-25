@@ -288,6 +288,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                 usage = new_total;
                 response = { id = None; model = None; headers = []; body = `Null };
                 warnings = [];
+                output = None;
               }
           | None -> ());
           Lwt.return_unit

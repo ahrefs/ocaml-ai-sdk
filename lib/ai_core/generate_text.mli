@@ -10,6 +10,7 @@ val generate_text :
   ?messages:Ai_provider.Prompt.message list ->
   ?tools:(string * Core_tool.t) list ->
   ?tool_choice:Ai_provider.Tool_choice.t ->
+  ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?max_steps:int ->
   ?max_output_tokens:int ->
   ?temperature:float ->
