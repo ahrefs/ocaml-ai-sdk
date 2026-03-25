@@ -1,46 +1,119 @@
-(** Chat server example using the Core SDK.
+(** Multi-tool chat agent using the Core SDK.
 
-    Serves a chat endpoint compatible with useChat() from @ai-sdk/react.
+    Demonstrates:
+    - Multiple tools with JSON Schema derived from OCaml types (ppx_deriving_jsonschema)
+    - Multi-step tool execution (agent loop with max_steps:5)
+    - UIMessage stream protocol v1 for useChat() interop
+
     Set ANTHROPIC_API_KEY environment variable before running.
 
     Usage:
       dune exec examples/chat_server/main.exe
 
     Test with curl:
-      curl -X POST http://localhost:8080/chat \
+      curl -N -X POST http://localhost:28601/chat \
         -H "Content-Type: application/json" \
-        -d '{"messages":[{"role":"user","content":"Hello!"}]}' *)
+        -d '{"messages":[{"role":"user","content":"What is the weather in Paris?"}]}' *)
 
 open Melange_json.Primitives
 
 let model = Ai_provider_anthropic.model "claude-sonnet-4-6"
 
-type city_args = { city : string } [@@json.allow_extra_fields] [@@deriving of_json]
+(** Convert a ppx_deriving_jsonschema schema (Yojson.Safe.t) to Yojson.Basic.t
+    for use as Core_tool.parameters. *)
+let json_of_schema schema = Yojson.Safe.to_basic (Ppx_deriving_jsonschema_runtime.json_schema schema)
+
+(* --- Tool: get_weather --- *)
+
+type city_args = { city : string } [@@deriving jsonschema, of_json]
 
 type weather_result = {
   city : string;
   temperature : int;
   condition : string;
-  unit : string;
+  unit_ : string; [@json.key "unit"]
 }
 [@@deriving to_json]
 
-let weather_tool : Ai_core.Core_tool.t =
+let get_weather : Ai_core.Core_tool.t =
   {
-    description = Some "Get the current weather for a city";
-    parameters =
-      `Assoc
-        [
-          "type", `String "object";
-          "properties", `Assoc [ "city", `Assoc [ "type", `String "string"; "description", `String "The city name" ] ];
-          "required", `List [ `String "city" ];
-        ];
+    description = Some "Get the current weather for a city. Returns temperature and conditions.";
+    parameters = json_of_schema city_args_jsonschema;
     execute =
       (fun args ->
         let city = try (city_args_of_json args).city with _ -> "unknown" in
-        Lwt.return
-          (weather_result_to_json { city; temperature = 22; condition = "sunny"; unit = "celsius" }));
+        let temperature, condition =
+          match String.lowercase_ascii city with
+          | "paris" -> 18, "partly cloudy"
+          | "london" -> 12, "rainy"
+          | "tokyo" -> 26, "sunny"
+          | "new york" -> 15, "windy"
+          | _ -> 20, "clear"
+        in
+        Lwt.return (weather_result_to_json { city; temperature; condition; unit_ = "celsius" }));
   }
+
+(* --- Tool: search_web --- *)
+
+type search_args = {
+  query : string;
+  num_results : int option;
+}
+[@@deriving jsonschema, of_json]
+
+type search_result_item = {
+  title : string;
+  url : string;
+  snippet : string;
+}
+[@@deriving to_json]
+
+type search_results = { results : search_result_item list } [@@deriving to_json]
+
+let search_web : Ai_core.Core_tool.t =
+  {
+    description = Some "Search the web for information. Returns a list of relevant results.";
+    parameters = json_of_schema search_args_jsonschema;
+    execute =
+      (fun args ->
+        let { query; num_results } =
+          try search_args_of_json args with _ -> { query = "unknown"; num_results = None }
+        in
+        let n =
+          match num_results with
+          | Some n -> n
+          | None -> 3
+        in
+        let results =
+          List.init (min n 3) (fun i ->
+            {
+              title = Printf.sprintf "Result %d for: %s" (i + 1) query;
+              url = Printf.sprintf "https://example.com/search?q=%s&p=%d" (String.lowercase_ascii query) (i + 1);
+              snippet =
+                Printf.sprintf
+                  "This is a simulated search result about '%s'. In a real implementation, this would query a search \
+                   API."
+                  query;
+            })
+        in
+        Lwt.return (search_results_to_json { results }));
+  }
+
+(* --- Tools list --- *)
+
+let tools = [ "get_weather", get_weather; "search_web", search_web ]
+
+(* --- System prompt --- *)
+
+let system_prompt =
+  {|You are a helpful assistant with access to tools. Use them when needed to answer questions accurately.
+
+When asked about weather, use the get_weather tool.
+When asked about facts or topics you're not sure about, use the search_web tool.
+You can use multiple tools in sequence to build a complete answer.
+Be concise in your responses.|}
+
+(* --- HTTP handler --- *)
 
 let handler conn req body =
   let uri = Cohttp.Request.uri req in
@@ -58,9 +131,8 @@ let handler conn req body =
   | _, "/chat" ->
     Lwt.catch
       (fun () ->
-        Ai_core.Server_handler.handle_chat ~model ~system:"You are a helpful assistant. Be concise."
-          ~tools:[ "get_weather", weather_tool ]
-          ~max_steps:3 ~send_reasoning:true conn req body)
+        Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~send_reasoning:true conn
+          req body)
       (fun exn ->
         let msg = Printexc.to_string exn in
         Printf.eprintf "[ERROR] /chat: %s\n%!" msg;
@@ -76,7 +148,7 @@ let handler conn req body =
 
 let () =
   let port = 28601 in
-  Printf.printf "Starting chat server on http://localhost:%d/chat\n%!" port;
+  Printf.printf "Chat agent on http://localhost:%d/chat (max_steps: 5, tools: %d)\n%!" port (List.length tools);
   let server =
     Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
   in

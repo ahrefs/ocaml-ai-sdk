@@ -9,16 +9,16 @@ type thinking_config = {
 type request_body = {
   model : string;
   messages : Melange_json.t list;
-  system : string option; [@json.option]
-  tools : Melange_json.t list option; [@json.option]
-  tool_choice : Melange_json.t option; [@json.option]
+  system : string option; [@json.option] [@json.drop_default]
+  tools : Melange_json.t list option; [@json.option] [@json.drop_default]
+  tool_choice : Melange_json.t option; [@json.option] [@json.drop_default]
   max_tokens : int;
-  temperature : float option; [@json.option]
-  top_p : float option; [@json.option]
-  top_k : int option; [@json.option]
-  stop_sequences : string list option; [@json.option]
-  thinking : thinking_config option; [@json.option]
-  stream : bool option; [@json.option]
+  temperature : float option; [@json.option] [@json.drop_default]
+  top_p : float option; [@json.option] [@json.drop_default]
+  top_k : int option; [@json.option] [@json.drop_default]
+  stop_sequences : string list option; [@json.option] [@json.drop_default]
+  thinking : thinking_config option; [@json.option] [@json.drop_default]
+  stream : bool option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 

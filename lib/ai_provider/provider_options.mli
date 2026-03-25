@@ -1,5 +1,11 @@
 (** Provider-specific options using an extensible GADT.
-    Each provider registers its own typed key without circular dependencies. *)
+    Each provider registers its own typed key without circular dependencies.
+
+    Implementation uses {!Obj.Extension_constructor.id} for key identity
+    and {!Obj.magic} for type recovery — type-safe by construction since
+    matching extension constructor IDs guarantee identical type parameters.
+    This is the standard pattern used by {!Printexc} and other stdlib modules.
+    OCaml 5.1+ [Type.eq] would replace this with a first-class witness. *)
 
 (** Extensible GADT — each provider adds a constructor via [+=]. *)
 type _ key = ..

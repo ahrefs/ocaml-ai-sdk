@@ -81,21 +81,21 @@ type type_only_json = { type_ : string [@json.key "type"] } [@@deriving to_json]
 
 type start_json = {
   type_ : string; [@json.key "type"]
-  message_id : string option; [@json.key "messageId"] [@json.default None]
-  message_metadata : Melange_json.t option; [@json.key "messageMetadata"] [@json.default None]
+  message_id : string option; [@json.key "messageId"] [@json.option] [@json.drop_default]
+  message_metadata : Melange_json.t option; [@json.key "messageMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
 type finish_json = {
   type_ : string; [@json.key "type"]
-  finish_reason : string option; [@json.key "finishReason"] [@json.default None]
-  message_metadata : Melange_json.t option; [@json.key "messageMetadata"] [@json.default None]
+  finish_reason : string option; [@json.key "finishReason"] [@json.option] [@json.drop_default]
+  message_metadata : Melange_json.t option; [@json.key "messageMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
 type abort_json = {
   type_ : string; [@json.key "type"]
-  reason : string option; [@json.default None]
+  reason : string option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -152,7 +152,7 @@ type source_url_json = {
   type_ : string; [@json.key "type"]
   source_id : string; [@json.key "sourceId"]
   url : string;
-  title : string option; [@json.default None]
+  title : string option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -189,7 +189,7 @@ type source_document_json = {
   source_id : string; [@json.key "sourceId"]
   media_type : string; [@json.key "mediaType"]
   title : string;
-  filename : string option; [@json.default None]
+  filename : string option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -201,28 +201,22 @@ type error_json = {
 
 type data_json = {
   type_ : string; [@json.key "type"]
-  id : string option; [@json.default None]
+  id : string option; [@json.option] [@json.drop_default]
   data : Melange_json.t;
 }
 [@@deriving to_json]
 
-(* melange-json-native serializes None as null; strip those for wire compat *)
-let strip_nulls = function
-  | `Assoc fields -> `Assoc (List.filter (fun (_, v) -> v <> `Null) fields)
-  | json -> json
-
 let to_json = function
   | Start { message_id; message_metadata } ->
-    strip_nulls (start_json_to_json { type_ = "start"; message_id; message_metadata })
+    start_json_to_json { type_ = "start"; message_id; message_metadata }
   | Finish { finish_reason; message_metadata } ->
-    strip_nulls
-      (finish_json_to_json
-         {
-           type_ = "finish";
-           finish_reason = Option.map Ai_provider.Finish_reason.to_string finish_reason;
-           message_metadata;
-         })
-  | Abort { reason } -> strip_nulls (abort_json_to_json { type_ = "abort"; reason })
+    finish_json_to_json
+      {
+        type_ = "finish";
+        finish_reason = Option.map Ai_provider.Finish_reason.to_string finish_reason;
+        message_metadata;
+      }
+  | Abort { reason } -> abort_json_to_json { type_ = "abort"; reason }
   | Start_step -> type_only_json_to_json { type_ = "start-step" }
   | Finish_step -> type_only_json_to_json { type_ = "finish-step" }
   | Text_start { id } -> id_json_to_json { type_ = "text-start"; id }
@@ -242,7 +236,7 @@ let to_json = function
   | Tool_output_error { tool_call_id; error_text } ->
     tool_output_error_json_to_json { type_ = "tool-output-error"; tool_call_id; error_text }
   | Source_url { source_id; url; title } ->
-    strip_nulls (source_url_json_to_json { type_ = "source-url"; source_id; url; title })
+    source_url_json_to_json { type_ = "source-url"; source_id; url; title }
   | File { url; media_type } -> file_json_to_json { type_ = "file"; url; media_type }
   | Message_metadata { message_metadata } ->
     message_metadata_json_to_json { type_ = "message-metadata"; message_metadata }
@@ -251,7 +245,7 @@ let to_json = function
   | Tool_output_denied { tool_call_id } ->
     tool_output_denied_json_to_json { type_ = "tool-output-denied"; tool_call_id }
   | Source_document { source_id; media_type; title; filename } ->
-    strip_nulls (source_document_json_to_json { type_ = "source-document"; source_id; media_type; title; filename })
+    source_document_json_to_json { type_ = "source-document"; source_id; media_type; title; filename }
   | Error { error_text } -> error_json_to_json { type_ = "error"; error_text }
   | Data { data_type; id; data } ->
-    strip_nulls (data_json_to_json { type_ = Printf.sprintf "data-%s" data_type; id; data })
+    data_json_to_json { type_ = Printf.sprintf "data-%s" data_type; id; data }

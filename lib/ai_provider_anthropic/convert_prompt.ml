@@ -188,14 +188,14 @@ let image_source_to_json = function
 type text_content_json = {
   type_ : string; [@json.key "type"]
   text : string;
-  cache_control : cc option; [@json.option]
+  cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
 type source_content_json = {
   type_ : string; [@json.key "type"]
   source : Melange_json.t;
-  cache_control : cc option; [@json.option]
+  cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 

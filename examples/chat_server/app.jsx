@@ -10,7 +10,7 @@ const apiUrl =
 
 export default function Chat() {
   const [input, setInput] = useState("");
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({ api: apiUrl }),
   });
 
@@ -19,6 +19,21 @@ export default function Chat() {
   return (
     <div style={{ maxWidth: 640, margin: "40px auto", fontFamily: "system-ui" }}>
       <h2>OCaml AI SDK Chat</h2>
+      {error && (
+        <div
+          style={{
+            padding: "8px 12px",
+            marginBottom: 12,
+            borderRadius: 6,
+            background: "#fee",
+            border: "1px solid #fcc",
+            color: "#c62828",
+            fontSize: 13,
+          }}
+        >
+          <strong>Error:</strong> {error.message || String(error)}
+        </div>
+      )}
       <div
         style={{
           border: "1px solid #ddd",

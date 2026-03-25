@@ -1,3 +1,15 @@
+(** Type-safe heterogeneous key-value store using extensible GADTs.
+
+    Uses {!Obj.Extension_constructor.id} to identify keys at runtime and
+    {!Obj.magic} for type recovery. This is type-safe by construction:
+    two extensible variant constructors share the same [Extension_constructor.id]
+    if and only if they are the same constructor, which guarantees they carry
+    the same type parameter. This is the standard OCaml pattern for extensible
+    GADTs, used by {!Printexc} and other stdlib modules.
+
+    Future: OCaml 5.1+ [Type.eq] would provide a first-class type equality
+    witness, eliminating the need for [Obj.magic]. *)
+
 type _ key = ..
 
 type entry = Entry : 'a key * 'a -> entry

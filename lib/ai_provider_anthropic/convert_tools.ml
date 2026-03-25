@@ -8,9 +8,9 @@ let cc_to_json (cc : cc) =
 
 type anthropic_tool = {
   name : string;
-  description : string option; [@json.option]
+  description : string option; [@json.option] [@json.drop_default]
   input_schema : Melange_json.t;
-  cache_control : cc option; [@json.option]
+  cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
