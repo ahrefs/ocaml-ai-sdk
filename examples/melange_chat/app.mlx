@@ -7,12 +7,94 @@ let api_url = protocol ^ "//" ^ hostname ^ ":28601/chat"
 
 let s = React.string
 
+(** Try to parse structured JSON response with {summary, data:[{label,value}]} *)
+let try_parse_structured text =
+  try
+    let json = Js.Json.parseExn text in
+    match Js.Json.decodeObject json with
+    | Some obj ->
+      let summary =
+        match Js.Dict.get obj "summary" with
+        | Some v -> Js.Json.decodeString v
+        | None -> None
+      in
+      let data =
+        match Js.Dict.get obj "data" with
+        | Some v -> Js.Json.decodeArray v
+        | None -> None
+      in
+      (match summary, data with
+      | Some s, Some d -> Some (s, d)
+      | _ -> None)
+    | None -> None
+  with _ -> None
+
+let render_data_point j item =
+  let key = string_of_int j in
+  match Js.Json.decodeObject item with
+  | Some obj ->
+    let label =
+      match Js.Dict.get obj "label" with
+      | Some v -> Option.value ~default:"" (Js.Json.decodeString v)
+      | None -> ""
+    in
+    let value =
+      match Js.Dict.get obj "value" with
+      | Some v -> Option.value ~default:"" (Js.Json.decodeString v)
+      | None -> ""
+    in
+    let border_bottom =
+      (* no border for last item — caller doesn't know total, so always show *)
+      "1px solid #e9ecef"
+    in
+    <div
+      key
+      style=(ReactDOM.Style.make
+        ~display:"flex"
+        ~justifyContent:"space-between"
+        ~padding:"4px 0"
+        ~borderBottom:border_bottom
+        ())
+    >
+      <span style=(ReactDOM.Style.make ~color:"#666" ~fontWeight:"500" ())>
+        (s label)
+      </span>
+      <span> (s value) </span>
+    </div>
+  | None -> React.null
+
+let render_structured_response key summary data =
+  let data_items =
+    data
+    |> Array.to_list
+    |> List.mapi render_data_point
+    |> Array.of_list
+    |> React.array
+  in
+  <div key style=(ReactDOM.Style.make ~marginTop:"8px" ())>
+    <p style=(ReactDOM.Style.make ~marginBottom:"8px" ())>
+      (s summary)
+    </p>
+    <div
+      style=(ReactDOM.Style.make
+        ~background:"#f8f9fa"
+        ~borderRadius:"6px"
+        ~padding:"12px"
+        ~border:"1px solid #e9ecef"
+        ())
+    >
+      data_items
+    </div>
+  </div>
+
 let render_part i part =
   let key = string_of_int i in
   match classify part with
   | Text p ->
-    let content = s (text_ui_part_text p) in
-    <span key> content </span>
+    let text = text_ui_part_text p in
+    (match try_parse_structured text with
+    | Some (summary, data) -> render_structured_response key summary data
+    | None -> <span key> (s text) </span>)
   | Tool_call p ->
     let state = tool_ui_part_state p in
     let is_result = String.equal state "output-available" in
