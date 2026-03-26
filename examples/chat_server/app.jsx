@@ -63,7 +63,42 @@ export default function Chat() {
             <strong>{m.role === "user" ? "You" : "Claude"}</strong>
             <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>
               {m.parts.map((part, i) => {
-                if (part.type === "text") return <span key={i}>{part.text}</span>;
+                if (part.type === "text") {
+                  // Try to render structured JSON responses as formatted cards
+                  try {
+                    const json = JSON.parse(part.text);
+                    if (json && json.summary && Array.isArray(json.data)) {
+                      return (
+                        <div key={i} style={{ marginTop: 8 }}>
+                          <p style={{ marginBottom: 8 }}>{json.summary}</p>
+                          {json.data.length > 0 && (
+                            <div style={{
+                              background: "#f8f9fa",
+                              borderRadius: 6,
+                              padding: 12,
+                              border: "1px solid #e9ecef",
+                            }}>
+                              {json.data.map((item, j) => (
+                                <div key={j} style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  padding: "4px 0",
+                                  borderBottom: j < json.data.length - 1 ? "1px solid #e9ecef" : "none",
+                                }}>
+                                  <span style={{ color: "#666", fontWeight: 500 }}>{item.label}</span>
+                                  <span>{item.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                  } catch (e) {
+                    // Not JSON — render as plain text
+                  }
+                  return <span key={i}>{part.text}</span>;
+                }
                 // v6: dynamic tools (server-side only) have type "dynamic-tool"
                 // v6: static tools (client-defined) have type "tool-{name}"
                 if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {

@@ -1,7 +1,9 @@
-(** Multi-tool chat agent using the Core SDK.
+(** Multi-tool chat agent with structured output using the Core SDK.
 
     Demonstrates:
     - Multiple tools with JSON Schema derived from OCaml types (ppx_deriving_jsonschema)
+    - Structured output (Output.object_) with schema derived from OCaml types
+    - Tools + Output together: model calls tools, then responds with validated JSON
     - Multi-step tool execution (agent loop with max_steps:5)
     - UIMessage stream protocol v1 for useChat() interop
 
@@ -103,6 +105,22 @@ let search_web : Ai_core.Core_tool.t =
 
 let tools = [ "get_weather", get_weather; "search_web", search_web ]
 
+(* --- Structured output schema --- *)
+
+type data_point = {
+  label : string;
+  value : string;
+}
+[@@deriving jsonschema]
+
+type structured_response = {
+  summary : string;
+  data : data_point list;
+}
+[@@deriving jsonschema]
+
+let output = Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
+
 (* --- System prompt --- *)
 
 let system_prompt =
@@ -111,7 +129,10 @@ let system_prompt =
 When asked about weather, use the get_weather tool.
 When asked about facts or topics you're not sure about, use the search_web tool.
 You can use multiple tools in sequence to build a complete answer.
-Be concise in your responses.|}
+
+Your final response must be structured JSON with:
+- "summary": a concise natural language answer
+- "data": an array of {"label": "...", "value": "..."} key data points|}
 
 (* --- HTTP handler --- *)
 
@@ -131,8 +152,8 @@ let handler conn req body =
   | _, "/chat" ->
     Lwt.catch
       (fun () ->
-        Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~send_reasoning:true conn
-          req body)
+        Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
+          conn req body)
       (fun exn ->
         let msg = Printexc.to_string exn in
         Printf.eprintf "[ERROR] /chat: %s\n%!" msg;
