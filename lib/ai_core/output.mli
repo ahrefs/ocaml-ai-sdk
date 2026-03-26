@@ -32,18 +32,17 @@ val parse_output : (Yojson.Basic.t, _) t option -> Generate_text_result.step lis
 val text : (string, string) t
 
 (** Object output — model produces JSON matching the given schema.
-    [name] and [description] are passed to the provider for context.
+    [name] is passed to the provider for context.
     Complete output is validated against the schema.
     Partial output uses repair-and-parse (no validation). *)
-val object_ : name:string -> schema:Yojson.Basic.t -> ?description:string -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
+val object_ : name:string -> schema:Yojson.Basic.t -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
 
 (** Array output — model produces an array of elements matching the schema.
     Wraps in [{"elements":[...]}] envelope for the model, unwraps on parse.
     Complete output validates every element against the schema.
     Partial output drops the last element on repaired parses and
     silently skips invalid elements. *)
-val array :
-  name:string -> element_schema:Yojson.Basic.t -> ?description:string -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
+val array : name:string -> element_schema:Yojson.Basic.t -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
 
 (** Choice output — model picks one of the given string options.
     Wraps in [{"result":"..."}] envelope for the model, unwraps on parse.

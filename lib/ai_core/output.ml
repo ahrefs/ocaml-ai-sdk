@@ -10,9 +10,10 @@ let partial_json_parse text =
   | Some (json, _) -> Some json
   | None -> None
 
-let strip_schema_key = function
-  | `Assoc pairs -> `Assoc (List.filter (fun (k, _) -> not (String.equal k "$schema")) pairs)
-  | json -> json
+let validate_schema ~schema json =
+  match Jsonschema.create_validator_from_json ~schema () with
+  | Error err -> Error (Format.asprintf "%a" Jsonschema.pp_compile_error err)
+  | Ok validator -> Jsonschema.validate validator json |> Result.map_error Jsonschema.Validation_error.to_string
 
 let mode_of_output = function
   | Some o ->
@@ -45,20 +46,24 @@ let text =
         | _ -> Some s);
   }
 
-let object_ ~name ~schema ?description:_ () =
+let object_ ~name ~schema () =
   let response_format = Some { Ai_provider.Mode.name; schema } in
   let parse_complete text =
-    match Yojson.Basic.from_string text with
-    | json ->
-      (match Json_schema_validator.validate ~schema json with
+    try
+      let json = Yojson.Basic.from_string text in
+      match validate_schema ~schema json with
       | Ok () -> Ok json
-      | Error msg -> Error (Printf.sprintf "Schema validation failed: %s" msg))
-    | exception Yojson.Json_error msg -> Error (Printf.sprintf "Invalid JSON: %s" msg)
+      | Error msg -> Error (Printf.sprintf "Schema validation failed: %s" msg)
+    with Yojson.Json_error msg -> Error (Printf.sprintf "Invalid JSON: %s" msg)
   in
   { name; response_format; parse_complete; parse_partial = partial_json_parse }
 
-let array ~name ~element_schema ?description:_ () =
-  let element_schema_clean = strip_schema_key element_schema in
+let array ~name ~element_schema () =
+  let element_schema_clean =
+    match element_schema with
+    | `Assoc pairs -> `Assoc (List.filter (fun (k, _) -> not (String.equal k "$schema")) pairs)
+    | json -> json
+  in
   let schema =
     `Assoc
       [
@@ -76,22 +81,23 @@ let array ~name ~element_schema ?description:_ () =
     | _ -> None
   in
   let validate_element elt =
-    match Json_schema_validator.validate ~schema:element_schema elt with
+    match validate_schema ~schema:element_schema elt with
     | Ok () -> true
     | Error _ -> false
   in
   let parse_complete text =
-    match Yojson.Basic.from_string text with
-    | `Assoc pairs ->
-      (match extract_elements pairs with
-      | Some elts ->
-        let invalid = List.find_opt (fun elt -> not (validate_element elt)) elts in
-        (match invalid with
-        | Some elt -> Error (Printf.sprintf "Element validation failed: %s" (Yojson.Basic.to_string elt))
-        | None -> Ok (`List elts))
-      | None -> Error "missing or invalid 'elements' array")
-    | _ -> Error "expected JSON object with 'elements' array"
-    | exception Yojson.Json_error msg -> Error (Printf.sprintf "Invalid JSON: %s" msg)
+    try
+      match Yojson.Basic.from_string text with
+      | `Assoc pairs ->
+        (match extract_elements pairs with
+        | Some elts ->
+          let invalid = List.find_opt (fun elt -> not (validate_element elt)) elts in
+          (match invalid with
+          | Some elt -> Error (Printf.sprintf "Element validation failed: %s" (Yojson.Basic.to_string elt))
+          | None -> Ok (`List elts))
+        | None -> Error "missing or invalid 'elements' array")
+      | _ -> Error "expected JSON object with 'elements' array"
+    with Yojson.Json_error msg -> Error (Printf.sprintf "Invalid JSON: %s" msg)
   in
   let parse_partial text =
     match Partial_json.parse text with
@@ -131,16 +137,17 @@ let choice ~name options =
   in
   let response_format = Some { Ai_provider.Mode.name; schema } in
   let parse_complete text =
-    match Yojson.Basic.from_string text with
-    | `Assoc pairs as json ->
-      (match Json_schema_validator.validate ~schema json with
-      | Ok () ->
-        (match List.assoc_opt "result" pairs with
-        | Some value -> Ok value
-        | None -> Error "missing 'result' field in choice response")
-      | Error msg -> Error (Printf.sprintf "Schema validation failed: %s" msg))
-    | _ -> Error "expected JSON object with 'result' field"
-    | exception Yojson.Json_error msg -> Error (Printf.sprintf "Invalid JSON: %s" msg)
+    try
+      match Yojson.Basic.from_string text with
+      | `Assoc pairs as json ->
+        (match validate_schema ~schema json with
+        | Ok () ->
+          (match List.assoc_opt "result" pairs with
+          | Some value -> Ok value
+          | None -> Error "missing 'result' field in choice response")
+        | Error msg -> Error (Printf.sprintf "Schema validation failed: %s" msg))
+      | _ -> Error "expected JSON object with 'result' field"
+    with Yojson.Json_error msg -> Error (Printf.sprintf "Invalid JSON: %s" msg)
   in
   let parse_partial text =
     match Partial_json.parse text with

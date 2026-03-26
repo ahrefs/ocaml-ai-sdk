@@ -2,10 +2,7 @@ type parse_status =
   | Successful
   | Repaired
 
-let try_parse s =
-  match Yojson.Basic.from_string s with
-  | json -> Some json
-  | exception Yojson.Json_error _ -> None
+let try_parse s = try Some (Yojson.Basic.from_string s) with Yojson.Json_error _ -> None
 
 type scanner_state = {
   in_string : bool;

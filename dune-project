@@ -37,6 +37,7 @@
   (ocaml (>= 4.14))
   (lwt (>= 5.9))
   (yojson (>= 2.2))
+  (jsonschema (>= 0.1))
   (melange-json-native (>= 2.0))
   (cohttp-lwt-unix (>= 5.3))
   (lwt_ssl (>= 1.2))

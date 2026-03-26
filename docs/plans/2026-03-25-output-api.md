@@ -1319,3 +1319,63 @@ make test 2>&1 | grep -E "(PASS|FAIL|tests)"
 ```bash
 git commit -m "chore: fix formatting and test issues from Output API integration"
 ```
+
+---
+
+## Future v2 Enhancements
+
+### Deriver-based schema construction for user-facing schemas
+
+Currently, users must hand-write `Yojson.Basic.t` schema values to pass to `Output.object_`
+and `Output.array`. This is error-prone and verbose. A deriver-based approach (e.g. a
+`ppx_deriving_jsonschema` or integration with an existing schema-generation library) would
+allow users to derive JSON schemas directly from OCaml record types:
+
+```ocaml
+type recipe = {
+  name : string;
+  steps : string list;
+} [@@deriving jsonschema]
+
+let output = Output.object_ ~name:"recipe" ~schema:recipe_jsonschema ()
+```
+
+### Typed Output.t — better DX for getting typed responses instead of Yojson.Basic.t
+
+The `Output.t` type is already parameterized (`('complete, 'partial) t`), so the
+infrastructure supports typed returns. The convenience constructors (`object_`, `array`,
+`choice`) currently return `Yojson.Basic.t` as the complete type. We should add an
+optional `?parse` argument directly to `object_` and `array` so users get typed
+responses without a separate combinator:
+
+```ocaml
+val object_ :
+  name:string ->
+  schema:Yojson.Basic.t ->
+  ?parse:(Yojson.Basic.t -> ('a, string) result) ->
+  unit ->
+  ('a, Yojson.Basic.t) t
+
+(* Usage with melange-json-native / ppx_deriving_yojson *)
+let recipe_output =
+  Output.object_ ~name:"recipe" ~schema:recipe_jsonschema
+    ~parse:(fun json -> recipe_of_json json)
+    ()
+```
+
+When `~parse` is omitted, the function returns `Yojson.Basic.t` as today. When
+provided, the validated JSON is transformed into the user's type and the `'complete`
+type parameter flows through naturally.
+
+For a fully integrated experience, combine with deriver-based schema construction:
+
+```ocaml
+type recipe = {
+  name : string;
+  steps : string list;
+} [@@deriving jsonschema, of_json]
+
+let recipe_output =
+  Output.object_ ~name:"recipe" ~schema:recipe_jsonschema
+    ~parse:recipe_of_json ()
+```
