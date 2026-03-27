@@ -152,6 +152,94 @@ let test_merge_error_in_source () =
    | Ai_core.Ui_message_chunk.Finish _ -> ()
    | _ -> fail "expected Finish as last chunk")
 
+let test_execute_exception () =
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~execute:(fun _writer -> Lwt.fail (Failure "execute blew up"))
+      ()
+  in
+  let chunks = collect stream in
+  (* Start + Error + Finish *)
+  (check int) "3 chunks" 3 (List.length chunks);
+  (match List.nth chunks 1 with
+   | Ai_core.Ui_message_chunk.Error { error_text } ->
+     (check bool) "contains error message" true (String.length error_text > 0)
+   | _ -> fail "expected Error chunk");
+  (match List.nth chunks 2 with
+   | Ai_core.Ui_message_chunk.Finish _ -> ()
+   | _ -> fail "expected Finish")
+
+let test_custom_on_error () =
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~on_error:(fun _exn -> "custom error message")
+      ~execute:(fun _writer -> Lwt.fail (Failure "boom"))
+      ()
+  in
+  let chunks = collect stream in
+  (match List.nth chunks 1 with
+   | Ai_core.Ui_message_chunk.Error { error_text = "custom error message" } -> ()
+   | _ -> fail "expected custom error message")
+
+let test_on_finish_normal () =
+  let finish_called = ref false in
+  let was_aborted = ref false in
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~on_finish:(fun ~finish_reason:_ ~is_aborted ->
+        finish_called := true;
+        was_aborted := is_aborted;
+        Lwt.return_unit)
+      ~execute:(fun writer ->
+        Ai_core.Ui_message_stream_writer.write writer
+          (Ai_core.Ui_message_chunk.Text_delta { id = "t1"; delta = "hi" });
+        Lwt.return_unit)
+      ()
+  in
+  let _chunks = collect stream in
+  (check bool) "on_finish called" true !finish_called;
+  (check bool) "not aborted" false !was_aborted
+
+let test_on_finish_aborted () =
+  let finish_called = ref false in
+  let was_aborted = ref false in
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~on_finish:(fun ~finish_reason:_ ~is_aborted ->
+        finish_called := true;
+        was_aborted := is_aborted;
+        Lwt.return_unit)
+      ~execute:(fun _writer -> Lwt.fail (Failure "crash"))
+      ()
+  in
+  let _chunks = collect stream in
+  (check bool) "on_finish called" true !finish_called;
+  (check bool) "aborted" true !was_aborted
+
+let test_on_finish_waits_for_merges () =
+  let merge_completed = ref false in
+  let finish_saw_merge_done = ref false in
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~on_finish:(fun ~finish_reason:_ ~is_aborted:_ ->
+        finish_saw_merge_done := !merge_completed;
+        Lwt.return_unit)
+      ~execute:(fun writer ->
+        let source =
+          Lwt_stream.from (fun () ->
+            if not !merge_completed then begin
+              merge_completed := true;
+              Lwt.return_some (Ai_core.Ui_message_chunk.Text_delta { id = "t1"; delta = "x" })
+            end else
+              Lwt.return_none)
+        in
+        Ai_core.Ui_message_stream_writer.merge writer source;
+        Lwt.return_unit)
+      ()
+  in
+  let _chunks = collect stream in
+  (check bool) "merge completed before on_finish" true !finish_saw_merge_done
+
 let () =
   run "Ui_message_stream_writer"
     [
@@ -167,5 +255,16 @@ let () =
           test_case "merge stream" `Quick test_merge_stream;
           test_case "interleaved write and merge" `Quick test_merge_and_write_interleaved;
           test_case "error in merged source" `Quick test_merge_error_in_source;
+        ] );
+      ( "error_handling",
+        [
+          test_case "execute exception" `Quick test_execute_exception;
+          test_case "custom on_error" `Quick test_custom_on_error;
+        ] );
+      ( "on_finish",
+        [
+          test_case "normal completion" `Quick test_on_finish_normal;
+          test_case "aborted on error" `Quick test_on_finish_aborted;
+          test_case "waits for merges" `Quick test_on_finish_waits_for_merges;
         ] );
     ]
