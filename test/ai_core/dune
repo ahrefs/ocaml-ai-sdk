@@ -11,7 +11,8 @@
   test_e2e
   test_sse_snapshots
   test_partial_json
-  test_output)
+  test_output
+  test_ui_message_stream_writer)
  (libraries
   ai_provider
   ai_provider_anthropic
