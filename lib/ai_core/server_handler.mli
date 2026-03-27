@@ -8,11 +8,24 @@
     UIMessage stream protocol header. *)
 val cors_headers : (string * string) list
 
+(** Parse a v6 UIMessage request body into prompt messages.
+
+    Expects a JSON object with a ["messages"] array where each message
+    has ["role"] and ["parts"]. Supports all v6 part types:
+    - ["text"]: text content
+    - ["file"]: file attachments with [mediaType] and [url] or [data]
+    - ["reasoning"]: assistant reasoning blocks
+    - Tool invocation parts (["tool-{name}"] or ["dynamic-tool"]):
+      converted to {!Ai_provider.Prompt.Tool_call} and {!Ai_provider.Prompt.Tool}
+      messages based on the invocation [state]
+
+    Returns an empty list on parse failure. Unknown part types are skipped. *)
+val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
+
 (** Handle an incoming chat request.
 
-    Expects a JSON body with a ["messages"] array of
-    [{"role": "user"|"assistant"|"system", "content": "..."}] objects.
-    Supports both v5 ["content"] strings and v6 ["parts"] arrays.
+    Expects a v6 JSON body with a ["messages"] array where each message
+    has ["role"] and a ["parts"] array of typed content parts.
 
     Returns an SSE response with UIMessage stream protocol v1 headers.
     When [cors] is [true] (the default), CORS headers are included.

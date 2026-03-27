@@ -1,50 +1,199 @@
 open Melange_json.Primitives
 
-type message_part = {
+let empty_opts = Ai_provider.Provider_options.empty
+
+(** Roles in v6 UIMessage format. *)
+type role =
+  | System
+  | User
+  | Assistant
+
+let role_of_string = function
+  | "system" -> Some System
+  | "user" -> Some User
+  | "assistant" -> Some Assistant
+  | _ -> None
+
+(** Part types in v6 UIMessage format. *)
+type part_type =
+  | Text
+  | File
+  | Reasoning
+  | Step_start
+  | Source
+  | Tool_invocation of string  (** the full type string, e.g. "tool-weather" or "dynamic-tool" *)
+
+let part_type_of_string s =
+  match s with
+  | "text" -> Text
+  | "file" -> File
+  | "reasoning" -> Reasoning
+  | "step-start" -> Step_start
+  | "source" -> Source
+  | s when String.starts_with ~prefix:"tool-" s -> Tool_invocation s
+  | "dynamic-tool" -> Tool_invocation s
+  | _ -> Source (* unknown types are skipped like source *)
+
+(** Tool invocation states in v6 UIMessage format. *)
+type tool_state =
+  | Input_streaming
+  | Input_available
+  | Output_available
+  | Output_error
+  | Output_denied
+  | Approval_requested
+  | Approval_responded
+  | Unknown_state
+
+let tool_state_of_string = function
+  | "input-streaming" -> Input_streaming
+  | "input-available" -> Input_available
+  | "output-available" -> Output_available
+  | "output-error" -> Output_error
+  | "output-denied" -> Output_denied
+  | "approval-requested" -> Approval_requested
+  | "approval-responded" -> Approval_responded
+  | _ -> Unknown_state
+
+(** A parsed v6 UIMessage part. Derived from JSON via melange-json PPX. *)
+type parsed_part = {
   type_ : string; [@json.key "type"]
-  text : string option; [@json.default None]
+  text : string option; [@json.option]
+  media_type : string option; [@json.key "mediaType"] [@json.option]
+  url : string option; [@json.option]
+  data : string option; [@json.option]
+  filename : string option; [@json.option]
+  tool_call_id : string option; [@json.key "toolCallId"] [@json.option]
+  tool_name : string option; [@json.key "toolName"] [@json.option]
+  state : string option; [@json.option]
+  input : Melange_json.t option; [@json.option]
+  output : Melange_json.t option; [@json.option]
+  error_text : string option; [@json.key "errorText"] [@json.option]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
 type chat_message = {
   role : string;
-  content : string option; [@json.default None]
-  parts : message_part list option; [@json.default None]
+  parts : parsed_part list; [@json.default []]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
 type chat_request = { messages : chat_message list } [@@json.allow_extra_fields] [@@deriving of_json]
 
-(* Extract text from a message — handles both v5 "content" string
-   and v6 "parts" array formats from useChat *)
-let extract_text (msg : chat_message) =
-  match msg.parts with
-  | Some parts ->
-    parts
-    |> List.filter_map (fun (p : message_part) ->
-      match p.type_, p.text with
-      | "text", Some t -> Some t
-      | _ -> None)
-    |> String.concat ""
-  | None -> Option.value ~default:"" msg.content
+let parse_file_data (p : parsed_part) =
+  match p.media_type with
+  | Some media_type ->
+    let data =
+      match p.url, p.data with
+      | Some url, _ -> Some (Ai_provider.Prompt.Url url)
+      | _, Some d -> Some (Ai_provider.Prompt.Base64 d)
+      | None, None -> None
+    in
+    Option.map (fun data -> (data, media_type, p.filename)) data
+  | None -> None
+
+let parse_user_part (p : parsed_part) : Ai_provider.Prompt.user_part option =
+  match part_type_of_string p.type_ with
+  | Text ->
+    Option.map (fun text : Ai_provider.Prompt.user_part -> Text { text; provider_options = empty_opts }) p.text
+  | File ->
+    Option.map
+      (fun (data, media_type, filename) : Ai_provider.Prompt.user_part ->
+        File { data; media_type; filename; provider_options = empty_opts })
+      (parse_file_data p)
+  | Reasoning | Step_start | Source | Tool_invocation _ -> None
+
+let parse_assistant_part (p : parsed_part) : Ai_provider.Prompt.assistant_part option =
+  match part_type_of_string p.type_ with
+  | Text -> Option.map (fun text -> Ai_provider.Prompt.Text { text; provider_options = empty_opts }) p.text
+  | Reasoning -> Option.map (fun text -> Ai_provider.Prompt.Reasoning { text; provider_options = empty_opts }) p.text
+  | File ->
+    Option.map
+      (fun (data, media_type, filename) ->
+        Ai_provider.Prompt.File { data; media_type; filename; provider_options = empty_opts })
+      (parse_file_data p)
+  | Step_start | Source | Tool_invocation _ -> None
+
+let parse_tool_call (p : parsed_part) : Ai_provider.Prompt.assistant_part option =
+  match part_type_of_string p.type_ with
+  | Tool_invocation _ ->
+    (match p.tool_call_id, p.tool_name, p.input with
+     | Some id, Some name, Some args ->
+       Some (Ai_provider.Prompt.Tool_call { id; name; args; provider_options = empty_opts })
+     | _ -> None)
+  | _ -> None
+
+let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option =
+  match part_type_of_string p.type_ with
+  | Tool_invocation _ ->
+    let state = Option.map tool_state_of_string p.state in
+    (match state, p.tool_call_id, p.tool_name with
+     | Some Output_available, Some tool_call_id, Some tool_name ->
+       let result = Option.value ~default:`Null p.output in
+       Some
+         { Ai_provider.Prompt.tool_call_id; tool_name; result; is_error = false; content = []; provider_options = empty_opts
+         }
+     | Some Output_error, Some tool_call_id, Some tool_name ->
+       let result =
+         match p.error_text with
+         | Some e -> `String e
+         | None -> `String "Tool execution failed"
+       in
+       Some
+         { Ai_provider.Prompt.tool_call_id; tool_name; result; is_error = true; content = []; provider_options = empty_opts
+         }
+     | Some Output_denied, Some tool_call_id, Some tool_name ->
+       Some
+         { Ai_provider.Prompt.tool_call_id;
+           tool_name;
+           result = `String "Tool execution denied";
+           is_error = true;
+           content = [];
+           provider_options = empty_opts;
+         }
+     | _ -> None)
+  | _ -> None
 
 let parse_messages_from_body body_json =
   try
     let { messages } = chat_request_of_json body_json in
-    List.filter_map
+    List.concat_map
       (fun (msg : chat_message) ->
-        let text = extract_text msg in
-        match msg.role with
-        | "system" -> Some (Ai_provider.Prompt.System { content = text })
-        | "user" ->
-          Some
-            (Ai_provider.Prompt.User
-               { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
-        | "assistant" ->
-          Some
-            (Ai_provider.Prompt.Assistant
-               { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
-        | _ -> None)
+        match role_of_string msg.role with
+        | Some System ->
+          let text =
+            msg.parts
+            |> List.filter_map (fun (p : parsed_part) ->
+              match part_type_of_string p.type_ with
+              | Text -> p.text
+              | _ -> None)
+            |> String.concat ""
+          in
+          [ Ai_provider.Prompt.System { content = text } ]
+        | Some User ->
+          let content = List.filter_map parse_user_part msg.parts in
+          (match content with
+           | [] -> []
+           | content -> [ Ai_provider.Prompt.User { content } ])
+        | Some Assistant ->
+          let assistant_parts =
+            List.filter_map
+              (fun p ->
+                match part_type_of_string p.type_ with
+                | Tool_invocation _ -> parse_tool_call p
+                | _ -> parse_assistant_part p)
+              msg.parts
+          in
+          let tool_results = List.filter_map parse_tool_result msg.parts in
+          let msgs =
+            match assistant_parts with
+            | [] -> []
+            | content -> [ Ai_provider.Prompt.Assistant { content } ]
+          in
+          (match tool_results with
+           | [] -> msgs
+           | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
+        | None -> [])
       messages
   with Melange_json.Of_json_error _ -> []
 

@@ -17,7 +17,7 @@
     Test with curl:
       curl -N -X POST http://localhost:28601/chat \
         -H "Content-Type: application/json" \
-        -d '{"messages":[{"role":"user","content":"What is the weather in Paris?"}]}' *)
+        -d '{"messages":[{"role":"user","parts":[{"type":"text","text":"What is the weather in Paris?"}]}]}' *)
 
 open Melange_json.Primitives
 
