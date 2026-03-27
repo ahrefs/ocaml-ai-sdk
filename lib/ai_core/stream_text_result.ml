@@ -48,6 +48,7 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
               push
                 (Some (Ui_message_chunk.Tool_output_error { tool_call_id; error_text = Yojson.Basic.to_string result }))
             else push (Some (Ui_message_chunk.Tool_output_available { tool_call_id; output = result }))
+          | Tool_approval_request _ -> () (* Handled in Task 4 *)
           | Source { source_id; url; title } -> push (Some (Ui_message_chunk.Source_url { source_id; url; title }))
           | File { url; media_type } -> push (Some (Ui_message_chunk.File { url; media_type }))
           | Finish_step _ -> push (Some Ui_message_chunk.Finish_step)
