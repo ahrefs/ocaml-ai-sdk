@@ -72,6 +72,19 @@ external file_ui_part_filename : file_ui_part -> string option = "filename" [@@m
 
 type step_start_ui_part
 
+type data_ui_part
+
+external data_ui_part_data : data_ui_part -> Js.Json.t = "data" [@@mel.get]
+external data_ui_part_id : data_ui_part -> string option = "id" [@@mel.get] [@@mel.return nullable]
+
+external data_ui_part_type_raw : data_ui_part -> string = "type" [@@mel.get]
+
+(** The data type name without the ["data-"] prefix.
+    E.g. for a part with type ["data-weather"], returns ["weather"]. *)
+let data_ui_part_data_type (part : data_ui_part) : string =
+  let t = data_ui_part_type_raw part in
+  if String.length t > 5 then String.sub t 5 (String.length t - 5) else t
+
 type ui_message_part
 
 external part_type : ui_message_part -> string = "type" [@@mel.get]
@@ -83,6 +96,7 @@ external as_source_url : ui_message_part -> source_url_ui_part = "%identity"
 external as_source_document : ui_message_part -> source_document_ui_part = "%identity"
 external as_file : ui_message_part -> file_ui_part = "%identity"
 external as_step_start : ui_message_part -> step_start_ui_part = "%identity"
+external as_data : ui_message_part -> data_ui_part = "%identity"
 
 type classified_part =
   | Text of text_ui_part
@@ -92,19 +106,23 @@ type classified_part =
   | Source_document of source_document_ui_part
   | File of file_ui_part
   | Step_start of step_start_ui_part
+  | Data of data_ui_part
   | Unknown of string
 
 let classify (part : ui_message_part) =
   let t = part_type part in
-  if String.equal t "text" then Text (as_text part)
-  else if String.equal t "reasoning" then Reasoning (as_reasoning part)
-  else if String.equal t "dynamic-tool" then Tool_call (as_tool_call part)
-  else if String.length t > 5 && String.equal (String.sub t 0 5) "tool-" then Tool_call (as_tool_call part)
-  else if String.equal t "source-url" then Source_url (as_source_url part)
-  else if String.equal t "source-document" then Source_document (as_source_document part)
-  else if String.equal t "file" then File (as_file part)
-  else if String.equal t "step-start" then Step_start (as_step_start part)
-  else Unknown t
+  let starts_with prefix = String.length t > String.length prefix && String.sub t 0 (String.length prefix) = prefix in
+  match () with
+  | () when String.equal t "text" -> Text (as_text part)
+  | () when String.equal t "reasoning" -> Reasoning (as_reasoning part)
+  | () when String.equal t "dynamic-tool" -> Tool_call (as_tool_call part)
+  | () when starts_with "tool-" -> Tool_call (as_tool_call part)
+  | () when String.equal t "source-url" -> Source_url (as_source_url part)
+  | () when String.equal t "source-document" -> Source_document (as_source_document part)
+  | () when String.equal t "file" -> File (as_file part)
+  | () when String.equal t "step-start" -> Step_start (as_step_start part)
+  | () when starts_with "data-" -> Data (as_data part)
+  | () -> Unknown t
 
 (** {1 UI Message} *)
 
