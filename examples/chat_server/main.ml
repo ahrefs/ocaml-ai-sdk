@@ -7,10 +7,12 @@
     - Multi-step tool execution (agent loop with max_steps:5)
     - UIMessage stream protocol v1 for useChat() interop
 
-    Set ANTHROPIC_API_KEY environment variable before running.
+    Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable before running.
+    Set AI_PROVIDER=openai to use OpenAI (defaults to anthropic).
 
     Usage:
       dune exec examples/chat_server/main.exe
+      AI_PROVIDER=openai dune exec examples/chat_server/main.exe
 
     Test with curl:
       curl -N -X POST http://localhost:28601/chat \
@@ -19,7 +21,11 @@
 
 open Melange_json.Primitives
 
-let model = Ai_provider_anthropic.model "claude-sonnet-4-6"
+let model =
+  match Sys.getenv_opt "AI_PROVIDER" with
+  | Some "openai" -> Ai_provider_openai.model "gpt-4o"
+  | Some "anthropic" | None -> Ai_provider_anthropic.model "claude-sonnet-4-6"
+  | Some other -> failwith (Printf.sprintf "Unknown AI_PROVIDER: %s (expected 'anthropic' or 'openai')" other)
 
 (** Convert a ppx_deriving_jsonschema schema (Yojson.Safe.t) to Yojson.Basic.t
     for use as Core_tool.parameters. *)
@@ -169,7 +175,9 @@ let handler conn req body =
 
 let () =
   let port = 28601 in
-  Printf.printf "Chat agent on http://localhost:%d/chat (max_steps: 5, tools: %d)\n%!" port (List.length tools);
+  let module M = (val model : Ai_provider.Language_model.S) in
+  Printf.printf "Chat agent on http://localhost:%d/chat (provider: %s, model: %s, tools: %d)\n%!" port M.provider
+    M.model_id (List.length tools);
   let server =
     Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
   in

@@ -3,6 +3,7 @@
  (libraries
   ai_provider
   ai_provider_anthropic
+  ai_provider_openai
   ai_core
   lwt
   lwt.unix

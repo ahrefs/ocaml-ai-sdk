@@ -1,0 +1,24 @@
+(tests
+ (names
+  test_config_catalog
+  test_openai_types
+  test_convert_prompt
+  test_convert_tools
+  test_convert_response
+  test_sse
+  test_convert_stream
+  test_api
+  test_openai_model
+  test_factory
+  test_e2e)
+ (libraries
+  ai_provider
+  ai_provider_openai
+  alcotest
+  yojson
+  melange-json-native
+  lwt
+  lwt.unix
+  unix)
+ (preprocess
+  (pps lwt_ppx melange-json-native.ppx)))

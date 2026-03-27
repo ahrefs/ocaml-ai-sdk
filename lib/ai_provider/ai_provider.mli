@@ -20,3 +20,4 @@ module Stream_result = Stream_result
 module Language_model = Language_model
 module Provider = Provider
 module Middleware = Middleware
+module Sse = Sse
