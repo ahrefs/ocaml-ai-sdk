@@ -65,7 +65,7 @@ let get_weather : Ai_core.Core_tool.t =
 
 type search_args = {
   query : string;
-  num_results : int option;
+  num_results : int;
 }
 [@@deriving jsonschema, of_json]
 
@@ -84,14 +84,8 @@ let search_web : Ai_core.Core_tool.t =
     parameters = json_of_schema search_args_jsonschema;
     execute =
       (fun args ->
-        let { query; num_results } =
-          try search_args_of_json args with _ -> { query = "unknown"; num_results = None }
-        in
-        let n =
-          match num_results with
-          | Some n -> n
-          | None -> 3
-        in
+        let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
+        let n = num_results in
         let results =
           List.init (min n 3) (fun i ->
             {
@@ -125,7 +119,8 @@ type structured_response = {
 }
 [@@deriving jsonschema]
 
-let output = Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
+let output =
+  Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
 
 (* --- System prompt --- *)
 
