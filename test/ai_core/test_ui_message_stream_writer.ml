@@ -240,6 +240,69 @@ let test_on_finish_waits_for_merges () =
   let _chunks = collect stream in
   (check bool) "merge completed before on_finish" true !finish_saw_merge_done
 
+let test_response_headers () =
+  let chunks_stream, push = Lwt_stream.create () in
+  push (Some (Ai_core.Ui_message_chunk.Start { message_id = None; message_metadata = None }));
+  push (Some (Ai_core.Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
+  push None;
+  let response, _body =
+    Lwt_main.run (Ai_core.Ui_message_stream_writer.create_ui_message_stream_response chunks_stream)
+  in
+  let headers = Cohttp.Response.headers response in
+  (* Check SSE headers *)
+  (check (option string)) "content-type"
+    (Some "text/event-stream")
+    (Cohttp.Header.get headers "content-type");
+  (* Check CORS headers (default cors=true) *)
+  (check (option string)) "cors origin"
+    (Some "*")
+    (Cohttp.Header.get headers "access-control-allow-origin");
+  (* Check protocol header *)
+  (check (option string)) "protocol"
+    (Some "v1")
+    (Cohttp.Header.get headers "x-vercel-ai-ui-message-stream")
+
+let test_response_no_cors () =
+  let chunks_stream, push = Lwt_stream.create () in
+  push (Some (Ai_core.Ui_message_chunk.Start { message_id = None; message_metadata = None }));
+  push None;
+  let response, _body =
+    Lwt_main.run (Ai_core.Ui_message_stream_writer.create_ui_message_stream_response ~cors:false chunks_stream)
+  in
+  let headers = Cohttp.Response.headers response in
+  (check (option string)) "no cors"
+    None
+    (Cohttp.Header.get headers "access-control-allow-origin")
+
+let test_response_custom_status () =
+  let chunks_stream, push = Lwt_stream.create () in
+  push None;
+  let response, _body =
+    Lwt_main.run
+      (Ai_core.Ui_message_stream_writer.create_ui_message_stream_response
+         ~status:`Created chunks_stream)
+  in
+  (check int) "status 201" 201 (Cohttp.Code.code_of_status (Cohttp.Response.status response))
+
+let test_response_body_is_sse () =
+  let chunks_stream, push = Lwt_stream.create () in
+  push (Some (Ai_core.Ui_message_chunk.Start { message_id = None; message_metadata = None }));
+  push (Some (Ai_core.Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
+  push None;
+  let _response, body =
+    Lwt_main.run (Ai_core.Ui_message_stream_writer.create_ui_message_stream_response chunks_stream)
+  in
+  let body_str = Lwt_main.run (Cohttp_lwt.Body.to_string body) in
+  (* Should contain SSE data lines *)
+  (check bool) "contains data:" true (String.length body_str > 0);
+  (* Should end with DONE *)
+  (check bool) "ends with DONE"
+    true
+    (let done_marker = "data: [DONE]\n\n" in
+     let len = String.length body_str in
+     let dlen = String.length done_marker in
+     len >= dlen && String.sub body_str (len - dlen) dlen = done_marker)
+
 let () =
   run "Ui_message_stream_writer"
     [
@@ -266,5 +329,12 @@ let () =
           test_case "normal completion" `Quick test_on_finish_normal;
           test_case "aborted on error" `Quick test_on_finish_aborted;
           test_case "waits for merges" `Quick test_on_finish_waits_for_merges;
+        ] );
+      ( "response",
+        [
+          test_case "headers with cors" `Quick test_response_headers;
+          test_case "no cors" `Quick test_response_no_cors;
+          test_case "custom status" `Quick test_response_custom_status;
+          test_case "body is sse" `Quick test_response_body_is_sse;
         ] );
     ]
