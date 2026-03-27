@@ -1,0 +1,7 @@
+(melange.emit
+ (target output)
+ (alias custom_stream)
+ (libraries ai_sdk_react reason-react)
+ (preprocess
+  (pps melange.ppx reason-react-ppx))
+ (module_systems es6))

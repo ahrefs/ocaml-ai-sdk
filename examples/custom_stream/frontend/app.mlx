@@ -1,0 +1,192 @@
+open Ai_sdk_react
+
+external protocol : string = "protocol" [@@mel.scope "window", "location"]
+external hostname : string = "hostname" [@@mel.scope "window", "location"]
+
+let api_url = protocol ^ "//" ^ hostname ^ ":28602/chat"
+
+let s = React.string
+
+let render_data_part (p : data_ui_part) =
+  let data_type = data_ui_part_data_type p in
+  let data = data_ui_part_data p in
+  let label = match Js.Json.decodeString data with
+    | Some s -> s
+    | None -> Js.Json.stringify data
+  in
+  let bg, color = match label with
+    | "generating" -> "#fff3e0", "#e65100"
+    | "complete" -> "#e8f5e9", "#2e7d32"
+    | _ -> "#f5f5f5", "#666"
+  in
+  <div
+    style=(ReactDOM.Style.make
+      ~display:"inline-flex"
+      ~alignItems:"center"
+      ~gap:"6px"
+      ~padding:"4px 10px"
+      ~borderRadius:"12px"
+      ~fontSize:"12px"
+      ~fontWeight:"500"
+      ~background:bg
+      ~color
+      ~marginTop:"4px"
+      ~marginBottom:"4px"
+      ())
+  >
+    (s (data_type ^ ": " ^ label))
+  </div>
+
+let render_part i part =
+  let key = string_of_int i in
+  match classify part with
+  | Text p ->
+    <span key> (s (text_ui_part_text p)) </span>
+  | Data p ->
+    <div key> (render_data_part p) </div>
+  | Reasoning p ->
+    <div key style=(ReactDOM.Style.make ~color:"#888" ~fontStyle:"italic" ~fontSize:"13px" ())>
+      (s (reasoning_ui_part_text p))
+    </div>
+  | Step_start _ -> React.null
+  | _ -> React.null
+
+let render_message msg =
+  let role = ui_message_role msg in
+  let is_user = match role with User -> true | _ -> false in
+  let bg = if is_user then "#e3f2fd" else "#fff" in
+  let label = s (if is_user then "You" else "Assistant") in
+  let parts =
+    ui_message_parts msg
+    |> Array.to_list
+    |> List.mapi render_part
+    |> Array.of_list
+    |> React.array
+  in
+  <div
+    key=(ui_message_id msg)
+    style=(ReactDOM.Style.make
+      ~marginBottom:"12px"
+      ~padding:"8px"
+      ~borderRadius:"6px"
+      ~background:bg
+      ~border:"1px solid #eee"
+      ())
+  >
+    <strong> label </strong>
+    <div style=(ReactDOM.Style.make ~whiteSpace:"pre-wrap" ~marginTop:"4px" ())>
+      parts
+    </div>
+  </div>
+
+[@react.component]
+let make () =
+  let input, set_input = React.useState (fun () -> "") in
+  let transport =
+    Use_chat.Default_chat_transport.(make ~api:api_url () |> to_transport)
+  in
+  let chat = Use_chat.use_chat ~transport () in
+  let messages = Use_chat.messages chat in
+  let status = Use_chat.status chat in
+  let is_loading = match status with
+    | Ready -> false
+    | Submitted | Streaming | Error -> true
+  in
+  let on_submit e =
+    React.Event.Form.preventDefault e;
+    let trimmed = Js.String.trim input in
+    if String.length trimmed > 0 then (
+      Use_chat.send_text chat trimmed;
+      set_input (fun _ -> ""))
+  in
+  let error_banner = match Use_chat.error chat with
+    | Some err ->
+      let msg = match Js.Exn.message err with Some m -> m | None -> "Unknown error" in
+      <div
+        style=(ReactDOM.Style.make
+          ~padding:"8px 12px"
+          ~marginBottom:"12px"
+          ~borderRadius:"6px"
+          ~background:"#fee"
+          ~border:"1px solid #fcc"
+          ~color:"#c62828"
+          ~fontSize:"13px"
+          ())
+      >
+        <strong> (s "Error: ") </strong>
+        (s msg)
+      </div>
+    | None -> React.null
+  in
+  let empty_state =
+    if Array.length messages = 0 then
+      <p style=(ReactDOM.Style.make ~color:"#999" ())>
+        (s "Send a message. Watch for status data parts alongside the response.")
+      </p>
+    else React.null
+  in
+  let message_list =
+    messages
+    |> Array.to_list
+    |> List.map render_message
+    |> Array.of_list
+    |> React.array
+  in
+  let button_label = if is_loading then s "..." else s "Send" in
+  <div style=(ReactDOM.Style.make ~maxWidth:"640px" ~margin:"40px auto" ~fontFamily:"system-ui" ())>
+    <h2> (s "Custom Stream Composition") </h2>
+    <p style=(ReactDOM.Style.make ~fontSize:"13px" ~color:"#888" ~marginBottom:"16px" ())>
+      (s "Demonstrates create_ui_message_stream: custom Data parts interleaved with LLM output.")
+    </p>
+    error_banner
+    <div
+      style=(ReactDOM.Style.make
+        ~border:"1px solid #ddd"
+        ~borderRadius:"8px"
+        ~padding:"16px"
+        ~minHeight:"300px"
+        ~maxHeight:"500px"
+        ~overflowY:"auto"
+        ~marginBottom:"16px"
+        ~background:"#fafafa"
+        ())
+    >
+      empty_state
+      message_list
+    </div>
+    <form
+      onSubmit=on_submit
+      style=(ReactDOM.Style.make ~display:"flex" ~gap:"8px" ())
+    >
+      <input
+        value=input
+        onChange=(fun e ->
+          let v : string = (React.Event.Form.target e)##value in
+          set_input (fun _ -> v))
+        placeholder="Type a message..."
+        disabled=is_loading
+        style=(ReactDOM.Style.make
+          ~flex:"1"
+          ~padding:"8px 12px"
+          ~borderRadius:"6px"
+          ~border:"1px solid #ccc"
+          ~fontSize:"14px"
+          ())
+      />
+      <button
+        type_="submit"
+        disabled=(is_loading || String.length (Js.String.trim input) = 0)
+        style=(ReactDOM.Style.make
+          ~padding:"8px 20px"
+          ~borderRadius:"6px"
+          ~border:"none"
+          ~background:(if is_loading then "#ccc" else "#1976d2")
+          ~color:"#fff"
+          ~cursor:(if is_loading then "default" else "pointer")
+          ~fontSize:"14px"
+          ())
+      >
+        button_label
+      </button>
+    </form>
+  </div>

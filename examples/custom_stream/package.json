@@ -1,0 +1,22 @@
+{
+  "name": "ocaml-ai-sdk-custom-stream",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:mel": "cd ../.. && dune build @custom_stream --force",
+    "build:js": "node build.js",
+    "build": "npm run build:mel && npm run build:js",
+    "dev": "npm run build && node server.js"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^3.0.118",
+    "ai": "^6.0.0",
+    "hono": "^4.0.0",
+    "@hono/node-server": "^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
