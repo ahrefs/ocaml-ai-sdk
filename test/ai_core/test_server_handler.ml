@@ -395,19 +395,38 @@ let test_parse_tool_approval_requested () =
     (check string) "name" "delete" name
   | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-requested)"
 
-let test_parse_tool_approval_responded () =
-  (* approval-responded: approval given but no result yet *)
+let test_parse_tool_approval_responded_approved () =
+  (* approval-responded with approved=true: tool will be executed, no result yet *)
   let msgs =
     parse
       (json
          {|{"messages":[{"role":"assistant","parts":[
-            {"type":"tool-delete","toolCallId":"tc_ar","toolName":"delete",
-             "state":"approval-responded","input":{"id":42}}
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"approval-responded","approved":true,"input":{"city":"London"}}
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id; _ } ] } ] -> (check string) "id" "tc_ar" id
-  | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-responded)"
+  | [ Assistant { content = [ Tool_call { id; name; _ } ] } ] ->
+    (check string) "id" "tc_1" id;
+    (check string) "name" "weather" name
+  | _ -> fail "expected Assistant(Tool_call only, no Tool message for approved)"
+
+let test_parse_tool_approval_responded_denied () =
+  (* approval-responded with approved=false: produces error tool result *)
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"approval-responded","approved":false,"input":{"city":"London"}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant { content = [ Tool_call _ ] }; Tool { content = [ { is_error; result; tool_call_id; _ } ] } ] ->
+    (check bool) "is error" true is_error;
+    (check string) "denied" {|"Tool execution denied"|} (Yojson.Basic.to_string result);
+    (check string) "tool_call_id" "tc_1" tool_call_id
+  | _ -> fail "expected Assistant(Tool_call) + Tool(denied result)"
 
 let test_parse_tool_output_available_null_output () =
   (* output-available without an output field defaults to `Null *)
@@ -527,7 +546,8 @@ let () =
           test_case "multiple tool calls" `Quick test_parse_multiple_tool_calls;
           test_case "input-streaming (no result)" `Quick test_parse_tool_invocation_input_streaming;
           test_case "approval-requested (no result)" `Quick test_parse_tool_approval_requested;
-          test_case "approval-responded (no result)" `Quick test_parse_tool_approval_responded;
+          test_case "approval-responded approved (no result)" `Quick test_parse_tool_approval_responded_approved;
+          test_case "approval-responded denied (error result)" `Quick test_parse_tool_approval_responded_denied;
           test_case "output-available null output" `Quick test_parse_tool_output_available_null_output;
           test_case "tool missing fields" `Quick test_parse_tool_missing_fields_skipped;
           test_case "tool error no errorText" `Quick test_parse_tool_error_without_error_text;

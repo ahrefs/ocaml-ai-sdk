@@ -69,6 +69,7 @@ type parsed_part = {
   input : Melange_json.t option; [@json.option]
   output : Melange_json.t option; [@json.option]
   error_text : string option; [@json.key "errorText"] [@json.option]
+  approved : bool option; [@json.option]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -163,6 +164,19 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
           content = [];
           provider_options = empty_opts;
         }
+    | Some Approval_responded, Some tool_call_id, Some tool_name ->
+      (match p.approved with
+      | Some true -> None
+      | _ ->
+        Some
+          {
+            Ai_provider.Prompt.tool_call_id;
+            tool_name;
+            result = `String "Tool execution denied";
+            is_error = true;
+            content = [];
+            provider_options = empty_opts;
+          })
     | _ -> None)
   | _ -> None
 
