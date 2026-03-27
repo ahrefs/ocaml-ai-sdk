@@ -303,6 +303,32 @@ let test_response_body_is_sse () =
      let dlen = String.length done_marker in
      len >= dlen && String.sub body_str (len - dlen) dlen = done_marker)
 
+let test_persistence_pattern () =
+  (* Simulate: server generates a message ID for persistence *)
+  let generated_id = "msg_" ^ string_of_int (Random.int 100000) in
+  let persisted_id = ref None in
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~message_id:generated_id
+      ~on_finish:(fun ~finish_reason:_ ~is_aborted:_ ->
+        (* In real code: save message to database using generated_id *)
+        persisted_id := Some generated_id;
+        Lwt.return_unit)
+      ~execute:(fun writer ->
+        Ai_core.Ui_message_stream_writer.write writer
+          (Ai_core.Ui_message_chunk.Text_delta { id = "t1"; delta = "response text" });
+        Lwt.return_unit)
+      ()
+  in
+  let chunks = collect stream in
+  (* The Start chunk carries the message ID for the frontend *)
+  (match List.nth chunks 0 with
+   | Ai_core.Ui_message_chunk.Start { message_id = Some id; _ } ->
+     (check string) "start has message_id" generated_id id
+   | _ -> fail "expected Start with message_id");
+  (* on_finish was called, so persistence happened *)
+  (check (option string)) "persisted" (Some generated_id) !persisted_id
+
 let () =
   run "Ui_message_stream_writer"
     [
@@ -336,5 +362,9 @@ let () =
           test_case "no cors" `Quick test_response_no_cors;
           test_case "custom status" `Quick test_response_custom_status;
           test_case "body is sse" `Quick test_response_body_is_sse;
+        ] );
+      ( "usage_patterns",
+        [
+          test_case "persistence with message_id" `Quick test_persistence_pattern;
         ] );
     ]
