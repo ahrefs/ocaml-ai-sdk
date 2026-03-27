@@ -329,6 +329,84 @@ let test_persistence_pattern () =
   (* on_finish was called, so persistence happened *)
   (check (option string)) "persisted" (Some generated_id) !persisted_id
 
+let test_merge_already_closed_stream () =
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~execute:(fun writer ->
+        (* Source stream is already closed *)
+        let source, source_push = Lwt_stream.create () in
+        source_push None;
+        Ai_core.Ui_message_stream_writer.merge writer source;
+        Lwt_unix.sleep 0.01)
+      ()
+  in
+  let chunks = collect stream in
+  (* Start + Finish only — empty merge contributes nothing *)
+  (check int) "2 chunks" 2 (List.length chunks);
+  (match List.nth chunks 0 with
+   | Ai_core.Ui_message_chunk.Start _ -> ()
+   | _ -> fail "expected Start");
+  (match List.nth chunks 1 with
+   | Ai_core.Ui_message_chunk.Finish _ -> ()
+   | _ -> fail "expected Finish")
+
+let test_multiple_concurrent_merges () =
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~execute:(fun writer ->
+        (* Create two source streams *)
+        let source1, push1 = Lwt_stream.create () in
+        push1 (Some (Ai_core.Ui_message_chunk.Text_delta { id = "t1"; delta = "from-1" }));
+        push1 None;
+        let source2, push2 = Lwt_stream.create () in
+        push2 (Some (Ai_core.Ui_message_chunk.Text_delta { id = "t2"; delta = "from-2" }));
+        push2 None;
+        Ai_core.Ui_message_stream_writer.merge writer source1;
+        Ai_core.Ui_message_stream_writer.merge writer source2;
+        Lwt_unix.sleep 0.01)
+      ()
+  in
+  let chunks = collect stream in
+  (* Start + 2 deltas (from both merges) + Finish = at least 4 *)
+  (check bool) "at least 4 chunks" true (List.length chunks >= 4);
+  (* Both deltas should be present (order may vary) *)
+  let deltas =
+    List.filter_map
+      (function
+        | Ai_core.Ui_message_chunk.Text_delta { delta; _ } -> Some delta
+        | _ -> None)
+      chunks
+  in
+  (check int) "2 deltas" 2 (List.length deltas);
+  (check bool) "has from-1" true (List.mem "from-1" deltas);
+  (check bool) "has from-2" true (List.mem "from-2" deltas);
+  (* Should start with Start and end with Finish *)
+  (match List.nth chunks 0 with
+   | Ai_core.Ui_message_chunk.Start _ -> ()
+   | _ -> fail "expected Start");
+  (match List.nth chunks (List.length chunks - 1) with
+   | Ai_core.Ui_message_chunk.Finish _ -> ()
+   | _ -> fail "expected Finish")
+
+let test_on_finish_exception_still_closes_stream () =
+  let stream =
+    Ai_core.Ui_message_stream_writer.create_ui_message_stream
+      ~on_finish:(fun ~finish_reason:_ ~is_aborted:_ ->
+        Lwt.fail (Failure "on_finish exploded"))
+      ~execute:(fun writer ->
+        Ai_core.Ui_message_stream_writer.write writer
+          (Ai_core.Ui_message_chunk.Text_delta { id = "t1"; delta = "hi" });
+        Lwt.return_unit)
+      ()
+  in
+  let chunks = collect stream in
+  (* Stream should still close properly despite on_finish failing *)
+  (check bool) "stream closed" true (List.length chunks >= 2);
+  let last = List.nth chunks (List.length chunks - 1) in
+  (match last with
+   | Ai_core.Ui_message_chunk.Finish _ -> ()
+   | _ -> fail "expected Finish as last chunk")
+
 let () =
   run "Ui_message_stream_writer"
     [
@@ -366,5 +444,11 @@ let () =
       ( "usage_patterns",
         [
           test_case "persistence with message_id" `Quick test_persistence_pattern;
+        ] );
+      ( "edge_cases",
+        [
+          test_case "merge already closed stream" `Quick test_merge_already_closed_stream;
+          test_case "multiple concurrent merges" `Quick test_multiple_concurrent_merges;
+          test_case "on_finish exception still closes stream" `Quick test_on_finish_exception_still_closes_stream;
         ] );
     ]

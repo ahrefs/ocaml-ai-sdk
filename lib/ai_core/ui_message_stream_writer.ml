@@ -37,33 +37,35 @@ let create_ui_message_stream ?message_id ?(on_error = Printexc.to_string)
   let all_done, wake_all_done = Lwt.wait () in
   let writer = { push; in_flight = ref 0; all_done; wake_all_done } in
   push (Some (Ui_message_chunk.Start { message_id; message_metadata = None }));
+  (* Lwt.async safety: same rationale as merge — unbounded stream target,
+     Lwt.catch prevents unhandled rejections, stream is closed (push None)
+     on all paths so consumers always terminate *)
   Lwt.async (fun () ->
-    Lwt.catch
-      (fun () ->
-        let%lwt () = execute writer in
-        let%lwt () =
-          if !(writer.in_flight) > 0 then writer.all_done
-          else Lwt.return_unit
-        in
-        push (Some (Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
-        let%lwt () =
-          match on_finish with
-          | Some f -> f ~finish_reason:None ~is_aborted:false
-          | None -> Lwt.return_unit
-        in
-        push None;
-        Lwt.return_unit)
-      (fun exn ->
-        let error_text = on_error exn in
-        push (Some (Ui_message_chunk.Error { error_text }));
-        push (Some (Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
-        let%lwt () =
-          match on_finish with
-          | Some f -> f ~finish_reason:None ~is_aborted:true
-          | None -> Lwt.return_unit
-        in
-        push None;
-        Lwt.return_unit));
+    let%lwt is_aborted =
+      Lwt.catch
+        (fun () ->
+          let%lwt () = execute writer in
+          let%lwt () =
+            if !(writer.in_flight) > 0 then writer.all_done
+            else Lwt.return_unit
+          in
+          Lwt.return_false)
+        (fun exn ->
+          let error_text = on_error exn in
+          push (Some (Ui_message_chunk.Error { error_text }));
+          Lwt.return_true)
+    in
+    push (Some (Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
+    let%lwt () =
+      match on_finish with
+      | Some f ->
+        Lwt.catch
+          (fun () -> f ~finish_reason:None ~is_aborted)
+          (fun _exn -> Lwt.return_unit)
+      | None -> Lwt.return_unit
+    in
+    push None;
+    Lwt.return_unit);
   stream
 
 let create_ui_message_stream_response ?(status = `OK) ?(headers = []) ?(cors = true) chunks =
