@@ -74,69 +74,61 @@ let transform events ~warnings =
                 is_first := false
               end
             | "content_block_start" ->
-              (try
-                 let { index; content_block } = content_block_start_event_of_json json in
-                 match content_block.type_ with
-                 | "text" -> Hashtbl.replace blocks index Text_block
-                 | "tool_use" ->
-                   (match content_block.id, content_block.name with
-                   | Some id, Some name -> Hashtbl.replace blocks index (Tool_use_block { id; name })
-                   | _ -> ())
-                 | "thinking" -> Hashtbl.replace blocks index Thinking_block
-                 | _ -> ()
-               with Melange_json.Of_json_error _ -> ())
+              let { index; content_block } = content_block_start_event_of_json json in
+              (match content_block.type_ with
+              | "text" -> Hashtbl.replace blocks index Text_block
+              | "tool_use" ->
+                (match content_block.id, content_block.name with
+                | Some id, Some name -> Hashtbl.replace blocks index (Tool_use_block { id; name })
+                | _ -> ())
+              | "thinking" -> Hashtbl.replace blocks index Thinking_block
+              | _ -> ())
             | "content_block_delta" ->
-              (try
-                 let { index; delta } = content_block_delta_event_of_json json in
-                 match delta.type_ with
-                 | "text_delta" ->
-                   (match delta.text with
-                   | Some text -> push (Some (Ai_provider.Stream_part.Text { text }))
-                   | None -> ())
-                 | "input_json_delta" ->
-                   (match delta.partial_json with
-                   | Some partial ->
-                     (match Hashtbl.find_opt blocks index with
-                     | Some (Tool_use_block { id; name }) ->
-                       push
-                         (Some
-                            (Ai_provider.Stream_part.Tool_call_delta
-                               {
-                                 tool_call_type = "function";
-                                 tool_call_id = id;
-                                 tool_name = name;
-                                 args_text_delta = partial;
-                               }))
-                     | _ -> ())
-                   | None -> ())
-                 | "thinking_delta" ->
-                   (match delta.thinking with
-                   | Some text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))
-                   | None -> ())
-                 | _ -> ()
-               with Melange_json.Of_json_error _ -> ())
+              let { index; delta } = content_block_delta_event_of_json json in
+              (match delta.type_ with
+              | "text_delta" ->
+                (match delta.text with
+                | Some text -> push (Some (Ai_provider.Stream_part.Text { text }))
+                | None -> ())
+              | "input_json_delta" ->
+                (match delta.partial_json with
+                | Some partial ->
+                  (match Hashtbl.find_opt blocks index with
+                  | Some (Tool_use_block { id; name }) ->
+                    push
+                      (Some
+                         (Ai_provider.Stream_part.Tool_call_delta
+                            {
+                              tool_call_type = "function";
+                              tool_call_id = id;
+                              tool_name = name;
+                              args_text_delta = partial;
+                            }))
+                  | _ -> ())
+                | None -> ())
+              | "thinking_delta" ->
+                (match delta.thinking with
+                | Some text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))
+                | None -> ())
+              | _ -> ())
             | "content_block_stop" ->
-              (try
-                 let { index } = content_block_stop_event_of_json json in
-                 (match Hashtbl.find_opt blocks index with
-                 | Some (Tool_use_block { id; _ }) ->
-                   push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = id }))
-                 | _ -> ());
-                 Hashtbl.remove blocks index
-               with Melange_json.Of_json_error _ -> ())
+              let { index } = content_block_stop_event_of_json json in
+              (match Hashtbl.find_opt blocks index with
+              | Some (Tool_use_block { id; _ }) ->
+                push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = id }))
+              | _ -> ());
+              Hashtbl.remove blocks index
             | "message_delta" ->
-              (try
-                 let { delta; usage } = message_delta_event_of_json json in
-                 let usage =
-                   match usage with
-                   | Some u -> Convert_usage.to_usage u
-                   | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
-                 in
-                 push
-                   (Some
-                      (Ai_provider.Stream_part.Finish
-                         { finish_reason = Convert_response.map_stop_reason delta.stop_reason; usage }))
-               with Melange_json.Of_json_error _ -> ())
+              let { delta; usage } = message_delta_event_of_json json in
+              let usage =
+                match usage with
+                | Some u -> Convert_usage.to_usage u
+                | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
+              in
+              push
+                (Some
+                   (Ai_provider.Stream_part.Finish
+                      { finish_reason = Convert_response.map_stop_reason delta.stop_reason; usage }))
             | "message_stop" | "ping" -> ()
             | "error" ->
               let error_type, message =
@@ -156,7 +148,7 @@ let transform events ~warnings =
                           };
                       }))
             | _ -> ()
-          with Yojson.Json_error _ as exn ->
+          with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
             push
               (Some
                  (Ai_provider.Stream_part.Error

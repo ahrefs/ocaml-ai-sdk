@@ -72,8 +72,8 @@ let test_parse_thinking_response () =
   in
   let result = Ai_provider_anthropic.Convert_response.parse_response json in
   (check int) "2 content" 2 (List.length result.content);
-  match List.nth result.content 0 with
-  | Ai_provider.Content.Reasoning { text; signature; _ } ->
+  match result.content with
+  | Ai_provider.Content.Reasoning { text; signature; _ } :: _ ->
     (check string) "thinking" "Let me reason..." text;
     (check (option string)) "sig" (Some "sig_abc") signature
   | _ -> fail "expected Reasoning"

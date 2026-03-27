@@ -13,10 +13,11 @@ let test_single_tool () =
     [ { name = "search"; description = Some "Search the web"; parameters = `Assoc [ "type", `String "object" ] } ]
   in
   let result, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools ~tool_choice:None in
-  (check int) "1 tool" 1 (List.length result);
-  let tool = List.nth result 0 in
-  (check string) "name" "search" tool.name;
-  (check (option string)) "desc" (Some "Search the web") tool.description;
+  (match result with
+  | [ tool ] ->
+    (check string) "name" "search" tool.name;
+    (check (option string)) "desc" (Some "Search the web") tool.description
+  | _ -> failwith "expected exactly one tool");
   (check bool) "auto choice" true (Option.is_some choice)
 
 let test_tool_choice_auto () =

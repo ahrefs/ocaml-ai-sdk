@@ -163,9 +163,7 @@ let convert_messages messages =
 
 type cc = Cache_control.t
 
-let cc_to_json (cc : cc) =
-  match cc.Cache_control.cache_type with
-  | Ephemeral -> `Assoc [ "type", `String "ephemeral" ]
+let cc_to_json (cc : cc) = Cache_control.breakpoint_to_json cc.cache_type
 
 type image_source_base64_json = {
   type_ : string; [@json.key "type"]

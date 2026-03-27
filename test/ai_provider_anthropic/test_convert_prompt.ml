@@ -49,7 +49,11 @@ let test_convert_user_text () =
   let msgs = [ Ai_provider.Prompt.User { content = [ Text { text = "Hello"; provider_options = po } ] } ] in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (check int) "1 message" 1 (List.length result);
-  let msg = List.nth result 0 in
+  let msg =
+    match result with
+    | m :: _ -> m
+    | [] -> failwith "expected non-empty"
+  in
   (check string) "role" "user"
     (match msg.role with
     | `User -> "user"
@@ -60,7 +64,11 @@ let test_convert_assistant_text () =
   let msgs = [ Ai_provider.Prompt.Assistant { content = [ Text { text = "Hi there"; provider_options = po } ] } ] in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (check int) "1 message" 1 (List.length result);
-  let msg = List.nth result 0 in
+  let msg =
+    match result with
+    | m :: _ -> m
+    | [] -> failwith "expected non-empty"
+  in
   (check string) "role" "assistant"
     (match msg.role with
     | `User -> "user"
@@ -87,7 +95,11 @@ let test_convert_tool_result_as_user () =
   in
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (check int) "1 message" 1 (List.length result);
-  let msg = List.nth result 0 in
+  let msg =
+    match result with
+    | m :: _ -> m
+    | [] -> failwith "expected non-empty"
+  in
   (* Tool results become user messages *)
   (check string) "role" "user"
     (match msg.role with
@@ -104,7 +116,11 @@ let test_grouping_consecutive_user () =
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (* Should be merged into 1 message *)
   (check int) "1 merged message" 1 (List.length result);
-  let msg = List.nth result 0 in
+  let msg =
+    match result with
+    | m :: _ -> m
+    | [] -> failwith "expected non-empty"
+  in
   (check int) "2 content parts" 2 (List.length msg.content)
 
 let test_alternating_preserved () =

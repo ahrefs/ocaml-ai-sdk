@@ -31,9 +31,11 @@ let test_stream_text () =
         | _ -> None)
       result
   in
-  (check int) "text parts" 2 (List.length texts);
-  (check string) "first" "Hello" (List.nth texts 0);
-  (check string) "second" " world" (List.nth texts 1);
+  (match texts with
+  | [ t1; t2 ] ->
+    (check string) "first" "Hello" t1;
+    (check string) "second" " world" t2
+  | _ -> fail "expected exactly two text parts");
   let has_start =
     List.exists
       (function
@@ -76,9 +78,9 @@ let test_stream_tool_calls () =
         | _ -> None)
       result
   in
-  (check int) "tool deltas" 2 (List.length tool_deltas);
-  let _name, first_args = List.nth tool_deltas 0 in
-  (check string) "first args" {|{"city":|} first_args;
+  (match tool_deltas with
+  | (_, first_args) :: _ -> (check string) "first args" {|{"city":|} first_args
+  | [] -> fail "expected at least one tool delta");
   let has_finish =
     List.exists
       (function

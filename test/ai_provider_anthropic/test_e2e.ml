@@ -105,14 +105,12 @@ let test_thinking_response () =
   let opts = make_opts "What is the meaning of life?" in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check int) "2 content parts" 2 (List.length result.content);
-  (match List.nth result.content 0 with
-  | Ai_provider.Content.Reasoning { text; signature; _ } ->
+  match result.content with
+  | Reasoning { text; signature; _ } :: Text { text = answer } :: _ ->
     (check string) "thinking text" "Let me reason about this..." text;
-    (check (option string)) "signature" (Some "sig_e2e") signature
-  | _ -> fail "expected Reasoning first");
-  match List.nth result.content 1 with
-  | Ai_provider.Content.Text { text } -> (check string) "answer" "The answer is 42." text
-  | _ -> fail "expected Text second"
+    (check (option string)) "signature" (Some "sig_e2e") signature;
+    (check string) "answer" "The answer is 42." answer
+  | _ -> fail "expected Reasoning then Text"
 
 (* Test 3: Tool call response *)
 let test_tool_call_response () =
@@ -130,12 +128,10 @@ let test_tool_call_response () =
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check int) "2 content" 2 (List.length result.content);
   (check string) "finish" "tool_calls" (Ai_provider.Finish_reason.to_string result.finish_reason);
-  (* Verify tool call through abstraction *)
-  match List.nth result.content 1 with
-  | Ai_provider.Content.Tool_call { tool_name; tool_call_id; args; _ } ->
+  match result.content with
+  | _ :: Ai_provider.Content.Tool_call { tool_name; tool_call_id; args; _ } :: _ ->
     (check string) "tool name" "web_search" tool_name;
     (check string) "tool id" "toolu_e2e_1" tool_call_id;
-    (* args is a JSON string *)
     (check bool) "has args" true (String.length args > 0)
   | _ -> fail "expected Tool_call second"
 

@@ -2,15 +2,21 @@ open Melange_json.Primitives
 
 type cc = Cache_control.t
 
-let cc_to_json (cc : cc) =
-  match cc.Cache_control.cache_type with
-  | Ephemeral -> `Assoc [ "type", `String "ephemeral" ]
+let cc_to_json (cc : cc) = Cache_control.breakpoint_to_json cc.cache_type
 
 type anthropic_tool = {
   name : string;
   description : string option; [@json.option] [@json.drop_default]
   input_schema : Melange_json.t;
   cache_control : cc option; [@json.option] [@json.drop_default]
+}
+[@@deriving to_json]
+
+type tool_choice_type_json = { type_ : string [@json.key "type"] } [@@deriving to_json]
+
+type tool_choice_specific_json = {
+  type_ : string; [@json.key "type"]
+  name : string;
 }
 [@@deriving to_json]
 
@@ -31,6 +37,6 @@ let convert_tools ~tools ~tool_choice =
     List.map convert_single_tool tools, Some (Tc_tool { name = tool_name })
 
 let anthropic_tool_choice_to_json = function
-  | Tc_auto -> `Assoc [ "type", `String "auto" ]
-  | Tc_any -> `Assoc [ "type", `String "any" ]
-  | Tc_tool { name } -> `Assoc [ "type", `String "tool"; "name", `String name ]
+  | Tc_auto -> tool_choice_type_json_to_json { type_ = "auto" }
+  | Tc_any -> tool_choice_type_json_to_json { type_ = "any" }
+  | Tc_tool { name } -> tool_choice_specific_json_to_json { type_ = "tool"; name }

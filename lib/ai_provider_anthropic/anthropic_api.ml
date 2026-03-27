@@ -31,8 +31,8 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
     | Some [] | None -> None
   in
   let tool_choice_json = Option.map Convert_tools.anthropic_tool_choice_to_json tool_choice in
+  (* Fallback for direct API use; anthropic_model.ml always passes model-aware default *)
   let max_tokens =
-    (* Fallback for direct API use; anthropic_model.ml always passes model-aware default *)
     match max_tokens with
     | Some n -> n
     | None -> 4096
@@ -52,21 +52,20 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
     | Some (_ :: _ as ss) -> Some ss
     | Some [] | None -> None
   in
-  request_body_to_json
-    {
-      model;
-      messages = messages_json;
-      system;
-      tools = tools_json;
-      tool_choice = tool_choice_json;
-      max_tokens;
-      temperature;
-      top_p;
-      top_k;
-      stop_sequences;
-      thinking = thinking_json;
-      stream;
-    }
+  {
+    model;
+    messages = messages_json;
+    system;
+    tools = tools_json;
+    tool_choice = tool_choice_json;
+    max_tokens;
+    temperature;
+    top_p;
+    top_k;
+    stop_sequences;
+    thinking = thinking_json;
+    stream;
+  }
 
 let make_headers ~(config : Config.t) ~extra_headers =
   let base_headers = [ "content-type", "application/json"; "anthropic-version", "2023-06-01" ] in
@@ -79,7 +78,6 @@ let make_headers ~(config : Config.t) ~extra_headers =
 
 let body_to_line_stream body =
   let raw_stream = Cohttp_lwt.Body.to_stream body in
-  (* The raw stream gives us chunks; we need to split into lines *)
   let buf = Buffer.create 256 in
   let line_stream, push = Lwt_stream.create () in
   Lwt.async (fun () ->
@@ -100,37 +98,36 @@ let body_to_line_stream body =
           done)
         raw_stream
     in
-    (* Flush remaining data *)
+    (* Flush remaining data after stream ends *)
     if Buffer.length buf > 0 then push (Some (Buffer.contents buf));
     push None;
     Lwt.return_unit);
   line_stream
 
 let messages ~config ~body ~extra_headers ~stream =
+  let body_json = request_body_to_json body in
   match config.Config.fetch with
   | Some fetch ->
-    (* Use injected fetch function for testing *)
     let headers = make_headers ~config ~extra_headers in
-    let body_str = Yojson.Basic.to_string body in
+    let body_str = Yojson.Basic.to_string body_json in
     let%lwt json = fetch ~url:(config.base_url ^ "/messages") ~headers ~body:body_str in
     Lwt.return (`Json json)
   | None ->
-    (* Use real HTTP via cohttp *)
     let url = config.base_url ^ "/messages" in
     let uri = Uri.of_string url in
     let headers = make_headers ~config ~extra_headers in
     let cohttp_headers = Cohttp.Header.of_list headers in
-    let body_str = Yojson.Basic.to_string body in
+    let body_str = Yojson.Basic.to_string body_json in
     let cohttp_body = Cohttp_lwt.Body.of_string body_str in
     let%lwt resp, resp_body = Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:cohttp_body uri in
     let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-    (match () with
-    | () when status >= 400 ->
+    (match status >= 400, stream with
+    | true, _ ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let err = Anthropic_error.of_response ~status ~body:body_str in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
-    | () when stream -> Lwt.return (`Stream (body_to_line_stream resp_body))
-    | () ->
+    | false, true -> Lwt.return (`Stream (body_to_line_stream resp_body))
+    | false, false ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let json = Yojson.Basic.from_string body_str in
       Lwt.return (`Json json))

@@ -140,14 +140,13 @@ let chat_completions ~config ~body ~extra_headers ~stream =
     let cohttp_body = Cohttp_lwt.Body.of_string body_str in
     let%lwt resp, resp_body = Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:cohttp_body uri in
     let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-    if status >= 400 then begin
+    (match status >= 400, stream with
+    | true, _ ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let err = Openai_error.of_response ~status ~body:body_str in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
-    end
-    else if stream then Lwt.return (`Stream (body_to_line_stream resp_body))
-    else begin
+    | false, true -> Lwt.return (`Stream (body_to_line_stream resp_body))
+    | false, false ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let json = Yojson.Basic.from_string body_str in
-      Lwt.return (`Json json)
-    end
+      Lwt.return (`Json json))

@@ -38,9 +38,9 @@ let test_done_marker () =
   push None;
   let events = Ai_provider_openai.Sse.parse_events lines in
   let result = Lwt_main.run (Lwt_stream.to_list events) in
-  (check int) "events" 2 (List.length result);
-  let last = List.nth result 1 in
-  (check string) "done data" "[DONE]" last.data
+  match result with
+  | [ _; last ] -> (check string) "done data" "[DONE]" last.data
+  | _ -> fail "expected exactly two events"
 
 let test_comment () =
   let lines, push = Lwt_stream.create () in

@@ -10,17 +10,19 @@ let test_basic_event () =
   let lines = make_line_stream [ "event: message_start"; "data: {\"type\":\"message\"}"; "" ] in
   let events = Ai_provider_anthropic.Sse.parse_events lines in
   let evts = Lwt_main.run (Lwt_stream.to_list events) in
-  (check int) "1 event" 1 (List.length evts);
-  let evt = List.nth evts 0 in
-  (check string) "event type" "message_start" evt.event_type;
-  (check string) "data" "{\"type\":\"message\"}" evt.data
+  match evts with
+  | [ evt ] ->
+    (check string) "event type" "message_start" evt.event_type;
+    (check string) "data" "{\"type\":\"message\"}" evt.data
+  | _ -> fail "expected exactly one event"
 
 let test_comment_ignored () =
   let lines = make_line_stream [ ": this is a comment"; "event: ping"; "data: {}"; "" ] in
   let events = Ai_provider_anthropic.Sse.parse_events lines in
   let evts = Lwt_main.run (Lwt_stream.to_list events) in
-  (check int) "1 event" 1 (List.length evts);
-  (check string) "event type" "ping" (List.nth evts 0).event_type
+  match evts with
+  | [ evt ] -> (check string) "event type" "ping" evt.event_type
+  | _ -> fail "expected exactly one event"
 
 let test_multiple_events () =
   let lines =

@@ -29,7 +29,7 @@ type mock_response_fields = { id : string } [@@json.allow_extra_fields] [@@deriv
 
 let test_minimal_body () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
-  let r = request_fields_of_json body in
+  let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   (check string) "model" "claude-sonnet-4-6" r.model;
   (check int) "default max_tokens" 4096 r.max_tokens
 
@@ -37,14 +37,14 @@ let test_body_with_stream () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~stream:true ()
   in
-  let r = request_fields_of_json body in
+  let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   (check (option bool)) "stream" (Some true) r.stream
 
 let test_body_with_temperature () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~temperature:0.7 ()
   in
-  let r = request_fields_of_json body in
+  let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   (check (option (float 0.01))) "temperature" (Some 0.7) r.temperature
 
 let test_body_with_thinking () =
@@ -53,7 +53,7 @@ let test_body_with_thinking () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~thinking ()
   in
-  let r = request_fields_of_json body in
+  let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   match r.thinking with
   | None -> fail "expected thinking"
   | Some t ->
@@ -62,7 +62,7 @@ let test_body_with_thinking () =
 
 let test_body_omits_none_fields () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
-  let r = request_fields_of_json body in
+  let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   (check (option (float 0.01))) "no temperature" None r.temperature
 
 let test_body_with_system () =
@@ -70,7 +70,7 @@ let test_body_with_system () =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~system:"Be helpful"
       ()
   in
-  let r = request_fields_of_json body in
+  let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   (check (option string)) "system" (Some "Be helpful") r.system
 
 (* Beta headers tests *)

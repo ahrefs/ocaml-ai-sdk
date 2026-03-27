@@ -1,17 +1,15 @@
 open Melange_json.Primitives
 open Alcotest
 
-(** Check if [sub] is a substring of [s]. *)
 let string_contains ~sub s =
   let sub_len = String.length sub in
   let s_len = String.length s in
   if sub_len > s_len then false
   else (
-    let found = ref false in
-    for i = 0 to s_len - sub_len do
-      if (not !found) && String.sub s i sub_len = sub then found := true
-    done;
-    !found)
+    let rec check i =
+      if i + sub_len > s_len then false else if String.equal (String.sub s i sub_len) sub then true else check (i + 1)
+    in
+    check 0)
 
 type request_body_json = { system : string option [@json.default None] }
 [@@json.allow_extra_fields] [@@deriving of_json]
@@ -176,7 +174,7 @@ let test_object_json_with_existing_system () =
       | Some s -> s
       | None -> fail "expected system prompt"
     in
-    (check bool) "starts with original" true (String.length system > 0 && String.sub system 0 10 = "Be helpful");
+    (check bool) "starts with original" true (String.starts_with ~prefix:"Be helpful" system);
     (check bool) "contains json instruction" true (string_contains ~sub:"Output raw JSON only" system);
     Lwt.return mock_text_response
   in
