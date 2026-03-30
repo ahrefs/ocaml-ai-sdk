@@ -535,7 +535,9 @@ let test_collect_approved_ids () =
   in
   let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
   (check int) "1 approved" 1 (List.length ids);
-  (check string) "tc_1" "tc_1" (List.hd ids)
+  match ids with
+  | id :: _ -> (check string) "tc_1" "tc_1" id
+  | [] -> Alcotest.fail "expected at least one approved id"
 
 let test_collect_approved_ids_empty () =
   let json = Yojson.Basic.from_string {|{"messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}]}|} in

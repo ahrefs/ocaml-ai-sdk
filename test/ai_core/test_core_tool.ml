@@ -16,9 +16,11 @@ let test_tool_with_static_approval () =
       ~execute:(fun _ -> Lwt.return (`String "ok"))
       ()
   in
-  (check bool) "has approval" true (Option.is_some tool.needs_approval);
-  let needs = Lwt_main.run ((Option.get tool.needs_approval) `Null) in
-  (check bool) "always true" true needs
+  match tool.needs_approval with
+  | None -> Alcotest.fail "expected needs_approval to be Some"
+  | Some check_fn ->
+    let needs = Lwt_main.run (check_fn `Null) in
+    (check bool) "always true" true needs
 
 let test_tool_with_dynamic_approval () =
   let tool =
@@ -34,8 +36,13 @@ let test_tool_with_dynamic_approval () =
       ~execute:(fun _ -> Lwt.return (`String "ok"))
       ()
   in
-  let needs_high = Lwt_main.run ((Option.get tool.needs_approval) (`Assoc [ "amount", `Int 5000 ])) in
-  let needs_low = Lwt_main.run ((Option.get tool.needs_approval) (`Assoc [ "amount", `Int 100 ])) in
+  let check_fn =
+    match tool.needs_approval with
+    | None -> Alcotest.fail "expected needs_approval to be Some"
+    | Some f -> f
+  in
+  let needs_high = Lwt_main.run (check_fn (`Assoc [ "amount", `Int 5000 ])) in
+  let needs_low = Lwt_main.run (check_fn (`Assoc [ "amount", `Int 100 ])) in
   (check bool) "high amount needs approval" true needs_high;
   (check bool) "low amount no approval" false needs_low
 

@@ -276,9 +276,11 @@ let test_approval_stops_stream_loop () =
   (check bool) "no tool result" false has_tool_result;
   let steps = Lwt_main.run result.steps in
   (check int) "1 step" 1 (List.length steps);
-  let step = List.hd steps in
-  (check int) "1 tool call" 1 (List.length step.tool_calls);
-  (check int) "0 tool results" 0 (List.length step.tool_results)
+  match steps with
+  | step :: _ ->
+    (check int) "1 tool call" 1 (List.length step.tool_calls);
+    (check int) "0 tool results" 0 (List.length step.tool_results)
+  | [] -> Alcotest.fail "expected at least one step"
 
 let () =
   run "Stream_text"

@@ -221,16 +221,30 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           in
           match any_needs_approval with
           | true ->
-            (* Emit approval requests for tools that need them *)
-            List.iter
-              (fun (tc : Generate_text_result.tool_call) ->
-                match List.assoc_opt tc.tool_name tools with
-                | Some tool when Option.is_some tool.Core_tool.needs_approval ->
-                  emit_event
-                    (Text_stream_part.Tool_approval_request
-                       { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
-                | _ -> ())
-              tool_calls;
+            (* Emit approval requests only for tools whose predicate returns true *)
+            let%lwt () =
+              Lwt_list.iter_s
+                (fun (tc : Generate_text_result.tool_call) ->
+                  let%lwt needs =
+                    match List.mem tc.tool_call_id approved_tool_call_ids with
+                    | true -> Lwt.return_false
+                    | false ->
+                    match List.assoc_opt tc.tool_name tools with
+                    | Some tool ->
+                      (match tool.Core_tool.needs_approval with
+                      | Some check -> check tc.args
+                      | None -> Lwt.return_false)
+                    | None -> Lwt.return_false
+                  in
+                  match needs with
+                  | true ->
+                    emit_event
+                      (Text_stream_part.Tool_approval_request
+                         { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args });
+                    Lwt.return_unit
+                  | false -> Lwt.return_unit)
+                tool_calls
+            in
             (* Finish step and stream *)
             let step : Generate_text_result.step =
               { text; reasoning; tool_calls; tool_results = []; finish_reason = fr; usage = step_usage }

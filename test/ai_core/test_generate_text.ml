@@ -393,8 +393,9 @@ let test_approved_tool_executes () =
   (* Tool should execute — 2 steps *)
   (check int) "2 steps" 2 (List.length result.steps);
   (check int) "1 tool result" 1 (List.length result.tool_results);
-  let tr = List.hd result.tool_results in
-  (check bool) "not error" false tr.is_error
+  match result.tool_results with
+  | tr :: _ -> (check bool) "not error" false tr.is_error
+  | [] -> Alcotest.fail "expected at least one tool result"
 
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
