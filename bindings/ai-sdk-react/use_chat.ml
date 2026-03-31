@@ -82,6 +82,18 @@ module Default_chat_transport = struct
   external to_transport : t -> transport = "%identity"
 end
 
+(** {1 Auto-submit helpers} *)
+
+type send_automatically_options
+
+external send_automatically_options_messages : send_automatically_options -> ui_message array = "messages" [@@mel.get]
+
+(** Checks if all tool parts in the last assistant message have approval responses.
+    Use with [~send_automatically_when] to auto-resubmit after tool approval. *)
+external last_assistant_message_is_complete_with_approval_responses : send_automatically_options -> bool
+  = "lastAssistantMessageIsCompleteWithApprovalResponses"
+[@@mel.module "ai"]
+
 (** {1 Options & Hook} *)
 
 type options
@@ -94,6 +106,7 @@ external make_options :
   ?onToolCall:(Js.Json.t -> unit) ->
   ?onFinish:(Js.Json.t -> unit) ->
   ?onData:(Js.Json.t -> unit) ->
+  ?sendAutomaticallyWhen:(send_automatically_options -> bool) ->
   ?experimental_throttle:int ->
   ?resume:bool ->
   unit ->
@@ -102,9 +115,10 @@ external make_options :
 
 external use_chat_raw : options option -> t = "useChat" [@@mel.module "@ai-sdk/react"]
 
-let use_chat ?id ?messages ?transport ?on_error ?on_tool_call ?on_finish ?on_data ?experimental_throttle ?resume () =
+let use_chat ?id ?messages ?transport ?on_error ?on_tool_call ?on_finish ?on_data ?send_automatically_when
+  ?experimental_throttle ?resume () =
   let opts =
     make_options ?id ?messages ?transport ?onError:on_error ?onToolCall:on_tool_call ?onFinish:on_finish ?onData:on_data
-      ?experimental_throttle ?resume ()
+      ?sendAutomaticallyWhen:send_automatically_when ?experimental_throttle ?resume ()
   in
   use_chat_raw (Some opts)

@@ -256,7 +256,9 @@ let make () =
   let transport =
     Use_chat.Default_chat_transport.(make ~api:api_url () |> to_transport)
   in
-  let chat = Use_chat.use_chat ~transport () in
+  let chat = Use_chat.use_chat ~transport
+    ~send_automatically_when:Use_chat.last_assistant_message_is_complete_with_approval_responses
+    () in
   let messages = Use_chat.messages chat in
   let status = Use_chat.status chat in
   let is_loading =
