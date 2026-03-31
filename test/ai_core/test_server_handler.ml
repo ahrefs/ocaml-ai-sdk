@@ -412,7 +412,8 @@ let test_parse_tool_approval_responded_approved () =
   | _ -> fail "expected Assistant(Tool_call only, no Tool message for approved)"
 
 let test_parse_tool_approval_responded_denied () =
-  (* approval-responded with approved=false: produces error tool result *)
+  (* approval-responded with approved=false: no tool result from parser,
+     denied result is created by the initial tool execution step instead *)
   let msgs =
     parse
       (json
@@ -422,11 +423,10 @@ let test_parse_tool_approval_responded_denied () =
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call _ ] }; Tool { content = [ { is_error; result; tool_call_id; _ } ] } ] ->
-    (check bool) "is error" true is_error;
-    (check string) "denied" {|"Tool execution denied"|} (Yojson.Basic.to_string result);
-    (check string) "tool_call_id" "tc_1" tool_call_id
-  | _ -> fail "expected Assistant(Tool_call) + Tool(denied result)"
+  | [ Assistant { content = [ Tool_call { id; name; _ } ] } ] ->
+    (check string) "id" "tc_1" id;
+    (check string) "name" "weather" name
+  | _ -> fail "expected Assistant(Tool_call only, no Tool message for denied)"
 
 let test_parse_tool_output_available_null_output () =
   (* output-available without an output field defaults to `Null *)

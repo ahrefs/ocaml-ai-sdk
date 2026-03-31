@@ -194,22 +194,10 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
           content = [];
           provider_options = empty_opts;
         }
-    | Some Approval_responded, Some tool_call_id, _ ->
-      (match resolve_tool_name p with
-      | Some tool_name ->
-        (match resolve_approved p with
-        | Some true -> None
-        | _ ->
-          Some
-            {
-              Ai_provider.Prompt.tool_call_id;
-              tool_name;
-              result = `String "Tool execution denied";
-              is_error = true;
-              content = [];
-              provider_options = empty_opts;
-            })
-      | None -> None)
+    | Some Approval_responded, _, _ ->
+      (* Both approved and denied are handled by the initial tool execution step
+         in stream_text/generate_text — no tool result in the parsed messages *)
+      None
     | _ -> None)
   | _ -> None
 
