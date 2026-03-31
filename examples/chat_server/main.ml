@@ -128,7 +128,7 @@ When asked about weather, use the get_weather tool.
 When asked about facts or topics you're not sure about, use the search_web tool.
 You can use multiple tools in sequence to build a complete answer.
 
-Your final response must be structured JSON with:
+Your final response must be raw JSON (no markdown fences, no ```json blocks, just the JSON object directly) with:
 - "summary": a concise natural language answer
 - "data": an array of {"label": "...", "value": "..."} key data points|}
 
