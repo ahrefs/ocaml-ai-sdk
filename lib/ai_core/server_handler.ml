@@ -235,23 +235,43 @@ let parse_messages_from_body body_json =
           | [] -> []
           | content -> [ Ai_provider.Prompt.User { content } ])
         | Some Assistant ->
-          let assistant_parts =
-            List.filter_map
-              (fun p ->
-                match part_type_of_string p.type_ with
-                | Tool_invocation _ -> parse_tool_call p
-                | _ -> parse_assistant_part p)
-              msg.parts
-          in
-          let tool_results = List.filter_map parse_tool_result msg.parts in
-          let msgs =
-            match assistant_parts with
-            | [] -> []
-            | content -> [ Ai_provider.Prompt.Assistant { content } ]
-          in
-          (match tool_results with
-          | [] -> msgs
-          | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
+          (* Split parts into steps at step-start boundaries *)
+          let steps = ref [] in
+          let current_step = ref [] in
+          List.iter
+            (fun p ->
+              match part_type_of_string p.type_ with
+              | Step_start ->
+                (match !current_step with
+                | [] -> ()
+                | parts -> steps := List.rev parts :: !steps);
+                current_step := []
+              | _ -> current_step := p :: !current_step)
+            msg.parts;
+          (match !current_step with
+          | [] -> ()
+          | parts -> steps := List.rev parts :: !steps);
+          (* For each step, emit Assistant + Tool messages *)
+          List.concat_map
+            (fun step_parts ->
+              let assistant_parts =
+                List.filter_map
+                  (fun p ->
+                    match part_type_of_string p.type_ with
+                    | Tool_invocation _ -> parse_tool_call p
+                    | _ -> parse_assistant_part p)
+                  step_parts
+              in
+              let tool_results = List.filter_map parse_tool_result step_parts in
+              let msgs =
+                match assistant_parts with
+                | [] -> []
+                | content -> [ Ai_provider.Prompt.Assistant { content } ]
+              in
+              match tool_results with
+              | [] -> msgs
+              | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
+            (List.rev !steps)
         | None -> [])
       messages
   with Melange_json.Of_json_error _ -> []
