@@ -87,7 +87,7 @@ let render_structured_response key summary data =
     </div>
   </div>
 
-let render_part i part =
+let render_part chat i part =
   let key = string_of_int i in
   match classify part with
   | Text p ->
@@ -97,6 +97,7 @@ let render_part i part =
     | None -> <span key> (s text) </span>)
   | Tool_call p ->
     let state = tool_ui_part_state p in
+    let is_approval_requested = String.equal state "approval-requested" in
     let is_result = String.equal state "output-available" in
     let is_error = String.equal state "output-error" in
     let name_str =
@@ -117,6 +118,54 @@ let render_part i part =
           json_str
         </div>
       | None -> React.null
+    in
+    let approval_buttons =
+      if is_approval_requested then
+        match tool_ui_part_approval p with
+        | Some approval ->
+          let approval_id = tool_approval_id approval in
+          let on_approve _ =
+            Use_chat.add_tool_approval_response chat
+              (Use_chat.make_tool_approval_response ~id:approval_id ~approved:true ())
+          in
+          let on_deny _ =
+            Use_chat.add_tool_approval_response chat
+              (Use_chat.make_tool_approval_response ~id:approval_id ~approved:false ())
+          in
+          <div style=(ReactDOM.Style.make ~marginTop:"8px" ~display:"flex" ~gap:"8px" ())>
+            <button
+              onClick=on_approve
+              style=(ReactDOM.Style.make
+                ~padding:"4px 12px"
+                ~borderRadius:"4px"
+                ~border:"1px solid #2e7d32"
+                ~background:"#e8f5e9"
+                ~color:"#2e7d32"
+                ~cursor:"pointer"
+                ~fontSize:"12px"
+                ~fontWeight:"600"
+                ())
+            >
+              (s "Approve")
+            </button>
+            <button
+              onClick=on_deny
+              style=(ReactDOM.Style.make
+                ~padding:"4px 12px"
+                ~borderRadius:"4px"
+                ~border:"1px solid #c62828"
+                ~background:"#ffebee"
+                ~color:"#c62828"
+                ~cursor:"pointer"
+                ~fontSize:"12px"
+                ~fontWeight:"600"
+                ())
+            >
+              (s "Deny")
+            </button>
+          </div>
+        | None -> React.null
+      else React.null
     in
     let output_display =
       if is_result then
@@ -140,10 +189,16 @@ let render_part i part =
         | None -> React.null
       else React.null
     in
+    let bg =
+      match () with
+      | () when is_approval_requested -> "#fff8e1"
+      | () when is_error -> "#fee"
+      | () -> "#f5f5f5"
+    in
     <div
       key
       style=(ReactDOM.Style.make
-        ~background:(if is_error then "#fee" else "#f5f5f5")
+        ~background:bg
         ~padding:"8px"
         ~borderRadius:"4px"
         ~fontSize:"13px"
@@ -156,13 +211,14 @@ let render_part i part =
         state_label
       </div>
       input_display
+      approval_buttons
       output_display
       error_display
     </div>
   | Step_start _ -> React.null
   | _ -> React.null
 
-let render_message msg =
+let render_message chat msg =
   let role = ui_message_role msg in
   let is_user =
     match role with
@@ -174,7 +230,7 @@ let render_message msg =
   let parts =
     ui_message_parts msg
     |> Array.to_list
-    |> List.mapi render_part
+    |> List.mapi (render_part chat)
     |> Array.of_list
     |> React.array
   in
@@ -248,7 +304,7 @@ let make () =
   let message_list =
     messages
     |> Array.to_list
-    |> List.map render_message
+    |> List.map (render_message chat)
     |> Array.of_list
     |> React.array
   in

@@ -45,6 +45,11 @@ external tool_ui_part_error_text : tool_ui_part -> string option = "errorText" [
 external tool_ui_part_provider_executed : tool_ui_part -> bool option = "providerExecuted"
 [@@mel.get] [@@mel.return nullable]
 
+type tool_approval
+
+external tool_ui_part_approval : tool_ui_part -> tool_approval option = "approval" [@@mel.get] [@@mel.return nullable]
+external tool_approval_id : tool_approval -> string = "id" [@@mel.get]
+
 type source_url_ui_part
 
 external source_url_ui_part_source_id : source_url_ui_part -> string = "sourceId" [@@mel.get]

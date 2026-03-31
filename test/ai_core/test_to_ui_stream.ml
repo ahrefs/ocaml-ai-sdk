@@ -162,7 +162,7 @@ let test_tool_approval_request () =
         Start_step;
         Tool_call_delta { tool_call_id; tool_name; args_text_delta = "{\"key\":" };
         Tool_call_delta { tool_call_id; tool_name; args_text_delta = "\"value\"}" };
-        Tool_approval_request { tool_call_id; tool_name; args };
+        Tool_approval_request { approval_id = "appr_1"; tool_call_id; tool_name; args };
         Finish_step { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } };
         Finish { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } };
       ];
@@ -207,8 +207,8 @@ let test_tool_approval_request () =
   let has_tool_approval_request =
     List.exists
       (function
-        | Ai_core.Ui_message_chunk.Tool_approval_request { tool_call_id = id; tool_name = name; _ } ->
-          String.equal id "tc_1" && String.equal name "dangerous_tool"
+        | Ai_core.Ui_message_chunk.Tool_approval_request { approval_id = aid; tool_call_id = id } ->
+          String.equal id "tc_1" && String.equal aid "appr_1"
         | _ -> false)
       ui_chunks
   in

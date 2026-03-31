@@ -32,6 +32,7 @@ type t =
       is_error : bool;
     }
   | Tool_approval_request of {
+      approval_id : string;
       tool_call_id : string;
       tool_name : string;
       args : Yojson.Basic.t;

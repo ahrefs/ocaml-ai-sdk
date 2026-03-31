@@ -782,6 +782,20 @@ let is_even n = n land 1 = 0
 2. Type aliases: `type error = Shared_t.error`
 3. Function/variable aliases: `let last_opt = Utils_shared.last_opt`
 
+## AI SDK v6 Wire Format Compliance
+
+The frontend (`ai@6` / `@ai-sdk/react@3.x`) validates every SSE chunk using `z.strictObject()` Zod schemas. **Any deviation — extra fields, missing fields, wrong field names — causes a hard runtime error that kills the stream.**
+
+**Before implementing or modifying any SSE chunk type (`Ui_message_chunk.t`):**
+
+1. Check the actual Zod schema in `examples/melange_chat/node_modules/ai/src/ui-message-stream/ui-message-chunks.ts`
+2. Match the **exact** field set — no additions, no omissions
+3. Verify field names match the `camelCase` JSON keys exactly (e.g. `approvalId` not `approval_id`, `toolCallId` not `tool_call_id`)
+4. Add or update a test in `test/ai_core/test_ui_message_chunk.ml` that asserts the exact JSON output
+5. When in doubt, also check how the chunk is processed in `node_modules/ai/src/ui/process-ui-message-stream.ts`
+
+**Reference:** The canonical chunk type list is the Zod union in `ui-message-chunks.ts`. Every variant in `Ui_message_chunk.t` must correspond to exactly one variant in that union with identical fields.
+
 ## New Module Checklist
 
 - [ ] Create both .ml and .mli files with documentation

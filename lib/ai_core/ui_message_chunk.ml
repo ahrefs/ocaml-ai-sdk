@@ -63,9 +63,8 @@ type t =
     }
   | Tool_output_denied of { tool_call_id : string }
   | Tool_approval_request of {
+      approval_id : string;
       tool_call_id : string;
-      tool_name : string;
-      input : Yojson.Basic.t;
     }
   | Source_document of {
       source_id : string;
@@ -150,6 +149,13 @@ type tool_output_error_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
   error_text : string; [@json.key "errorText"]
+}
+[@@deriving to_json]
+
+type tool_approval_request_json = {
+  type_ : string; [@json.key "type"]
+  approval_id : string; [@json.key "approvalId"]
+  tool_call_id : string; [@json.key "toolCallId"]
 }
 [@@deriving to_json]
 
@@ -247,8 +253,8 @@ let to_json = function
     tool_input_error_json_to_json { type_ = "tool-input-error"; tool_call_id; tool_name; input; error_text }
   | Tool_output_denied { tool_call_id } ->
     tool_output_denied_json_to_json { type_ = "tool-output-denied"; tool_call_id }
-  | Tool_approval_request { tool_call_id; tool_name; input } ->
-    tool_input_available_json_to_json { type_ = "tool-approval-request"; tool_call_id; tool_name; input }
+  | Tool_approval_request { approval_id; tool_call_id } ->
+    tool_approval_request_json_to_json { type_ = "tool-approval-request"; approval_id; tool_call_id }
   | Source_document { source_id; media_type; title; filename } ->
     source_document_json_to_json { type_ = "source-document"; source_id; media_type; title; filename }
   | Error { error_text } -> error_json_to_json { type_ = "error"; error_text }

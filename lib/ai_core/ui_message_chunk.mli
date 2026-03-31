@@ -67,9 +67,8 @@ type t =
     }
   | Tool_output_denied of { tool_call_id : string }
   | Tool_approval_request of {
+      approval_id : string;
       tool_call_id : string;
-      tool_name : string;
-      input : Yojson.Basic.t;
     }
   | Source_document of {
       source_id : string;

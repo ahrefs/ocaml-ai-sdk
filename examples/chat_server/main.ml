@@ -44,7 +44,7 @@ type weather_result = {
 [@@deriving to_json]
 
 let get_weather : Ai_core.Core_tool.t =
-  Ai_core.Core_tool.create
+  Ai_core.Core_tool.create_with_approval
     ~description:"Get the current weather for a city. Returns temperature and conditions."
     ~parameters:(json_of_schema city_args_jsonschema)
     ~execute:(fun args ->

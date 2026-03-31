@@ -40,6 +40,11 @@ val tool_ui_part_output : tool_ui_part -> Js.Json.t option
 val tool_ui_part_error_text : tool_ui_part -> string option
 val tool_ui_part_provider_executed : tool_ui_part -> bool option
 
+type tool_approval
+
+val tool_ui_part_approval : tool_ui_part -> tool_approval option
+val tool_approval_id : tool_approval -> string
+
 type source_url_ui_part
 
 val source_url_ui_part_source_id : source_url_ui_part -> string

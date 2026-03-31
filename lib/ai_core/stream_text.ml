@@ -2,9 +2,10 @@
 type id_gen = {
   mutable text_count : int;
   mutable reasoning_count : int;
+  mutable approval_count : int;
 }
 
-let make_id_gen () = { text_count = 0; reasoning_count = 0 }
+let make_id_gen () = { text_count = 0; reasoning_count = 0; approval_count = 0 }
 
 let next_text_id gen =
   gen.text_count <- gen.text_count + 1;
@@ -13,6 +14,10 @@ let next_text_id gen =
 let next_reasoning_id gen =
   gen.reasoning_count <- gen.reasoning_count + 1;
   Printf.sprintf "rsn_%d" gen.reasoning_count
+
+let next_approval_id gen =
+  gen.approval_count <- gen.approval_count + 1;
+  Printf.sprintf "appr_%d" gen.approval_count
 
 (** Consume a provider stream for one step, emitting [Text_stream_part.t] events.
     Returns the accumulated text, reasoning, tool calls, finish reason, and usage. *)
@@ -230,9 +235,10 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
               (fun ((tc : Generate_text_result.tool_call), needs) ->
                 match needs with
                 | true ->
+                  let approval_id = next_approval_id id_gen in
                   emit_event
                     (Text_stream_part.Tool_approval_request
-                       { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
+                       { approval_id; tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
                 | false -> ())
               approval_results;
             (* Finish step and stream *)

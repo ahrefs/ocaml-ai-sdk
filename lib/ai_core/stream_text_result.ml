@@ -48,14 +48,14 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
               push
                 (Some (Ui_message_chunk.Tool_output_error { tool_call_id; error_text = Yojson.Basic.to_string result }))
             else push (Some (Ui_message_chunk.Tool_output_available { tool_call_id; output = result }))
-          | Tool_approval_request { tool_call_id; tool_name; args } ->
+          | Tool_approval_request { approval_id; tool_call_id; tool_name; args } ->
             if not (Hashtbl.mem started_tools tool_call_id) then begin
               Hashtbl.replace started_tools tool_call_id tool_name;
               push (Some (Ui_message_chunk.Tool_input_start { tool_call_id; tool_name }))
             end;
             push (Some (Ui_message_chunk.Tool_input_available { tool_call_id; tool_name; input = args }));
             Hashtbl.remove started_tools tool_call_id;
-            push (Some (Ui_message_chunk.Tool_approval_request { tool_call_id; tool_name; input = args }))
+            push (Some (Ui_message_chunk.Tool_approval_request { approval_id; tool_call_id }))
           | Source { source_id; url; title } -> push (Some (Ui_message_chunk.Source_url { source_id; url; title }))
           | File { url; media_type } -> push (Some (Ui_message_chunk.File { url; media_type }))
           | Finish_step _ -> push (Some Ui_message_chunk.Finish_step)

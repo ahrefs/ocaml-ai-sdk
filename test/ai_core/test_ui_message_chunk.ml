@@ -125,12 +125,10 @@ let test_tool_output_denied () =
 
 let test_tool_approval_request () =
   let json =
-    json_str
-      (Tool_approval_request
-         { tool_call_id = "tc_1"; tool_name = "weather"; input = `Assoc [ "city", `String "London" ] })
+    json_str (Tool_approval_request { approval_id = "appr_1"; tool_call_id = "tc_1" })
   in
   (check string) "tool-approval-request"
-    {|{"type":"tool-approval-request","toolCallId":"tc_1","toolName":"weather","input":{"city":"London"}}|} json
+    {|{"type":"tool-approval-request","approvalId":"appr_1","toolCallId":"tc_1"}|} json
 
 let test_source_document () =
   let json =
