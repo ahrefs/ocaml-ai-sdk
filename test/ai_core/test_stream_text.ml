@@ -389,6 +389,42 @@ let test_approved_tool_executes_stream () =
   (* Initial step (tool execution) + LLM step *)
   (check int) "2 steps" 2 (List.length steps)
 
+let test_denied_tool_emits_output_denied () =
+  let model = make_text_stream_model "Done!" in
+  let tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "should not execute"))
+      ()
+  in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_1"; tool_name = "dangerous_action"; args = `Assoc [ "target", `String "prod" ]; approved = false }
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it" ~tools:[ "dangerous_action", tool ]
+      ~pending_tool_approvals:[ pending ] ~max_steps:3 ()
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Should emit Tool_output_denied, NOT Tool_result *)
+  let has_denied =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_output_denied { tool_call_id = "tc_1" } -> true
+        | _ -> false)
+      parts
+  in
+  let has_error_result =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; is_error = true; _ } -> true
+        | _ -> false)
+      parts
+  in
+  (check bool) "has Tool_output_denied" true has_denied;
+  (check bool) "no error Tool_result" false has_error_result
+
 let make_mixed_stream_model () =
   let module M : Ai_provider.Language_model.S = struct
     let specification_version = "V3"
@@ -429,7 +465,7 @@ let make_mixed_stream_model () =
   end in
   (module M : Ai_provider.Language_model.S)
 
-let test_mixed_tools_stream_blocks_all () =
+let test_mixed_tools_safe_executes_stream () =
   let model = make_mixed_stream_model () in
   let safe_tool =
     Ai_core.Core_tool.create ~description:"Safe"
@@ -449,7 +485,7 @@ let test_mixed_tools_stream_blocks_all () =
       ~max_steps:3 ()
   in
   let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
-  (* Only dangerous_action should get approval request, not safe_action *)
+  (* Only dangerous_action should get approval request *)
   let approval_requests =
     List.filter_map
       (fun p ->
@@ -458,19 +494,27 @@ let test_mixed_tools_stream_blocks_all () =
         | _ -> None)
       parts
   in
-  let has_tool_result =
-    List.exists
+  (* Safe tool should have a Tool_result *)
+  let safe_tool_results =
+    List.filter_map
       (fun p ->
         match p with
-        | Ai_core.Text_stream_part.Tool_result _ -> true
-        | _ -> false)
+        | Ai_core.Text_stream_part.Tool_result { tool_call_id; _ } -> Some tool_call_id
+        | _ -> None)
       parts
   in
-  (check int) "1 approval request" 1 (List.length approval_requests);
-  (check string) "approval for dangerous" "tc_danger" (List.hd approval_requests);
-  (check bool) "no tool results" false has_tool_result;
+  (match approval_requests with
+  | [ id ] -> (check string) "approval for dangerous" "tc_danger" id
+  | _ -> Alcotest.fail "expected exactly 1 approval request");
+  (match safe_tool_results with
+  | [ id ] -> (check string) "safe tool executed" "tc_safe" id
+  | _ -> Alcotest.fail "expected exactly 1 safe tool result");
   let steps = Lwt_main.run result.steps in
-  (check int) "1 step" 1 (List.length steps)
+  match steps with
+  | [ step ] ->
+    (check int) "step has 2 tool calls" 2 (List.length step.tool_calls);
+    (check int) "step has 1 tool result" 1 (List.length step.tool_results)
+  | _ -> Alcotest.fail "expected exactly 1 step"
 
 let () =
   run "Stream_text"
@@ -486,7 +530,8 @@ let () =
           test_case "tool_loop" `Quick test_tool_stream_loop;
           test_case "approval_stops_stream_loop" `Quick test_approval_stops_stream_loop;
           test_case "approved_tool_executes" `Quick test_approved_tool_executes_stream;
-          test_case "mixed_tools_blocks_all" `Quick test_mixed_tools_stream_blocks_all;
+          test_case "denied_emits_output_denied" `Quick test_denied_tool_emits_output_denied;
+          test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes_stream;
         ] );
       "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
       ( "output",

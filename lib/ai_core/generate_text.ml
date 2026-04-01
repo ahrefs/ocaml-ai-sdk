@@ -110,32 +110,20 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         | Some Auto | Some Required | Some (Specific _) | None -> true
       in
       if should_continue then begin
-        (* Check if any tools need approval *)
-        let%lwt any_needs_approval =
-          Lwt_list.exists_s
+        let%lwt pending_approval_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
+        let%lwt tool_results =
+          Lwt_list.map_s
             (fun (tc : Generate_text_result.tool_call) ->
-              match List.assoc_opt tc.tool_name tools with
-              | Some tool ->
-                (match tool.Core_tool.needs_approval with
-                | Some check -> check tc.args
-                | None -> Lwt.return_false)
-              | None -> Lwt.return_false)
-            tool_calls
+              Core_tool.execute_tool ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args)
+            executable_calls
         in
-        match any_needs_approval with
-        | true ->
-          (* Stop loop — tools need approval *)
-          let step : Generate_text_result.step =
-            {
-              text;
-              reasoning;
-              tool_calls;
-              tool_results = [];
-              finish_reason = result.finish_reason;
-              usage = result.usage;
-            }
-          in
-          Option.iter (fun f -> f step) on_step_finish;
+        let step : Generate_text_result.step =
+          { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
+        in
+        Option.iter (fun f -> f step) on_step_finish;
+        match pending_approval_calls with
+        | _ :: _ ->
+          (* Some tools need approval — stop the loop after executing ready tools *)
           let all_steps = List.rev (step :: steps) in
           let parsed_output = Output.parse_output output all_steps in
           Lwt.return
@@ -143,7 +131,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
               Generate_text_result.text = Generate_text_result.join_text all_steps;
               reasoning = Generate_text_result.join_reasoning all_steps;
               tool_calls = List.rev (List.rev_append tool_calls all_tool_calls);
-              tool_results = List.rev all_tool_results;
+              tool_results = List.rev (List.rev_append tool_results all_tool_results);
               steps = all_steps;
               finish_reason = result.finish_reason;
               usage = new_usage;
@@ -151,22 +139,8 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
               warnings = result.warnings;
               output = parsed_output;
             }
-        | false ->
-          (* Execute tools *)
-          let tool_content =
-            List.filter
-              (fun (c : Ai_provider.Content.t) ->
-                match c with
-                | Tool_call _ -> true
-                | Text _ | Reasoning _ | File _ -> false)
-              result.content
-          in
-          let%lwt tool_results = Lwt_list.map_s (execute_tool_call ~tools) tool_content in
-          let step : Generate_text_result.step =
-            { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
-          in
-          Option.iter (fun f -> f step) on_step_finish;
-          (* Append assistant + tool results for next iteration *)
+        | [] ->
+          (* All tools executed — continue step loop *)
           let updated_messages =
             Prompt_builder.append_assistant_and_tool_results ~messages:current_messages
               ~assistant_content:result.content ~tool_results
@@ -214,38 +188,11 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                 {
                   Generate_text_result.tool_call_id = ta.tool_call_id;
                   tool_name = ta.tool_name;
-                  result = `String "Tool execution denied";
-                  is_error = true;
+                  result = Core_tool.denied_result;
+                  is_error = false;
                 }
             | true ->
-              (match List.assoc_opt ta.tool_name tools with
-              | None ->
-                Lwt.return
-                  {
-                    Generate_text_result.tool_call_id = ta.tool_call_id;
-                    tool_name = ta.tool_name;
-                    result = `String (Printf.sprintf "Tool '%s' not found" ta.tool_name);
-                    is_error = true;
-                  }
-              | Some (tool : Core_tool.t) ->
-                Lwt.catch
-                  (fun () ->
-                    let%lwt result = tool.execute ta.args in
-                    Lwt.return
-                      {
-                        Generate_text_result.tool_call_id = ta.tool_call_id;
-                        tool_name = ta.tool_name;
-                        result;
-                        is_error = false;
-                      })
-                  (fun exn ->
-                    Lwt.return
-                      {
-                        Generate_text_result.tool_call_id = ta.tool_call_id;
-                        tool_name = ta.tool_name;
-                        result = `String (Printexc.to_string exn);
-                        is_error = true;
-                      })))
+              Core_tool.execute_tool ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name ~args:ta.args)
           approvals
       in
       let tool_calls =

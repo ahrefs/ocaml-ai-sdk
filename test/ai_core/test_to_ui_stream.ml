@@ -223,6 +223,53 @@ let test_tool_approval_request () =
   in
   (check bool) "no Tool_output chunks" false has_tool_output
 
+let test_tool_output_denied () =
+  let full_stream, push_full = Lwt_stream.create () in
+  List.iter
+    (fun p -> push_full (Some p))
+    Ai_core.Text_stream_part.
+      [
+        Start;
+        Start_step;
+        Tool_call { tool_call_id = "tc_1"; tool_name = "dangerous"; args = `Assoc [ "key", `String "val" ] };
+        Tool_output_denied { tool_call_id = "tc_1" };
+        Finish_step { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } };
+        Finish { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } };
+      ];
+  push_full None;
+  let result : Ai_core.Stream_text_result.t =
+    {
+      text_stream = Lwt_stream.of_list [];
+      full_stream;
+      partial_output_stream = Lwt_stream.of_list [];
+      usage = Lwt.return { Ai_provider.Usage.input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
+      finish_reason = Lwt.return Ai_provider.Finish_reason.Stop;
+      steps = Lwt.return [];
+      warnings = [];
+      output = Lwt.return_none;
+    }
+  in
+  let ui_chunks =
+    Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream ~message_id:"msg_denied" result))
+  in
+  let has_denied =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Tool_output_denied { tool_call_id } -> String.equal tool_call_id "tc_1"
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "has Tool_output_denied" true has_denied;
+  (* Should NOT have Tool_output_error *)
+  let has_error =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Tool_output_error _ -> true
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "no Tool_output_error" false has_error
+
 let () =
   run "To_ui_stream"
     [
@@ -233,5 +280,6 @@ let () =
           test_case "reasoning_filtered" `Quick test_reasoning_filtered;
           test_case "reasoning_included" `Quick test_reasoning_included;
           test_case "tool_approval_request" `Quick test_tool_approval_request;
+          test_case "tool_output_denied" `Quick test_tool_output_denied;
         ] );
     ]

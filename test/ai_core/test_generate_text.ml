@@ -442,7 +442,7 @@ let make_mixed_tool_call_model () =
   end in
   (module M : Ai_provider.Language_model.S)
 
-let test_mixed_tools_approval_blocks_all () =
+let test_mixed_tools_safe_executes () =
   let model = make_mixed_tool_call_model () in
   let safe_tool =
     Ai_core.Core_tool.create ~description:"Safe"
@@ -462,10 +462,16 @@ let test_mixed_tools_approval_blocks_all () =
          ~tools:[ "safe_action", safe_tool; "dangerous_action", dangerous_tool ]
          ~max_steps:3 ())
   in
-  (* One tool needs approval — entire step blocked, no tools execute *)
+  (* Safe tool executes, dangerous needs approval — loop stops after 1 step *)
   (check int) "1 step" 1 (List.length result.steps);
   (check int) "2 tool calls" 2 (List.length result.tool_calls);
-  (check int) "0 tool results" 0 (List.length result.tool_results)
+  (* Safe tool executed, so 1 tool result *)
+  (check int) "1 tool result" 1 (List.length result.tool_results);
+  match result.tool_results with
+  | tr :: _ ->
+    (check string) "safe tool result" {|"safe result"|} (Yojson.Basic.to_string tr.result);
+    (check bool) "not error" false tr.is_error
+  | [] -> Alcotest.fail "expected 1 tool result"
 
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
@@ -497,7 +503,7 @@ let () =
           test_case "no_approval_executes_normally" `Quick test_no_approval_executes_normally;
           test_case "dynamic_approval_conditional" `Quick test_dynamic_approval_conditional;
           test_case "approved_tool_executes" `Quick test_approved_tool_executes;
-          test_case "mixed_tools_approval_blocks_all" `Quick test_mixed_tools_approval_blocks_all;
+          test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "output",

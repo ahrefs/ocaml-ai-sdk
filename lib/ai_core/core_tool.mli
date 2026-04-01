@@ -29,3 +29,24 @@ val create_with_approval :
 
 (** Parse a JSON string, falling back to [`String s] on parse error. *)
 val safe_parse_json_args : string -> Yojson.Basic.t
+
+(** JSON result for denied tool executions.
+    Matches upstream's [{type: "execution-denied"}] format. *)
+val denied_result : Yojson.Basic.t
+
+(** Execute a tool by name from the tools list.
+    Returns a tool result with error info if the tool is not found or throws. *)
+val execute_tool :
+  tools:(string * t) list ->
+  tool_call_id:string ->
+  tool_name:string ->
+  args:Yojson.Basic.t ->
+  Generate_text_result.tool_result Lwt.t
+
+(** Evaluate approval predicates for a list of tool calls.
+    Returns [(pending_approval, ready_to_execute)] — tool calls needing approval
+    and those that can execute immediately. *)
+val evaluate_approvals :
+  tools:(string * t) list ->
+  Generate_text_result.tool_call list ->
+  (Generate_text_result.tool_call list * Generate_text_result.tool_call list) Lwt.t

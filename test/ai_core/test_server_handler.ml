@@ -549,6 +549,34 @@ let test_collect_pending_approvals_empty () =
   let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
   (check int) "0 approvals" 0 (List.length approvals)
 
+let test_collect_pending_approvals_nested_approval () =
+  (* The real frontend sends approval as a nested object: { approval: { id, approved } } *)
+  let json =
+    Yojson.Basic.from_string
+      {|{
+    "messages": [{
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool-weather",
+          "toolCallId": "tc_1",
+          "state": "approval-responded",
+          "approval": {"id": "appr_1", "approved": true},
+          "input": {"city": "London"}
+        }
+      ]
+    }]
+  }|}
+  in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "1 approval" 1 (List.length approvals);
+  match approvals with
+  | a :: _ ->
+    (check string) "id" "tc_1" a.tool_call_id;
+    (check string) "name" "weather" a.tool_name;
+    (check bool) "approved" true a.approved
+  | [] -> Alcotest.fail "expected 1 approval"
+
 let test_collect_pending_approvals_invalid_json () =
   let json = `String "not an object" in
   let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
@@ -603,6 +631,7 @@ let () =
       ( "collect_pending_tool_approvals",
         [
           test_case "pending approvals" `Quick test_collect_pending_approvals;
+          test_case "nested approval format" `Quick test_collect_pending_approvals_nested_approval;
           test_case "no approvals" `Quick test_collect_pending_approvals_empty;
           test_case "invalid json" `Quick test_collect_pending_approvals_invalid_json;
         ] );

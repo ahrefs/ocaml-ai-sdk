@@ -171,6 +171,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
       push_full (Some part);
       Option.iter (fun f -> f part) on_chunk
     in
+    let execute_and_emit (tc : Generate_text_result.tool_call) =
+      let%lwt tr = Core_tool.execute_tool ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args in
+      emit_event
+        (Text_stream_part.Tool_result
+           { tool_call_id = tr.tool_call_id; tool_name = tr.tool_name; result = tr.result; is_error = tr.is_error });
+      Lwt.return tr
+    in
     emit_event Text_stream_part.Start;
     let rec step_loop ~current_messages ~steps ~total_usage ~step_num =
       if step_num > max_steps then begin
@@ -209,41 +216,23 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           | Some Auto | Some Required | Some (Specific _) | None -> true
         in
         if should_continue then begin
-          (* Evaluate approval predicate once per tool call *)
-          let%lwt approval_results =
-            Lwt_list.map_s
-              (fun (tc : Generate_text_result.tool_call) ->
-                let%lwt needs =
-                  match List.assoc_opt tc.tool_name tools with
-                  | Some tool ->
-                    (match tool.Core_tool.needs_approval with
-                    | Some check -> check tc.args
-                    | None -> Lwt.return_false)
-                  | None -> Lwt.return_false
-                in
-                Lwt.return (tc, needs))
-              tool_calls
+          let%lwt pending_approval_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
+          let%lwt tool_results = Lwt_list.map_s execute_and_emit executable_calls in
+          List.iter
+            (fun (tc : Generate_text_result.tool_call) ->
+              let approval_id = next_approval_id id_gen in
+              emit_event
+                (Text_stream_part.Tool_approval_request
+                   { approval_id; tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args }))
+            pending_approval_calls;
+          let step : Generate_text_result.step =
+            { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
           in
-          let any_needs_approval = List.exists snd approval_results in
-          match any_needs_approval with
-          | true ->
-            (* Emit approval requests only for tools whose predicate returned true *)
-            List.iter
-              (fun ((tc : Generate_text_result.tool_call), needs) ->
-                match needs with
-                | true ->
-                  let approval_id = next_approval_id id_gen in
-                  emit_event
-                    (Text_stream_part.Tool_approval_request
-                       { approval_id; tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
-                | false -> ())
-              approval_results;
-            (* Finish step and stream *)
-            let step : Generate_text_result.step =
-              { text; reasoning; tool_calls; tool_results = []; finish_reason = fr; usage = step_usage }
-            in
-            Option.iter (fun f -> f step) on_step_finish;
-            emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
+          Option.iter (fun f -> f step) on_step_finish;
+          emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
+          match pending_approval_calls with
+          | _ :: _ ->
+            (* Some tools need approval — stop the stream *)
             emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
             push_full None;
             let all_steps = List.rev (step :: steps) in
@@ -256,12 +245,15 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             (match on_finish with
             | Some f ->
               let all_tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps in
+              let all_tool_results =
+                List.concat_map (fun (s : Generate_text_result.step) -> s.tool_results) all_steps
+              in
               f
                 {
                   Generate_text_result.text = Generate_text_result.join_text all_steps;
                   reasoning = Generate_text_result.join_reasoning all_steps;
                   tool_calls = all_tool_calls;
-                  tool_results = [];
+                  tool_results = all_tool_results;
                   steps = all_steps;
                   finish_reason = fr;
                   usage = new_total;
@@ -271,68 +263,8 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                 }
             | None -> ());
             Lwt.return_unit
-          | false ->
-            (* Execute tools *)
-            let%lwt tool_results =
-              Lwt_list.map_s
-                (fun (tc : Generate_text_result.tool_call) ->
-                  match List.assoc_opt tc.tool_name tools with
-                  | None ->
-                    let tr =
-                      {
-                        Generate_text_result.tool_call_id = tc.tool_call_id;
-                        tool_name = tc.tool_name;
-                        result = `String (Printf.sprintf "Tool '%s' not found" tc.tool_name);
-                        is_error = true;
-                      }
-                    in
-                    emit_event
-                      (Text_stream_part.Tool_result
-                         {
-                           tool_call_id = tc.tool_call_id;
-                           tool_name = tc.tool_name;
-                           result = tr.result;
-                           is_error = true;
-                         });
-                    Lwt.return tr
-                  | Some (tool : Core_tool.t) ->
-                    Lwt.catch
-                      (fun () ->
-                        let%lwt result = tool.execute tc.args in
-                        let tr =
-                          {
-                            Generate_text_result.tool_call_id = tc.tool_call_id;
-                            tool_name = tc.tool_name;
-                            result;
-                            is_error = false;
-                          }
-                        in
-                        emit_event
-                          (Text_stream_part.Tool_result
-                             { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result; is_error = false });
-                        Lwt.return tr)
-                      (fun exn ->
-                        let err = `String (Printexc.to_string exn) in
-                        let tr =
-                          {
-                            Generate_text_result.tool_call_id = tc.tool_call_id;
-                            tool_name = tc.tool_name;
-                            result = err;
-                            is_error = true;
-                          }
-                        in
-                        emit_event
-                          (Text_stream_part.Tool_result
-                             { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result = err; is_error = true });
-                        Lwt.return tr))
-                tool_calls
-            in
-            let step : Generate_text_result.step =
-              { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
-            in
-            Option.iter (fun f -> f step) on_step_finish;
-            emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
-            (* Build messages for next step *)
+          | [] ->
+            (* All tools executed — continue step loop *)
             let assistant_content =
               let parts = ref [] in
               if String.length text > 0 then parts := Ai_provider.Content.Text { text } :: !parts;
@@ -411,88 +343,27 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                   (Text_stream_part.Tool_call
                      { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args }))
               approvals;
+            (* Denied before approved — matches upstream emit order *)
+            approvals
+            |> List.filter (fun (ta : Generate_text_result.pending_tool_approval) -> not ta.approved)
+            |> List.iter (fun (ta : Generate_text_result.pending_tool_approval) ->
+                 emit_event
+                   (Text_stream_part.Tool_output_denied { tool_call_id = ta.tool_call_id }));
             let%lwt tool_results =
               Lwt_list.map_s
                 (fun (ta : Generate_text_result.pending_tool_approval) ->
                   match ta.approved with
                   | false ->
-                    let tr =
+                    Lwt.return
                       {
                         Generate_text_result.tool_call_id = ta.tool_call_id;
                         tool_name = ta.tool_name;
-                        result = `String "Tool execution denied";
-                        is_error = true;
+                        result = Core_tool.denied_result;
+                        is_error = false;
                       }
-                    in
-                    emit_event
-                      (Text_stream_part.Tool_result
-                         {
-                           tool_call_id = ta.tool_call_id;
-                           tool_name = ta.tool_name;
-                           result = tr.result;
-                           is_error = true;
-                         });
-                    Lwt.return tr
                   | true ->
-                    (match List.assoc_opt ta.tool_name tools with
-                    | None ->
-                      let tr =
-                        {
-                          Generate_text_result.tool_call_id = ta.tool_call_id;
-                          tool_name = ta.tool_name;
-                          result = `String (Printf.sprintf "Tool '%s' not found" ta.tool_name);
-                          is_error = true;
-                        }
-                      in
-                      emit_event
-                        (Text_stream_part.Tool_result
-                           {
-                             tool_call_id = ta.tool_call_id;
-                             tool_name = ta.tool_name;
-                             result = tr.result;
-                             is_error = true;
-                           });
-                      Lwt.return tr
-                    | Some (tool : Core_tool.t) ->
-                      Lwt.catch
-                        (fun () ->
-                          let%lwt result = tool.execute ta.args in
-                          let tr =
-                            {
-                              Generate_text_result.tool_call_id = ta.tool_call_id;
-                              tool_name = ta.tool_name;
-                              result;
-                              is_error = false;
-                            }
-                          in
-                          emit_event
-                            (Text_stream_part.Tool_result
-                               {
-                                 tool_call_id = ta.tool_call_id;
-                                 tool_name = ta.tool_name;
-                                 result;
-                                 is_error = false;
-                               });
-                          Lwt.return tr)
-                        (fun exn ->
-                          let err = `String (Printexc.to_string exn) in
-                          let tr =
-                            {
-                              Generate_text_result.tool_call_id = ta.tool_call_id;
-                              tool_name = ta.tool_name;
-                              result = err;
-                              is_error = true;
-                            }
-                          in
-                          emit_event
-                            (Text_stream_part.Tool_result
-                               {
-                                 tool_call_id = ta.tool_call_id;
-                                 tool_name = ta.tool_name;
-                                 result = err;
-                                 is_error = true;
-                               });
-                          Lwt.return tr)))
+                    execute_and_emit
+                      { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
                 approvals
             in
             let tool_calls =
