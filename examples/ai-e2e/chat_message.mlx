@@ -239,6 +239,7 @@ let render_part i part =
   | Source_document _ -> React.null
   | File p -> render_file_part ~key p
   | Step_start _ -> render_step_start ~key
+  | Data _ -> React.null
   | Unknown _ -> React.null
 
 (* --- Message component --- *)
