@@ -133,13 +133,84 @@ let tool_state_badge state =
     (s label)
   </span>
 
-let render_tool_part ~key p =
+let render_tool_part ~chat ~key p =
   let state = Tool_part.state p in
   let name = Option.value ~default:"tool" (Tool_part.tool_name p) in
   let is_error = String.equal state "output-error" in
+  let is_approval_requested = String.equal state "approval-requested" in
+  let bg =
+    match () with
+    | () when is_approval_requested -> "#fffbeb"
+    | () when is_error -> "#fef2f2"
+    | () -> "#f9fafb"
+  in
+  let input_display =
+    match Tool_part.input p with
+    | Some json ->
+      <details style=(ReactDOM.Style.make ~marginTop:"8px" ())>
+        <summary style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"12px" ~color:"#6b7280" ())>
+          (s "Input")
+        </summary>
+        <pre style=(ReactDOM.Style.make ~marginTop:"4px" ~fontSize:"12px" ~color:"#374151" ~whiteSpace:"pre-wrap" ())>
+          (s (Js.Json.stringify json))
+        </pre>
+      </details>
+    | None -> React.null
+  in
+  let approval_buttons =
+    if is_approval_requested then
+      match tool_ui_part_approval p with
+      | Some approval ->
+        let approval_id = tool_approval_id approval in
+        let on_approve _ =
+          Use_chat.add_tool_approval_response chat
+            (Use_chat.make_tool_approval_response ~id:approval_id ~approved:true ())
+        in
+        let on_deny _ =
+          Use_chat.add_tool_approval_response chat
+            (Use_chat.make_tool_approval_response ~id:approval_id ~approved:false ())
+        in
+        <div style=(ReactDOM.Style.make ~marginTop:"8px" ~display:"flex" ~gap:"8px" ())>
+          <button onClick=on_approve
+            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px"
+              ~border:"1px solid #16a34a" ~background:"#f0fdf4" ~color:"#16a34a"
+              ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+            (s "Approve")
+          </button>
+          <button onClick=on_deny
+            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px"
+              ~border:"1px solid #dc2626" ~background:"#fef2f2" ~color:"#dc2626"
+              ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+            (s "Deny")
+          </button>
+        </div>
+      | None -> React.null
+    else React.null
+  in
+  let output_display =
+    match String.equal state "output-available", Tool_part.output p with
+    | true, Some json ->
+      <details open_=true style=(ReactDOM.Style.make ~marginTop:"8px" ())>
+        <summary style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"12px" ~color:"#065f46" ())>
+          (s "Output")
+        </summary>
+        <pre style=(ReactDOM.Style.make ~marginTop:"4px" ~fontSize:"12px" ~color:"#065f46" ~whiteSpace:"pre-wrap" ())>
+          (s (Js.Json.stringify json))
+        </pre>
+      </details>
+    | _, _ -> React.null
+  in
+  let error_display =
+    match is_error, Tool_part.error_text p with
+    | true, Some err ->
+      <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"12px" ~color:"#991b1b" ())>
+        (s err)
+      </div>
+    | _, _ -> React.null
+  in
   <div key
     style=(ReactDOM.Style.make
-      ~background:(if is_error then "#fef2f2" else "#f9fafb")
+      ~background:bg
       ~border:(if is_error then "1px solid #fecaca" else "1px solid #e5e7eb")
       ~borderRadius:"8px"
       ~padding:"12px"
@@ -151,34 +222,10 @@ let render_tool_part ~key p =
       <strong> (s name) </strong>
       (tool_state_badge state)
     </div>
-    (match Tool_part.input p with
-     | Some json ->
-       <details style=(ReactDOM.Style.make ~marginTop:"8px" ())>
-         <summary style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"12px" ~color:"#6b7280" ())>
-           (s "Input")
-         </summary>
-         <pre style=(ReactDOM.Style.make ~marginTop:"4px" ~fontSize:"12px" ~color:"#374151" ~whiteSpace:"pre-wrap" ())>
-           (s (Js.Json.stringify json))
-         </pre>
-       </details>
-     | None -> React.null)
-    (match String.equal state "output-available", Tool_part.output p with
-     | true, Some json ->
-       <details open_=true style=(ReactDOM.Style.make ~marginTop:"8px" ())>
-         <summary style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"12px" ~color:"#065f46" ())>
-           (s "Output")
-         </summary>
-         <pre style=(ReactDOM.Style.make ~marginTop:"4px" ~fontSize:"12px" ~color:"#065f46" ~whiteSpace:"pre-wrap" ())>
-           (s (Js.Json.stringify json))
-         </pre>
-       </details>
-     | _, _ -> React.null)
-    (match is_error, Tool_part.error_text p with
-     | true, Some err ->
-       <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"12px" ~color:"#991b1b" ())>
-         (s err)
-       </div>
-     | _, _ -> React.null)
+    input_display
+    approval_buttons
+    output_display
+    error_display
   </div>
 
 let render_source_url_part ~key p =
@@ -229,12 +276,12 @@ let render_step_start ~key =
     ~marginBottom:"4px"
     ()) />
 
-let render_part i part =
+let render_part chat i part =
   let key = string_of_int i in
   match classify part with
   | Text p -> render_text_part ~key p
   | Reasoning p -> render_reasoning_part ~key p
-  | Tool_call p -> render_tool_part ~key p
+  | Tool_call p -> render_tool_part ~chat ~key p
   | Source_url p -> render_source_url_part ~key p
   | Source_document _ -> React.null
   | File p -> render_file_part ~key p
@@ -263,7 +310,7 @@ let role_style ~is_user =
     ~letterSpacing:"0.05em"
     ()
 
-let render ~msg =
+let render ~chat ~msg =
   let role = Message.role msg in
   let is_user =
     match role with
@@ -274,7 +321,7 @@ let render ~msg =
   let parts =
     Message.parts msg
     |> Array.to_list
-    |> List.mapi render_part
+    |> List.mapi (render_part chat)
     |> Array.of_list
     |> React.array
   in

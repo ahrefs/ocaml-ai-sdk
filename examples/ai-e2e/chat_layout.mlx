@@ -101,7 +101,7 @@ let render ~title ~description ~endpoint ?render_controls ?on_tool_call ?send_au
        | _ ->
          messages
          |> Array.to_list
-         |> List.map (fun msg -> Chat_message.render ~msg)
+         |> List.map (fun msg -> Chat_message.render ~chat ~msg)
          |> Array.of_list
          |> React.array)
     </div>

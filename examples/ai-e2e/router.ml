@@ -67,8 +67,9 @@ let route_label = function
   | File_attachments -> "File Attachments"
 
 let is_stub = function
-  | Client_tools | Tool_approval | Web_search | File_attachments -> true
-  | Basic_chat | Tool_use | Reasoning | Structured_output | Abort_stop | Retry_regenerate | Completion -> false
+  | Client_tools | Web_search | File_attachments -> true
+  | Basic_chat | Tool_use | Reasoning | Structured_output | Abort_stop | Retry_regenerate | Completion
+  | Tool_approval -> false
 
 let route_description = function
   | Basic_chat -> "Simple streaming chat with useChat hook"

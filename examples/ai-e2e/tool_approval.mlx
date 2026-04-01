@@ -1,79 +1,9 @@
-let s = React.string
-
-let container_style =
-  ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
-    ~margin:"0 auto" ~width:"100%" ()
-
-let header_style =
-  ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
-
-let title_style = ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ()
-
-let description_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#6b7280" ~marginTop:"4px" ()
-
-let banner_style =
-  ReactDOM.Style.make ~padding:"16px" ~borderRadius:"8px" ~background:"#fffbeb" ~border:"1px solid #fde68a"
-    ~marginTop:"16px" ()
-
-let banner_title_style = ReactDOM.Style.make ~fontWeight:"600" ~fontSize:"14px" ~color:"#92400e" ~marginBottom:"8px" ()
-
-let banner_text_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#78350f" ~lineHeight:"1.5" ()
-
-let code_style =
-  ReactDOM.Style.make ~marginTop:"16px" ~padding:"16px" ~borderRadius:"8px" ~background:"#f9fafb"
-    ~border:"1px solid #e5e7eb" ~fontFamily:"ui-monospace, monospace" ~fontSize:"12px" ~color:"#374151"
-    ~whiteSpace:"pre-wrap" ~overflowX:"auto" ()
-
-(* Tool approval demo: human-in-the-loop confirmation before tool execution.
-   Needs:
-   - Server-side: needsApproval flag on Core_tool.t
-   - Server-side: approval request stream event in UIMessage protocol
-   - Server-side: approval response handling in stream_text
-   - Client-side: Use_chat.add_tool_approval_response (binding exists)
-
-   When implemented, the flow would be:
-   1. Model decides to call a tool marked with needsApproval
-   2. Server sends an approval-request event instead of executing
-   3. Client renders a confirmation dialog
-   4. User approves/denies via add_tool_approval_response
-   5. Server receives response and either executes or skips the tool *)
+let _mlx = ()
 
 [@react.component]
 let make () =
-  <div style=container_style>
-    <div style=header_style>
-      <div style=title_style> (s "Tool Approval") </div>
-      <div style=description_style> (s "Human-in-the-loop tool approval workflow.") </div>
-    </div>
-    <div style=banner_style>
-      <div style=banner_title_style> (s "Coming Soon") </div>
-      <div style=banner_text_style>
-        (s "This demo requires tool approval protocol support in the server handler. ")
-        (s "The client-side binding (add_tool_approval_response) already exists.")
-      </div>
-    </div>
-    <div style=code_style>
-      (s {|(* Planned implementation:
-
-let render_controls (chat : Use_chat.t) =
-  match pending_approval with
-  | Some approval ->
-    <div>
-      <p> (s approval.message) </p>
-      <button onClick=(fun _ ->
-        let resp = Use_chat.make_tool_approval_response
-          ~id:approval.id ~approved:true () in
-        Use_chat.add_tool_approval_response chat resp)>
-        (s "Approve")
-      </button>
-      <button onClick=(fun _ ->
-        let resp = Use_chat.make_tool_approval_response
-          ~id:approval.id ~approved:false
-          ~reason:"User denied" () in
-        Use_chat.add_tool_approval_response chat resp)>
-        (s "Deny")
-      </button>
-    </div>
-  | None -> React.null *)|})
-    </div>
-  </div>
+  Chat_layout.render ~title:"Tool Approval"
+    ~description:"Human-in-the-loop approval. Weather needs approval, search executes immediately."
+    ~endpoint:"/api/chat/approval"
+    ~send_automatically_when:Ai_sdk_react.Use_chat.last_assistant_message_is_complete_with_approval_responses
+    ()
