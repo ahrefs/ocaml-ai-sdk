@@ -18,81 +18,54 @@ let render_controls (chat : Use_chat.t) =
   match last_msg with
   | Some msg when Message.role msg = Assistant ->
     let parts = Message.parts msg |> Array.to_list in
-    let pending_tools =
+    (* Only show controls for get_location — other tools (like weather)
+       use the inline approve/deny buttons in chat_message.mlx *)
+    let location_tools =
       List.filter_map
         (fun part ->
           match classify part with
-          | Tool_call p when String.equal (Tool_part.state p) "approval-requested" ->
-            Some (part, p)
+          | Tool_call p
+            when String.equal (Tool_part.state p) "approval-requested"
+                 && Tool_part.tool_name p = Some "get_location" ->
+            Some (Tool_part.tool_call_id p)
           | _ -> None)
         parts
     in
-    (match pending_tools with
+    (match location_tools with
     | [] -> React.null
-    | tools ->
+    | tool_ids ->
       <div style=(ReactDOM.Style.make ~padding:"12px" ~background:"#fffbeb" ~borderRadius:"8px"
         ~border:"1px solid #fde68a" ~marginTop:"8px" ())>
-        <div style=(ReactDOM.Style.make ~fontSize:"13px" ~fontWeight:"600" ~color:"#92400e"
-          ~marginBottom:"8px" ())>
-          (s "Tool requests pending:")
-        </div>
-        (tools
-         |> List.map (fun (raw_part, p) ->
-           let tool_name =
-             match Tool_part.tool_name p with
-             | Some n -> n
-             | None -> "unknown"
-           in
-           let key = Tool_part.tool_call_id p in
-           match tool_name with
-           | "get_location" ->
-             <div key style=(ReactDOM.Style.make ~marginBottom:"8px" ())>
-               <div style=(ReactDOM.Style.make ~fontSize:"13px" ~color:"#374151" ~marginBottom:"6px" ())>
-                 (s "The assistant wants your location.")
-               </div>
-               <button
-                 onClick=(fun _ ->
-                   get_current_position
-                     (fun pos ->
-                       let lat = latitude pos in
-                       let lon = longitude pos in
-                       let output =
-                         Js.Json.parseExn
-                           (Printf.sprintf {|{"latitude":%.4f,"longitude":%.4f,"city":"Your Location"}|} lat lon)
-                       in
-                       Use_chat.add_tool_output chat
-                         (Use_chat.make_tool_output ~tool:"get_location" ~toolCallId:key ~output))
-                     (fun _err ->
-                       let output =
-                         Js.Json.parseExn {|{"latitude":48.8566,"longitude":2.3522,"city":"Paris"}|}
-                       in
-                       Use_chat.add_tool_output chat
-                         (Use_chat.make_tool_output ~tool:"get_location" ~toolCallId:key ~output)))
-                 style=(ReactDOM.Style.make ~padding:"6px 14px" ~borderRadius:"6px"
-                   ~border:"1px solid #2563eb" ~background:"#eff6ff" ~color:"#2563eb"
-                   ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
-                 (s "Share Location")
-               </button>
+        (tool_ids
+         |> List.map (fun key ->
+           <div key style=(ReactDOM.Style.make ~marginBottom:"8px" ())>
+             <div style=(ReactDOM.Style.make ~fontSize:"13px" ~color:"#374151" ~marginBottom:"6px" ())>
+               (s "The assistant wants your location.")
              </div>
-           | _ ->
-             (match tool_ui_part_approval (as_tool_call raw_part) with
-             | Some approval ->
-               let approval_id = tool_approval_id approval in
-               <div key style=(ReactDOM.Style.make ~marginBottom:"8px" ~display:"flex" ~alignItems:"center" ~gap:"8px" ())>
-                 <span style=(ReactDOM.Style.make ~fontSize:"13px" ~color:"#374151" ())>
-                   (s (Printf.sprintf "Approve %s?" tool_name))
-                 </span>
-                 <button
-                   onClick=(fun _ ->
-                     Use_chat.add_tool_approval_response chat
-                       (Use_chat.make_tool_approval_response ~id:approval_id ~approved:true ()))
-                   style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px"
-                     ~border:"1px solid #16a34a" ~background:"#f0fdf4" ~color:"#16a34a"
-                     ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
-                   (s "Approve")
-                 </button>
-               </div>
-             | None -> React.null))
+             <button
+               onClick=(fun _ ->
+                 get_current_position
+                   (fun pos ->
+                     let lat = latitude pos in
+                     let lon = longitude pos in
+                     let output =
+                       Js.Json.parseExn
+                         (Printf.sprintf {|{"latitude":%.4f,"longitude":%.4f,"city":"Your Location"}|} lat lon)
+                     in
+                     Use_chat.add_tool_output chat
+                       (Use_chat.make_tool_output ~tool:"get_location" ~toolCallId:key ~output))
+                   (fun _err ->
+                     let output =
+                       Js.Json.parseExn {|{"latitude":48.8566,"longitude":2.3522,"city":"Paris"}|}
+                     in
+                     Use_chat.add_tool_output chat
+                       (Use_chat.make_tool_output ~tool:"get_location" ~toolCallId:key ~output)))
+               style=(ReactDOM.Style.make ~padding:"6px 14px" ~borderRadius:"6px"
+                 ~border:"1px solid #2563eb" ~background:"#eff6ff" ~color:"#2563eb"
+                 ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+               (s "Share Location")
+             </button>
+           </div>)
          |> Array.of_list
          |> React.array)
       </div>)
