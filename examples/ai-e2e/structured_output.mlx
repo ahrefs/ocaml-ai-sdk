@@ -1,8 +1,5 @@
 (* MLX requires a structure item before [@react.component] *)
-let _mlx = ()
-
-[@react.component]
+let _mlx = () [@react.component]
 let make () =
-  Chat_layout.render ~title:"Structured Output"
-    ~description:"Schema-validated JSON output rendered as formatted cards."
+  Chat_layout.render ~title:"Structured Output" ~description:"Schema-validated JSON output rendered as formatted cards."
     ~endpoint:"/api/chat/structured" ()

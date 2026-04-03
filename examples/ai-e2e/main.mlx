@@ -4,33 +4,28 @@ external remove_event_listener : string -> (unit -> unit) -> unit = "removeEvent
 
 let get_hash () =
   let h = location_hash in
-  if String.length h > 1 then String.sub h 1 (String.length h - 1)
-  else ""
+  if String.length h > 1 then String.sub h 1 (String.length h - 1) else ""
 
 let set_hash : string -> unit = [%mel.raw {| function(h) { window.location.hash = h; } |}]
 
 let use_route () =
   let route, set_route = React.useState (fun () -> Router.route_of_hash (get_hash ())) in
   React.useEffect0 (fun () ->
-    let handler () =
-      set_route (fun _ -> Router.route_of_hash (get_hash ()))
-    in
+    let handler () = set_route (fun _ -> Router.route_of_hash (get_hash ())) in
     add_event_listener "hashchange" handler;
     Some (fun () -> remove_event_listener "hashchange" handler));
-  route, fun r ->
-    set_hash ("#" ^ Router.hash_of_route r);
-    set_route (fun _ -> r)
+  ( route,
+    fun r ->
+      set_hash ("#" ^ Router.hash_of_route r);
+      set_route (fun _ -> r) )
 
-let app_style =
-  ReactDOM.Style.make ~display:"flex" ~height:"100vh" ~overflow:"hidden" ()
+let app_style = ReactDOM.Style.make ~display:"flex" ~height:"100vh" ~overflow:"hidden" ()
 
-let content_style =
-  ReactDOM.Style.make ~flex:"1" ~overflow:"auto" ()
+let content_style = ReactDOM.Style.make ~flex:"1" ~overflow:"auto" ()
 
 let make_page make = React.createElement make ()
 
 module App = struct
-  [@react.component]
   let make () =
     let provider, set_provider = React.useState (fun () -> Provider_context.Anthropic) in
     let route, navigate = use_route () in
@@ -40,26 +35,24 @@ module App = struct
         (Sidebar.render ~route ~on_navigate:navigate)
         <div style=content_style>
           (match route with
-           | Router.Basic_chat -> make_page Basic_chat.make
-           | Router.Tool_use -> make_page Tool_use.make
-           | Router.Reasoning -> make_page Reasoning.make
-           | Router.Structured_output -> make_page Structured_output.make
-           | Router.Abort_stop -> make_page Abort_stop.make
-           | Router.Retry_regenerate -> make_page Retry_regenerate.make
-           | Router.Client_tools -> make_page Client_tools.make
-           | Router.Completion -> make_page Completion.make
-           | Router.Tool_approval -> make_page Tool_approval.make
-           | Router.Web_search -> make_page Web_search.make
-           | Router.File_attachments -> make_page File_attachments.make)
+          | Router.Basic_chat -> make_page Basic_chat.make
+          | Router.Tool_use -> make_page Tool_use.make
+          | Router.Reasoning -> make_page Reasoning.make
+          | Router.Structured_output -> make_page Structured_output.make
+          | Router.Abort_stop -> make_page Abort_stop.make
+          | Router.Retry_regenerate -> make_page Retry_regenerate.make
+          | Router.Client_tools -> make_page Client_tools.make
+          | Router.Completion -> make_page Completion.make
+          | Router.Tool_approval -> make_page Tool_approval.make
+          | Router.Web_search -> make_page Web_search.make
+          | Router.File_attachments -> make_page File_attachments.make)
         </div>
       </div>
     in
     Provider_context.make_provider ~value:ctx content
-end
+end [@react.component]
 
 let () =
   match ReactDOM.querySelector "#root" with
-  | Some root ->
-    ReactDOM.Client.render (ReactDOM.Client.createRoot root) (React.createElement App.make ())
-  | None ->
-    Js.Console.error "Could not find #root element"
+  | Some root -> ReactDOM.Client.render (ReactDOM.Client.createRoot root) (React.createElement App.make ())
+  | None -> Js.Console.error "Could not find #root element"

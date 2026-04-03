@@ -5,15 +5,15 @@ let s = React.string
 (* --- Structured output renderer --- *)
 
 let card_style =
-  ReactDOM.Style.make ~background:"#f9fafb" ~borderRadius:"8px" ~padding:"16px"
-    ~border:"1px solid #e5e7eb" ~marginTop:"8px" ()
+  ReactDOM.Style.make ~background:"#f9fafb" ~borderRadius:"8px" ~padding:"16px" ~border:"1px solid #e5e7eb"
+    ~marginTop:"8px" ()
 
-let card_summary_style =
-  ReactDOM.Style.make ~fontSize:"14px" ~color:"#111827" ~marginBottom:"12px" ~lineHeight:"1.5" ()
+let card_summary_style = ReactDOM.Style.make ~fontSize:"14px" ~color:"#111827" ~marginBottom:"12px" ~lineHeight:"1.5" ()
 
 let card_row_style ~is_last =
   ReactDOM.Style.make ~display:"flex" ~justifyContent:"space-between" ~padding:"8px 0"
-    ~borderBottom:(if is_last then "none" else "1px solid #e5e7eb") ()
+    ~borderBottom:(if is_last then "none" else "1px solid #e5e7eb")
+    ()
 
 let card_label_style = ReactDOM.Style.make ~color:"#6b7280" ~fontWeight:"500" ~fontSize:"13px" ()
 let card_value_style = ReactDOM.Style.make ~color:"#111827" ~fontSize:"13px" ()
@@ -34,36 +34,34 @@ let try_render_structured ~key text =
         | None -> None
       in
       (match summary, data with
-       | Some summary_text, Some data_arr ->
-         let len = Array.length data_arr in
-         let rows =
-           data_arr |> Array.to_list |> List.mapi (fun j item ->
-             let row_key = string_of_int j in
-             match Js.Json.decodeObject item with
-             | Some row_obj ->
-               let label =
-                 match Js.Dict.get row_obj "label" with
-                 | Some v -> Option.value ~default:"" (Js.Json.decodeString v)
-                 | None -> ""
-               in
-               let value =
-                 match Js.Dict.get row_obj "value" with
-                 | Some v -> Option.value ~default:"" (Js.Json.decodeString v)
-                 | None -> ""
-               in
-               <div key=row_key style=(card_row_style ~is_last:(j = len - 1))>
-                 <span style=card_label_style> (s label) </span>
-                 <span style=card_value_style> (s value) </span>
-               </div>
-             | None -> React.null)
-           |> Array.of_list |> React.array
-         in
-         Some
-           <div key style=card_style>
-             <div style=card_summary_style> (s summary_text) </div>
-             rows
-           </div>
-       | _, _ -> None)
+      | Some summary_text, Some data_arr ->
+        let len = Array.length data_arr in
+        let rows =
+          data_arr
+          |> Array.to_list
+          |> List.mapi (fun j item ->
+            let row_key = string_of_int j in
+            match Js.Json.decodeObject item with
+            | Some row_obj ->
+              let label =
+                match Js.Dict.get row_obj "label" with
+                | Some v -> Option.value ~default:"" (Js.Json.decodeString v)
+                | None -> ""
+              in
+              let value =
+                match Js.Dict.get row_obj "value" with
+                | Some v -> Option.value ~default:"" (Js.Json.decodeString v)
+                | None -> ""
+              in
+              <div key=row_key style=(card_row_style ~is_last:(j = len - 1))>
+                <span style=card_label_style>(s label)</span> <span style=card_value_style>(s value)</span>
+              </div>
+            | None -> React.null)
+          |> Array.of_list
+          |> React.array
+        in
+        Some <div key style=card_style><div style=card_summary_style>(s summary_text)</div> rows</div>
+      | _, _ -> None)
     | None -> None
   with _ -> None
 
@@ -73,10 +71,7 @@ let render_text_part ~key p =
   let text = Text_part.text p in
   match try_render_structured ~key text with
   | Some rendered -> rendered
-  | None ->
-    <div key style=(ReactDOM.Style.make ~whiteSpace:"pre-wrap" ())>
-      (s text)
-    </div>
+  | None -> <div key style=(ReactDOM.Style.make ~whiteSpace:"pre-wrap" ())>(s text)</div>
 
 let render_reasoning_part ~key p =
   let text = Reasoning_part.text p in
@@ -85,29 +80,17 @@ let render_reasoning_part ~key p =
     | Some "streaming" -> true
     | _ -> false
   in
-  <details key open_=is_streaming
-    style=(ReactDOM.Style.make
-      ~borderLeft:"3px solid #9333ea"
-      ~paddingLeft:"12px"
-      ~marginTop:"8px"
-      ~marginBottom:"8px"
-      ())>
+  <details
+    key
+    open_=is_streaming
+    style=(ReactDOM.Style.make ~borderLeft:"3px solid #9333ea" ~paddingLeft:"12px" ~marginTop:"8px" ~marginBottom:"8px"
+             ())>
     <summary
-      style=(ReactDOM.Style.make
-        ~cursor:"pointer"
-        ~fontSize:"13px"
-        ~fontWeight:"500"
-        ~color:"#9333ea"
-        ~userSelect:"none"
-        ())>
+      style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"13px" ~fontWeight:"500" ~color:"#9333ea"
+               ~userSelect:"none" ())>
       (s (if is_streaming then "Thinking..." else "Thought process"))
     </summary>
-    <div style=(ReactDOM.Style.make
-      ~marginTop:"8px"
-      ~fontSize:"13px"
-      ~color:"#6b7280"
-      ~whiteSpace:"pre-wrap"
-      ())>
+    <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"13px" ~color:"#6b7280" ~whiteSpace:"pre-wrap" ())>
       (s text)
     </div>
   </details>
@@ -120,16 +103,9 @@ let tool_state_badge state =
     | "output-error" -> "Error", "#fee2e2", "#991b1b"
     | other -> other, "#f3f4f6", "#374151"
   in
-  <span style=(ReactDOM.Style.make
-    ~display:"inline-block"
-    ~padding:"2px 8px"
-    ~borderRadius:"9999px"
-    ~fontSize:"11px"
-    ~fontWeight:"500"
-    ~background:bg
-    ~color
-    ~marginLeft:"8px"
-    ())>
+  <span
+    style=(ReactDOM.Style.make ~display:"inline-block" ~padding:"2px 8px" ~borderRadius:"9999px" ~fontSize:"11px"
+             ~fontWeight:"500" ~background:bg ~color ~marginLeft:"8px" ())>
     (s label)
   </span>
 
@@ -158,7 +134,7 @@ let render_tool_part ~chat ~key p =
     | None -> React.null
   in
   let approval_buttons =
-    if is_approval_requested then
+    if is_approval_requested then (
       match tool_ui_part_approval p with
       | Some approval ->
         let approval_id = tool_approval_id approval in
@@ -171,20 +147,20 @@ let render_tool_part ~chat ~key p =
             (Use_chat.make_tool_approval_response ~id:approval_id ~approved:false ())
         in
         <div style=(ReactDOM.Style.make ~marginTop:"8px" ~display:"flex" ~gap:"8px" ())>
-          <button onClick=on_approve
-            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px"
-              ~border:"1px solid #16a34a" ~background:"#f0fdf4" ~color:"#16a34a"
-              ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+          <button
+            onClick=on_approve
+            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px" ~border:"1px solid #16a34a"
+                     ~background:"#f0fdf4" ~color:"#16a34a" ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
             (s "Approve")
           </button>
-          <button onClick=on_deny
-            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px"
-              ~border:"1px solid #dc2626" ~background:"#fef2f2" ~color:"#dc2626"
-              ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+          <button
+            onClick=on_deny
+            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px" ~border:"1px solid #dc2626"
+                     ~background:"#fef2f2" ~color:"#dc2626" ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
             (s "Deny")
           </button>
         </div>
-      | None -> React.null
+      | None -> React.null)
     else React.null
   in
   let output_display =
@@ -203,24 +179,17 @@ let render_tool_part ~chat ~key p =
   let error_display =
     match is_error, Tool_part.error_text p with
     | true, Some err ->
-      <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"12px" ~color:"#991b1b" ())>
-        (s err)
-      </div>
+      <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"12px" ~color:"#991b1b" ())>(s err)</div>
     | _, _ -> React.null
   in
-  <div key
-    style=(ReactDOM.Style.make
-      ~background:bg
-      ~border:(if is_error then "1px solid #fecaca" else "1px solid #e5e7eb")
-      ~borderRadius:"8px"
-      ~padding:"12px"
-      ~marginTop:"8px"
-      ~fontFamily:"ui-monospace, monospace"
-      ~fontSize:"13px"
-      ())>
+  <div
+    key
+    style=(ReactDOM.Style.make ~background:bg
+             ~border:(if is_error then "1px solid #fecaca" else "1px solid #e5e7eb")
+             ~borderRadius:"8px" ~padding:"12px" ~marginTop:"8px" ~fontFamily:"ui-monospace, monospace" ~fontSize:"13px"
+             ())>
     <div style=(ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ())>
-      <strong> (s name) </strong>
-      (tool_state_badge state)
+      <strong>(s name)</strong> (tool_state_badge state)
     </div>
     input_display
     approval_buttons
@@ -231,15 +200,13 @@ let render_tool_part ~chat ~key p =
 let render_source_url_part ~key p =
   let url = Source_url_part.url p in
   let title = Option.value ~default:url (Source_url_part.title p) in
-  <a key href=url target="_blank" rel="noopener noreferrer"
-    style=(ReactDOM.Style.make
-      ~display:"inline-block"
-      ~fontSize:"12px"
-      ~color:"#2563eb"
-      ~textDecoration:"underline"
-      ~marginTop:"4px"
-      ~marginRight:"8px"
-      ())>
+  <a
+    key
+    href=url
+    target="_blank"
+    rel="noopener noreferrer"
+    style=(ReactDOM.Style.make ~display:"inline-block" ~fontSize:"12px" ~color:"#2563eb" ~textDecoration:"underline"
+             ~marginTop:"4px" ~marginRight:"8px" ())>
     (s title)
   </a>
 
@@ -247,34 +214,23 @@ let render_file_part ~key p =
   let url = File_part.url p in
   let media_type = File_part.media_type p in
   if String.length media_type >= 6 && String.sub media_type 0 6 = "image/" then
-    <img key src=url alt="attachment"
-      style=(ReactDOM.Style.make
-        ~maxWidth:"300px"
-        ~borderRadius:"8px"
-        ~marginTop:"8px"
-        ()) />
-  else
+    <img
+      key src=url alt="attachment" style=(ReactDOM.Style.make ~maxWidth:"300px" ~borderRadius:"8px" ~marginTop:"8px" ())
+    />
+  else (
     let filename = Option.value ~default:"file" (File_part.filename p) in
-    <div key style=(ReactDOM.Style.make
-      ~display:"inline-flex"
-      ~alignItems:"center"
-      ~gap:"6px"
-      ~padding:"6px 12px"
-      ~background:"#f3f4f6"
-      ~borderRadius:"6px"
-      ~fontSize:"13px"
-      ~marginTop:"8px"
-      ())>
+    <div
+      key
+      style=(ReactDOM.Style.make ~display:"inline-flex" ~alignItems:"center" ~gap:"6px" ~padding:"6px 12px"
+               ~background:"#f3f4f6" ~borderRadius:"6px" ~fontSize:"13px" ~marginTop:"8px" ())>
       (s filename)
-    </div>
+    </div>)
 
 let render_step_start ~key =
-  <hr key style=(ReactDOM.Style.make
-    ~border:"none"
-    ~borderTop:"1px solid #e5e7eb"
-    ~marginTop:"12px"
-    ~marginBottom:"4px"
-    ()) />
+  <hr
+    key
+    style=(ReactDOM.Style.make ~border:"none" ~borderTop:"1px solid #e5e7eb" ~marginTop:"12px" ~marginBottom:"4px" ())
+  />
 
 let render_part ?render_controls chat i part =
   let key = string_of_int i in
@@ -296,23 +252,15 @@ let render_part ?render_controls chat i part =
 (* --- Message component --- *)
 
 let message_style ~is_user =
-  ReactDOM.Style.make
-    ~padding:"12px 16px"
-    ~borderRadius:"8px"
+  ReactDOM.Style.make ~padding:"12px 16px" ~borderRadius:"8px"
     ~background:(if is_user then "#eff6ff" else "#fff")
     ~border:(if is_user then "1px solid #bfdbfe" else "1px solid #e5e7eb")
-    ~marginBottom:"12px"
-    ()
+    ~marginBottom:"12px" ()
 
 let role_style ~is_user =
-  ReactDOM.Style.make
-    ~fontSize:"12px"
-    ~fontWeight:"600"
+  ReactDOM.Style.make ~fontSize:"12px" ~fontWeight:"600"
     ~color:(if is_user then "#1d4ed8" else "#374151")
-    ~marginBottom:"6px"
-    ~textTransform:"uppercase"
-    ~letterSpacing:"0.05em"
-    ()
+    ~marginBottom:"6px" ~textTransform:"uppercase" ~letterSpacing:"0.05em" ()
 
 let render ~chat ?render_controls ~msg () =
   let role = Message.role msg in
@@ -323,13 +271,8 @@ let render ~chat ?render_controls ~msg () =
   in
   let role_label = if is_user then "You" else "Assistant" in
   let parts =
-    Message.parts msg
-    |> Array.to_list
-    |> List.mapi (render_part ?render_controls chat)
-    |> Array.of_list
-    |> React.array
+    Message.parts msg |> Array.to_list |> List.mapi (render_part ?render_controls chat) |> Array.of_list |> React.array
   in
   <div key=(Message.id msg) style=(message_style ~is_user)>
-    <div style=(role_style ~is_user)> (s role_label) </div>
-    parts
+    <div style=(role_style ~is_user)>(s role_label)</div> parts
   </div>

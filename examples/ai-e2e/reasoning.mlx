@@ -1,8 +1,5 @@
 (* MLX requires a structure item before [@react.component] *)
-let _mlx = ()
-
-[@react.component]
+let _mlx = () [@react.component]
 let make () =
-  Chat_layout.render ~title:"Reasoning"
-    ~description:"Extended thinking with collapsible reasoning blocks."
+  Chat_layout.render ~title:"Reasoning" ~description:"Extended thinking with collapsible reasoning blocks."
     ~endpoint:"/api/chat/reasoning" ()

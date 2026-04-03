@@ -2,8 +2,7 @@ open Ai_sdk_react
 
 let s = React.string
 
-let controls_style =
-  ReactDOM.Style.make ~display:"flex" ~justifyContent:"flex-end" ~paddingTop:"8px" ()
+let controls_style = ReactDOM.Style.make ~display:"flex" ~justifyContent:"flex-end" ~paddingTop:"8px" ()
 
 let regenerate_button_style =
   ReactDOM.Style.make ~padding:"6px 16px" ~borderRadius:"8px" ~border:"1px solid #d1d5db" ~background:"#fff"
@@ -26,14 +25,9 @@ let render_controls (chat : Use_chat.t) =
   in
   if has_assistant_message && is_ready then
     <div style=controls_style>
-      <button style=regenerate_button_style onClick=(fun _ -> Use_chat.regenerate chat)>
-        (s "Regenerate")
-      </button>
+      <button style=regenerate_button_style onClick=(fun _ -> Use_chat.regenerate chat)>(s "Regenerate")</button>
     </div>
-  else React.null
-
-[@react.component]
+  else React.null [@react.component]
 let make () =
-  Chat_layout.render ~title:"Retry / Regenerate"
-    ~description:"Regenerate the last assistant response."
+  Chat_layout.render ~title:"Retry / Regenerate" ~description:"Regenerate the last assistant response."
     ~endpoint:"/api/chat/basic" ~render_controls ()

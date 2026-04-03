@@ -4,8 +4,7 @@ let container_style =
   ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
     ~margin:"0 auto" ~width:"100%" ()
 
-let header_style =
-  ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
+let header_style = ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
 
 let title_style = ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ()
 
@@ -23,31 +22,30 @@ let code_style =
   ReactDOM.Style.make ~marginTop:"16px" ~padding:"16px" ~borderRadius:"8px" ~background:"#f9fafb"
     ~border:"1px solid #e5e7eb" ~fontFamily:"ui-monospace, monospace" ~fontSize:"12px" ~color:"#374151"
     ~whiteSpace:"pre-wrap" ~overflowX:"auto" ()
-
-(* File attachments demo: images and files in chat messages.
+  (* File attachments demo: images and files in chat messages.
    Needs:
    - Server-side: file upload endpoint (e.g. /api/upload)
    - Server-side: file part support in parse_messages_from_body (partially exists)
    - Client-side: sendMessage with files parameter
    - Client-side: file input UI with drag-and-drop
    - File parts are already rendered by the message component *)
-
-[@react.component]
+  [@react.component]
 let make () =
   <div style=container_style>
     <div style=header_style>
-      <div style=title_style> (s "File Attachments") </div>
-      <div style=description_style> (s "Image and file attachments in messages.") </div>
+      <div style=title_style>(s "File Attachments")</div>
+      <div style=description_style>(s "Image and file attachments in messages.")</div>
     </div>
     <div style=banner_style>
-      <div style=banner_title_style> (s "Coming Soon") </div>
+      <div style=banner_title_style>(s "Coming Soon")</div>
       <div style=banner_text_style>
         (s "This demo requires file upload support and sendMessage with files. ")
         (s "The message renderer already handles File parts (images displayed inline).")
       </div>
     </div>
     <div style=code_style>
-      (s {|(* Planned implementation:
+      (s
+         {|(* Planned implementation:
 
 (* File input with preview *)
 let file_input_ref = React.useRef Js.Nullable.null in

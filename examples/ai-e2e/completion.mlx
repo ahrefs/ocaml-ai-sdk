@@ -6,28 +6,28 @@ let container_style =
   ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
     ~margin:"0 auto" ~width:"100%" ()
 
-let header_style =
-  ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
+let header_style = ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
 
 let title_style = ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ()
 
 let description_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#6b7280" ~marginTop:"4px" ()
 
 let textarea_style =
-  ReactDOM.Style.make ~width:"100%" ~minHeight:"120px" ~padding:"12px" ~borderRadius:"8px"
-    ~border:"1px solid #d1d5db" ~fontSize:"14px" ~fontFamily:"inherit" ~resize:"vertical" ~outline:"none" ()
+  ReactDOM.Style.make ~width:"100%" ~minHeight:"120px" ~padding:"12px" ~borderRadius:"8px" ~border:"1px solid #d1d5db"
+    ~fontSize:"14px" ~fontFamily:"inherit" ~resize:"vertical" ~outline:"none" ()
 
 let output_style =
   ReactDOM.Style.make ~flex:"1" ~padding:"16px" ~borderRadius:"8px" ~background:"#f9fafb" ~border:"1px solid #e5e7eb"
     ~marginTop:"16px" ~overflowY:"auto" ~whiteSpace:"pre-wrap" ~fontSize:"14px" ~color:"#374151" ()
 
-let button_row_style =
-  ReactDOM.Style.make ~display:"flex" ~gap:"8px" ~marginTop:"12px" ()
+let button_row_style = ReactDOM.Style.make ~display:"flex" ~gap:"8px" ~marginTop:"12px" ()
 
 let primary_button_style ~disabled =
   ReactDOM.Style.make ~padding:"8px 20px" ~borderRadius:"8px" ~border:"none"
-    ~background:(if disabled then "#d1d5db" else "#2563eb") ~color:"#fff"
-    ~cursor:(if disabled then "default" else "pointer") ~fontSize:"14px" ~fontWeight:"500" ()
+    ~background:(if disabled then "#d1d5db" else "#2563eb")
+    ~color:"#fff"
+    ~cursor:(if disabled then "default" else "pointer")
+    ~fontSize:"14px" ~fontWeight:"500" ()
 
 let secondary_button_style =
   ReactDOM.Style.make ~padding:"8px 20px" ~borderRadius:"8px" ~border:"1px solid #d1d5db" ~background:"#fff"
@@ -38,29 +38,25 @@ let stop_button_style =
     ~color:"#ef4444" ~cursor:"pointer" ~fontSize:"14px" ~fontWeight:"500" ()
 
 let empty_style =
-  ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ~justifyContent:"center" ~height:"100%"
-    ~color:"#9ca3af" ~fontSize:"14px" ()
-
-[@react.component]
+  ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ~justifyContent:"center" ~height:"100%" ~color:"#9ca3af"
+    ~fontSize:"14px" () [@react.component]
 let make () =
   let { Provider_context.provider; _ } = Provider_context.use_provider () in
   let input, set_input = React.useState (fun () -> "") in
-  let headers =
-    Js.Dict.fromArray [| "X-Provider", Provider_context.provider_to_string provider |]
-  in
+  let headers = Js.Dict.fromArray [| "X-Provider", Provider_context.provider_to_string provider |] in
   let h = Use_completion.use_completion ~api:"/api/chat/completion" ~headers ~stream_protocol:"text" () in
   let completion_text = Use_completion.completion h in
   let is_loading = Use_completion.is_loading h in
   <div style=container_style>
     <div style=header_style>
-      <div style=title_style> (s "Completion") </div>
-      <div style=description_style> (s "Text completion with the useCompletion hook.") </div>
+      <div style=title_style>(s "Completion")</div>
+      <div style=description_style>(s "Text completion with the useCompletion hook.")</div>
     </div>
     <textarea
       value=input
       onChange=(fun e ->
-        let v : string = (React.Event.Form.target e)##value in
-        set_input (fun _ -> v))
+                 let v : string = (React.Event.Form.target e)##value in
+                 set_input (fun _ -> v))
       placeholder="Enter a prompt..."
       disabled=is_loading
       style=textarea_style
@@ -73,25 +69,16 @@ let make () =
         (s "Complete")
       </button>
       (match is_loading with
-       | true ->
-         <button style=stop_button_style onClick=(fun _ -> Use_completion.stop h)>
-           (s "Stop")
-         </button>
-       | false ->
-         (match String.length completion_text > 0 with
-          | true ->
-            <button style=secondary_button_style
-              onClick=(fun _ -> Use_completion.set_completion h "")>
-              (s "Clear")
-            </button>
-          | false -> React.null))
+      | true -> <button style=stop_button_style onClick=(fun _ -> Use_completion.stop h)>(s "Stop")</button>
+      | false ->
+      match String.length completion_text > 0 with
+      | true ->
+        <button style=secondary_button_style onClick=(fun _ -> Use_completion.set_completion h "")>(s "Clear")</button>
+      | false -> React.null)
     </div>
     <div style=output_style>
       (match String.length completion_text with
-       | 0 ->
-         <div style=empty_style>
-           (s "Completion output will appear here...")
-         </div>
-       | _ -> s completion_text)
+      | 0 -> <div style=empty_style>(s "Completion output will appear here...")</div>
+      | _ -> s completion_text)
     </div>
   </div>
