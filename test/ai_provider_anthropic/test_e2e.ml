@@ -127,7 +127,7 @@ let test_tool_call_response () =
   let opts = { (make_opts "Search for OCaml AI SDK") with tools = [ tool ] } in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check int) "2 content" 2 (List.length result.content);
-  (check string) "finish" "tool_calls" (Ai_provider.Finish_reason.to_string result.finish_reason);
+  (check string) "finish" "tool-calls" (Ai_provider.Finish_reason.to_string result.finish_reason);
   match result.content with
   | _ :: Ai_provider.Content.Tool_call { tool_name; tool_call_id; args; _ } :: _ ->
     (check string) "tool name" "web_search" tool_name;

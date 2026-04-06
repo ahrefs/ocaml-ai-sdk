@@ -96,7 +96,7 @@ let test_generate_tool_call () =
   let opts = make_opts () in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check int) "2 content" 2 (List.length result.content);
-  (check string) "finish" "tool_calls" (Ai_provider.Finish_reason.to_string result.finish_reason)
+  (check string) "finish" "tool-calls" (Ai_provider.Finish_reason.to_string result.finish_reason)
 
 let test_generate_with_system () =
   let fetch_called = ref false in

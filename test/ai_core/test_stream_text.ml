@@ -86,9 +86,10 @@ let search_tool : Ai_core.Core_tool.t =
     description = Some "Search";
     parameters = `Assoc [ "type", `String "object" ];
     execute =
-      (fun args ->
-        let q = try (query_args_of_json args).query with _ -> "?" in
-        Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
+      Some
+        (fun args ->
+          let q = try (query_args_of_json args).query with _ -> "?" in
+          Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
     needs_approval = None;
   }
 
@@ -369,14 +370,14 @@ let test_approved_tool_executes_stream () =
   (check bool) "has tool result" true has_tool_result;
   (* Verify Tool_call appears before Tool_result *)
   let tool_call_idx =
-    List.mapi (fun i p -> (i, p)) parts
+    List.mapi (fun i p -> i, p) parts
     |> List.find_map (fun (i, p) ->
       match p with
       | Ai_core.Text_stream_part.Tool_call { tool_call_id = "tc_1"; _ } -> Some i
       | _ -> None)
   in
   let tool_result_idx =
-    List.mapi (fun i p -> (i, p)) parts
+    List.mapi (fun i p -> i, p) parts
     |> List.find_map (fun (i, p) ->
       match p with
       | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; _ } -> Some i
@@ -398,10 +399,16 @@ let test_denied_tool_emits_output_denied () =
       ()
   in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
-    { tool_call_id = "tc_1"; tool_name = "dangerous_action"; args = `Assoc [ "target", `String "prod" ]; approved = false }
+    {
+      tool_call_id = "tc_1";
+      tool_name = "dangerous_action";
+      args = `Assoc [ "target", `String "prod" ];
+      approved = false;
+    }
   in
   let result =
-    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it" ~tools:[ "dangerous_action", tool ]
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it"
+      ~tools:[ "dangerous_action", tool ]
       ~pending_tool_approvals:[ pending ] ~max_steps:3 ()
   in
   let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in

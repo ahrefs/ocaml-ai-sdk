@@ -97,18 +97,18 @@ let resolve_tool_name (p : parsed_part) =
     let t = p.type_ in
     let prefix = "tool-" in
     let plen = String.length prefix in
-    match String.length t > plen && String.sub t 0 plen = prefix with
+    (match String.length t > plen && String.sub t 0 plen = prefix with
     | true -> Some (String.sub t plen (String.length t - plen))
-    | false -> None
+    | false -> None)
 
 (** Extract approved status: check top-level [approved] first, then [approval.approved]. *)
 let resolve_approved (p : parsed_part) =
   match p.approved with
   | Some v -> Some v
   | None ->
-    match p.approval with
-    | Some a -> a.approved
-    | None -> None
+  match p.approval with
+  | Some a -> a.approved
+  | None -> None
 
 let parse_file_data (p : parsed_part) =
   match p.media_type with
@@ -306,8 +306,8 @@ let handle_cors_preflight _conn _req _body =
   let response = Cohttp.Response.make ~status:`No_content ~headers () in
   Lwt.return (response, Cohttp_lwt.Body.empty)
 
-let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?(cors = true) ?provider_options _conn _req
-  body =
+let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?max_output_tokens ?(cors = true)
+  ?provider_options _conn _req body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let body_json =
     try Ok (Yojson.Basic.from_string body_str)

@@ -94,6 +94,12 @@ external last_assistant_message_is_complete_with_approval_responses : send_autom
   = "lastAssistantMessageIsCompleteWithApprovalResponses"
 [@@mel.module "ai"]
 
+(** Checks if all tool parts in the last assistant message have output.
+    Use with [~send_automatically_when] to auto-resubmit after client tool output. *)
+external last_assistant_message_is_complete_with_tool_calls : send_automatically_options -> bool
+  = "lastAssistantMessageIsCompleteWithToolCalls"
+[@@mel.module "ai"]
+
 (** {1 Options & Hook} *)
 
 type options
@@ -103,7 +109,7 @@ external make_options :
   ?messages:ui_message array ->
   ?transport:transport ->
   ?onError:(Js.Exn.t -> unit) ->
-  ?onToolCall:(Js.Json.t -> unit) ->
+  ?onToolCall:(Js.Json.t -> unit Js.Promise.t) ->
   ?onFinish:(Js.Json.t -> unit) ->
   ?onData:(Js.Json.t -> unit) ->
   ?sendAutomaticallyWhen:(send_automatically_options -> bool) ->

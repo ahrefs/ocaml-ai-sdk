@@ -67,7 +67,7 @@ let test_tools_to_provider () =
         {
           Ai_core.Core_tool.description = Some "Search the web";
           parameters = `Assoc [ "type", `String "object" ];
-          execute = (fun _ -> Lwt.return `Null);
+          execute = Some (fun _ -> Lwt.return `Null);
           needs_approval = None;
         } );
     ]

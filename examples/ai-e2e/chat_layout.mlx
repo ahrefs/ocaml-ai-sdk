@@ -1,0 +1,120 @@
+open Ai_sdk_react
+
+let s = React.string
+
+external set_scroll_top : Dom.element -> int -> unit = "scrollTop" [@@mel.set]
+external scroll_height : Dom.element -> int = "scrollHeight" [@@mel.get]
+
+let container_style =
+  ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
+    ~margin:"0 auto" ~width:"100%" ()
+
+let header_style = ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
+
+let title_style = ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ()
+
+let description_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#6b7280" ~marginTop:"4px" ()
+
+let messages_style = ReactDOM.Style.make ~flex:"1" ~overflowY:"auto" ~paddingRight:"8px" ~marginBottom:"16px" ()
+
+let empty_style =
+  ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ~justifyContent:"center" ~height:"100%" ~color:"#9ca3af"
+    ~fontSize:"14px" ()
+
+let form_style = ReactDOM.Style.make ~display:"flex" ~gap:"8px" ~paddingTop:"12px" ~borderTop:"1px solid #e5e7eb" ()
+
+let input_style =
+  ReactDOM.Style.make ~flex:"1" ~padding:"10px 14px" ~borderRadius:"8px" ~border:"1px solid #d1d5db" ~fontSize:"14px"
+    ~outline:"none" ()
+
+let button_style ~disabled =
+  ReactDOM.Style.make ~padding:"10px 20px" ~borderRadius:"8px" ~border:"none"
+    ~background:(if disabled then "#d1d5db" else "#2563eb")
+    ~color:"#fff"
+    ~cursor:(if disabled then "default" else "pointer")
+    ~fontSize:"14px" ~fontWeight:"500" ()
+
+let error_style =
+  ReactDOM.Style.make ~padding:"10px 14px" ~marginBottom:"12px" ~borderRadius:"8px" ~background:"#fef2f2"
+    ~border:"1px solid #fecaca" ~color:"#991b1b" ~fontSize:"13px" ()
+
+let status_style = ReactDOM.Style.make ~fontSize:"12px" ~color:"#6b7280" ~marginTop:"8px" ()
+
+let render ~title ~description ~endpoint ?render_controls ?on_tool_call ?send_automatically_when () =
+  let { Provider_context.provider; _ } = Provider_context.use_provider () in
+  let input, set_input = React.useState (fun () -> "") in
+  let messages_ref = React.useRef Js.Nullable.null in
+  let headers = Js.Dict.fromArray [| "X-Provider", Provider_context.provider_to_string provider |] in
+  let transport = Use_chat.Default_chat_transport.(make ~api:endpoint ~headers () |> to_transport) in
+  let chat = Use_chat.use_chat ~transport ?on_tool_call ?send_automatically_when () in
+  let messages = Use_chat.messages chat in
+  let status = Use_chat.status chat in
+  let is_loading =
+    match status with
+    | Ready -> false
+    | Submitted | Streaming | Error -> true
+  in
+  (* Auto-scroll to bottom *)
+  React.useEffect1
+    (fun () ->
+      (match Js.Nullable.toOption messages_ref.current with
+      | Some el -> set_scroll_top el (scroll_height el)
+      | None -> ());
+      None)
+    [| Js.Array.length messages |];
+  let on_submit e =
+    React.Event.Form.preventDefault e;
+    let trimmed = Js.String.trim input in
+    if String.length trimmed > 0 then (
+      Use_chat.send_text chat trimmed;
+      set_input (fun _ -> ""))
+  in
+  <div style=container_style>
+    <div style=header_style>
+      <div style=title_style>(s title)</div> <div style=description_style>(s description)</div>
+    </div>
+    (match Use_chat.error chat with
+    | Some err ->
+      let msg =
+        match Js.Exn.message err with
+        | Some m -> m
+        | None -> "Unknown error"
+      in
+      <div style=error_style><strong>(s "Error: ")</strong> (s msg)</div>
+    | None -> React.null)
+    <div ref=(ReactDOM.Ref.domRef messages_ref) style=messages_style>
+      (match Array.length messages with
+      | 0 -> <div style=empty_style>(s "Send a message to start chatting...")</div>
+      | _ ->
+        messages
+        |> Array.to_list
+        |> List.map (fun msg -> Chat_message.render ~chat ~msg ())
+        |> Array.of_list
+        |> React.array)
+    </div>
+    <form onSubmit=on_submit style=form_style>
+      <input
+        value=input
+        onChange=(fun e ->
+                   let v : string = (React.Event.Form.target e)##value in
+                   set_input (fun _ -> v))
+        placeholder="Type a message..."
+        disabled=is_loading
+        style=input_style
+      />
+      <button
+        type_="submit"
+        disabled=(is_loading || String.length (Js.String.trim input) = 0)
+        style=(button_style ~disabled:(is_loading || String.length (Js.String.trim input) = 0))>
+        (s (if is_loading then "..." else "Send"))
+      </button>
+    </form>
+    (match render_controls with
+    | Some render -> render chat
+    | None -> React.null)
+    (match status with
+    | Streaming -> <div style=status_style>(s "Streaming...")</div>
+    | Submitted -> <div style=status_style>(s "Waiting for response...")</div>
+    | Error -> <div style=status_style>(s "An error occurred.")</div>
+    | Ready -> React.null)
+  </div>

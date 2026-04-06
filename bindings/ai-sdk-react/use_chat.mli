@@ -58,6 +58,10 @@ val send_automatically_options_messages : send_automatically_options -> ui_messa
     Use with [~send_automatically_when] to auto-resubmit after tool approval. *)
 val last_assistant_message_is_complete_with_approval_responses : send_automatically_options -> bool
 
+(** Checks if all tool parts in the last assistant message have output.
+    Use with [~send_automatically_when] to auto-resubmit after client tool output. *)
+val last_assistant_message_is_complete_with_tool_calls : send_automatically_options -> bool
+
 (** {1 Transport} *)
 
 type transport
@@ -85,7 +89,7 @@ val use_chat :
   ?messages:ui_message array ->
   ?transport:transport ->
   ?on_error:(Js.Exn.t -> unit) ->
-  ?on_tool_call:(Js.Json.t -> unit) ->
+  ?on_tool_call:(Js.Json.t -> unit Js.Promise.t) ->
   ?on_finish:(Js.Json.t -> unit) ->
   ?on_data:(Js.Json.t -> unit) ->
   ?send_automatically_when:(send_automatically_options -> bool) ->

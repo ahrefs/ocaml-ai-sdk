@@ -1,0 +1,19 @@
+(include_subdirs no)
+
+(executable
+ (name main)
+ (libraries
+  ai_provider
+  ai_provider_anthropic
+  ai_provider_openai
+  ai_core
+  lwt
+  lwt.unix
+  cohttp
+  cohttp-lwt
+  cohttp-lwt-unix
+  yojson
+  melange-json-native
+  ppx_deriving_jsonschema.runtime)
+ (preprocess
+  (pps lwt_ppx melange-json-native.ppx ppx_deriving_jsonschema)))

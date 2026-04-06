@@ -78,8 +78,7 @@ type search_result_item = {
 type search_results = { results : search_result_item list } [@@deriving to_json]
 
 let search_web : Ai_core.Core_tool.t =
-  Ai_core.Core_tool.create
-    ~description:"Search the web for information. Returns a list of relevant results."
+  Ai_core.Core_tool.create ~description:"Search the web for information. Returns a list of relevant results."
     ~parameters:(json_of_schema search_args_jsonschema)
     ~execute:(fun args ->
       let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
