@@ -118,7 +118,6 @@ let messages ~config ~body ~extra_headers ~stream =
     let headers = make_headers ~config ~extra_headers in
     let cohttp_headers = Cohttp.Header.of_list headers in
     let body_str = Yojson.Basic.to_string body_json in
-    Printf.eprintf "[DEBUG] Anthropic request body:\n%s\n%!" (Yojson.Basic.pretty_to_string body_json);
     let cohttp_body = Cohttp_lwt.Body.of_string body_str in
     let%lwt resp, resp_body = Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:cohttp_body uri in
     let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
