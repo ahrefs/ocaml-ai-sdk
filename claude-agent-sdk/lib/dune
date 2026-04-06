@@ -1,6 +1,0 @@
-(library
- (name claude_agent_sdk)
- (synopsis "port of the official claude-agent-sdk, in OCaml")
- (libraries lwt lwt.unix yojson melange-json-native trace.core devkit)
- (preprocess
-  (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))

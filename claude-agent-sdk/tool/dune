@@ -1,5 +1,0 @@
-(executable
- (name main)
- (libraries claude_agent_sdk lwt lwt.unix containers)
- (preprocess
-  (pps lwt_ppx)))
