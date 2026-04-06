@@ -5,4 +5,5 @@ _opam/
 .merlin
 node_modules/
 dist/
-
+.playwright/
+.playwright-cli/
