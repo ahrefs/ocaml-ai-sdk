@@ -6,6 +6,7 @@
   test_convert_response
   test_convert_stream
   test_convert_usage
+  test_model_catalog
   test_openrouter_model
   test_factory
   test_e2e)

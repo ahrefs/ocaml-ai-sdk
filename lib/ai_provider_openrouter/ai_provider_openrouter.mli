@@ -11,6 +11,8 @@ val create :
   ?headers:(string * string) list ->
   ?app_title:string ->
   ?app_url:string ->
+  ?compatibility:Config.compatibility ->
+  ?api_keys:(string * string) list ->
   unit ->
   Ai_provider.Provider.t
 
@@ -21,6 +23,8 @@ val language_model :
   ?headers:(string * string) list ->
   ?app_title:string ->
   ?app_url:string ->
+  ?compatibility:Config.compatibility ->
+  ?api_keys:(string * string) list ->
   model:string ->
   unit ->
   Ai_provider.Language_model.t

@@ -1,5 +1,10 @@
 open Alcotest
 
+let json_field key json =
+  match json with
+  | `Assoc fields -> List.assoc_opt key fields
+  | _ -> None
+
 let test_convert_system_message () =
   let messages =
     Ai_provider_openrouter.Convert_prompt.convert_messages ~system_message_mode:System
@@ -11,8 +16,12 @@ let test_convert_system_message () =
   (match msgs with
   | [ msg ] ->
     let json = Ai_provider_openrouter.Convert_prompt.openai_message_to_json msg in
-    let json_str = Yojson.Basic.to_string json in
-    (check bool) "contains system role" true (String.length json_str > 0)
+    (match json_field "role" json with
+    | Some (`String role) -> (check string) "role" "system" role
+    | _ -> fail "expected role field");
+    (match json_field "content" json with
+    | Some (`String content) -> (check string) "content" "You are helpful" content
+    | _ -> fail "expected content field")
   | _ -> fail "expected exactly one message")
 
 let test_convert_user_message () =
@@ -25,8 +34,9 @@ let test_convert_user_message () =
   (match msgs with
   | [ msg ] ->
     let json = Ai_provider_openrouter.Convert_prompt.openai_message_to_json msg in
-    let json_str = Yojson.Basic.to_string json in
-    (check bool) "contains user content" true (String.length json_str > 0)
+    (match json_field "role" json with
+    | Some (`String role) -> (check string) "role" "user" role
+    | _ -> fail "expected role field")
   | _ -> fail "expected exactly one message")
 
 let () =

@@ -1,46 +1,54 @@
-open Melange_json.Primitives
+let rec extract_raw_message = function
+  | `String s ->
+    (try
+       let parsed = Yojson.Basic.from_string s in
+       extract_raw_message parsed
+     with Yojson.Json_error _ -> Some s)
+  | `Assoc fields ->
+    let try_field name =
+      match List.assoc_opt name fields with
+      | Some (`String s) when String.length s > 0 -> Some s
+      | Some (`Assoc _ as nested) -> extract_raw_message nested
+      | _ -> None
+    in
+    List.find_map try_field [ "message"; "error"; "detail"; "details"; "msg" ]
+  | _ -> None
 
-type openrouter_error_type =
-  | Invalid_request_error
-  | Authentication_error
-  | Rate_limit_error
-  | Not_found_error
-  | Server_error
-  | Unknown_error of string
-
-type error_detail = {
-  typ : string; [@json.key "type"] [@json.default "unknown"]
-  message : string; [@json.default ""]
-}
-[@@json.allow_extra_fields] [@@deriving of_json]
-
-type error_envelope = { error : error_detail } [@@json.allow_extra_fields] [@@deriving of_json]
-
-let error_type_of_string = function
-  | "invalid_request_error" -> Invalid_request_error
-  | "authentication_error" -> Authentication_error
-  | "rate_limit_error" -> Rate_limit_error
-  | "not_found_error" -> Not_found_error
-  | "server_error" -> Server_error
-  | s -> Unknown_error s
-
-let is_retryable = function
-  | Rate_limit_error | Server_error -> true
-  | Invalid_request_error | Authentication_error | Not_found_error | Unknown_error _ -> false
+let extract_error_message = function
+  | `Assoc fields ->
+    let message =
+      match List.assoc_opt "message" fields with
+      | Some (`String m) -> m
+      | _ -> "Unknown error"
+    in
+    (match List.assoc_opt "metadata" fields with
+    | Some (`Assoc meta_fields) ->
+      let prefix =
+        match List.assoc_opt "provider_name" meta_fields with
+        | Some (`String name) when String.length name > 0 -> Printf.sprintf "[%s] " name
+        | _ -> ""
+      in
+      let body =
+        match List.assoc_opt "raw" meta_fields with
+        | Some raw ->
+          (match extract_raw_message raw with
+          | Some m when not (String.equal m message) -> m
+          | _ -> message)
+        | None -> message
+      in
+      prefix ^ body
+    | _ -> message)
+  | _ -> "Unknown error"
 
 let of_response ~status ~body =
-  let error_type, message =
+  let message =
     try
-      let json = Yojson.Basic.from_string body in
-      let { error = { typ; message } } = error_envelope_of_json json in
-      Some (error_type_of_string typ), message
-    with
-    | Yojson.Json_error _ -> None, body
-    | Melange_json.Of_json_error _ -> None, body
+      match Yojson.Basic.from_string body with
+      | `Assoc fields ->
+        (match List.assoc_opt "error" fields with
+        | Some error_json -> extract_error_message error_json
+        | None -> body)
+      | _ -> body
+    with Yojson.Json_error _ -> body
   in
-  let error_body =
-    match error_type with
-    | Some t when is_retryable t -> "[retryable] " ^ message
-    | Some _ | None -> message
-  in
-  { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status; body = error_body } }
+  { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status; body = message } }

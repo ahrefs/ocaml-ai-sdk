@@ -9,8 +9,18 @@ let test_convert_single_tool () =
   (match converted with
   | [ t ] ->
     let json = Ai_provider_openrouter.Convert_tools.openai_tool_to_json t in
-    let json_str = Yojson.Basic.to_string json in
-    (check bool) "contains function type" true (String.length json_str > 0)
+    (match json with
+    | `Assoc fields ->
+      (match List.assoc_opt "type" fields with
+      | Some (`String typ) -> (check string) "type" "function" typ
+      | _ -> fail "expected type field");
+      (match List.assoc_opt "function" fields with
+      | Some (`Assoc fn_fields) ->
+        (match List.assoc_opt "name" fn_fields with
+        | Some (`String name) -> (check string) "name" "get_weather" name
+        | _ -> fail "expected function name")
+      | _ -> fail "expected function field")
+    | _ -> fail "expected JSON object")
   | _ -> fail "expected exactly one tool")
 
 let test_convert_tool_choice_auto () =

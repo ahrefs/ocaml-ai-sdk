@@ -1,3 +1,7 @@
+type compatibility =
+  | Strict
+  | Compatible
+
 type fetch_fn = url:string -> headers:(string * string) list -> body:string -> Yojson.Basic.t Lwt.t
 
 type t = {
@@ -7,9 +11,12 @@ type t = {
   fetch : fetch_fn option;
   app_title : string option;
   app_url : string option;
+  compatibility : compatibility;
+  api_keys : (string * string) list;
 }
 
-let create ?api_key ?base_url ?(headers = []) ?fetch ?app_title ?app_url () =
+let create ?api_key ?base_url ?(headers = []) ?fetch ?app_title ?app_url ?(compatibility = Compatible) ?(api_keys = [])
+  () =
   let api_key =
     match api_key with
     | Some _ -> api_key
@@ -20,11 +27,12 @@ let create ?api_key ?base_url ?(headers = []) ?fetch ?app_title ?app_url () =
     | Some url -> url
     | None -> "https://openrouter.ai/api/v1"
   in
-  { api_key; base_url; default_headers = headers; fetch; app_title; app_url }
+  { api_key; base_url; default_headers = headers; fetch; app_title; app_url; compatibility; api_keys }
 
 let api_key_exn t =
   match t.api_key with
   | Some key -> key
   | None ->
     failwith
-      "OpenRouter API key not configured. Set OPENROUTER_API_KEY environment variable or pass ~api_key to Config.create."
+      "OpenRouter API key not configured. Set OPENROUTER_API_KEY environment variable or pass ~api_key to \
+       Config.create."

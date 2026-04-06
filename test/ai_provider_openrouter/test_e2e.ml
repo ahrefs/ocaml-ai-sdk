@@ -65,9 +65,8 @@ let test_e2e_with_provider_options () =
             [
               "prompt_tokens", `Int 10;
               "completion_tokens", `Int 2;
-              "cache_read_tokens", `Int 5;
-              "cache_write_tokens", `Int 3;
-              "reasoning_tokens", `Int 1;
+              "prompt_tokens_details", `Assoc [ "cached_tokens", `Int 5 ];
+              "completion_tokens_details", `Assoc [ "reasoning_tokens", `Int 1 ];
             ] );
       ]
   in
@@ -77,7 +76,7 @@ let test_e2e_with_provider_options () =
   let or_opts =
     {
       Ai_provider_openrouter.Openrouter_options.default with
-      include_reasoning = true;
+      include_reasoning = Some true;
       plugins = [ Web_search None ];
     }
   in
@@ -98,7 +97,6 @@ let test_e2e_with_provider_options () =
   (match metadata with
   | Some m ->
     (check int) "cache_read_tokens" 5 m.cache_read_tokens;
-    (check int) "cache_write_tokens" 3 m.cache_write_tokens;
     (check int) "reasoning_tokens" 1 m.reasoning_tokens
   | None -> fail "expected openrouter usage metadata")
 

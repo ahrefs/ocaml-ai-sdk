@@ -11,16 +11,16 @@ module Sse = Sse
 module Openrouter_api = Openrouter_api
 module Openrouter_model = Openrouter_model
 
-let language_model ?api_key ?base_url ?headers ?app_title ?app_url ~model () =
-  let config = Config.create ?api_key ?base_url ?headers ?app_title ?app_url () in
+let language_model ?api_key ?base_url ?headers ?app_title ?app_url ?compatibility ?api_keys ~model () =
+  let config = Config.create ?api_key ?base_url ?headers ?app_title ?app_url ?compatibility ?api_keys () in
   Openrouter_model.create ~config ~model
 
 let model model_id =
   let config = Config.create () in
   Openrouter_model.create ~config ~model:model_id
 
-let create ?api_key ?base_url ?headers ?app_title ?app_url () =
-  let config = Config.create ?api_key ?base_url ?headers ?app_title ?app_url () in
+let create ?api_key ?base_url ?headers ?app_title ?app_url ?compatibility ?api_keys () =
+  let config = Config.create ?api_key ?base_url ?headers ?app_title ?app_url ?compatibility ?api_keys () in
   let module P = struct
     let name = "openrouter"
     let language_model model_id = Openrouter_model.create ~config ~model:model_id
