@@ -1,0 +1,5 @@
+(* MLX requires a structure item before [@react.component] *)
+let _mlx = () [@react.component]
+let make () =
+  Chat_layout.render ~title:"Tool Use" ~description:"Server-side tool execution with weather and search tools."
+    ~endpoint:"/api/chat/tools" ()

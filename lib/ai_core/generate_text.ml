@@ -1,27 +1,3 @@
-(** Execute a single tool call, returning a tool_result. *)
-let execute_tool_call ~tools (content : Ai_provider.Content.t) =
-  match content with
-  | Tool_call { tool_call_id; tool_name; args; _ } ->
-    let args_json = Core_tool.safe_parse_json_args args in
-    (match List.assoc_opt tool_name tools with
-    | None ->
-      Lwt.return
-        {
-          Generate_text_result.tool_call_id;
-          tool_name;
-          result = `String (Printf.sprintf "Tool '%s' not found" tool_name);
-          is_error = true;
-        }
-    | Some (tool : Core_tool.t) ->
-      Lwt.catch
-        (fun () ->
-          let%lwt result = tool.execute args_json in
-          Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false })
-        (fun exn ->
-          Lwt.return
-            { Generate_text_result.tool_call_id; tool_name; result = `String (Printexc.to_string exn); is_error = true }))
-  | Text _ | Reasoning _ | File _ -> Lwt.fail_with "execute_tool_call called with non-tool content"
-
 (** Extract text, reasoning, and tool calls from a content list. *)
 let parse_content (content : Ai_provider.Content.t list) =
   let text = Buffer.create 256 in
@@ -110,7 +86,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         | Some Auto | Some Required | Some (Specific _) | None -> true
       in
       if should_continue then begin
-        let%lwt pending_approval_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
+        let%lwt blocked_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
         let%lwt tool_results =
           Lwt_list.map_s
             (fun (tc : Generate_text_result.tool_call) ->
@@ -121,7 +97,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
           { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
         in
         Option.iter (fun f -> f step) on_step_finish;
-        match pending_approval_calls with
+        match blocked_calls with
         | _ :: _ ->
           (* Some tools need approval — stop the loop after executing ready tools *)
           let all_steps = List.rev (step :: steps) in
@@ -191,8 +167,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                   result = Core_tool.denied_result;
                   is_error = false;
                 }
-            | true ->
-              Core_tool.execute_tool ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name ~args:ta.args)
+            | true -> Core_tool.execute_tool ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name ~args:ta.args)
           approvals
       in
       let tool_calls =

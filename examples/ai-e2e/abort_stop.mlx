@@ -1,0 +1,20 @@
+open Ai_sdk_react
+
+let s = React.string
+
+let controls_style = ReactDOM.Style.make ~display:"flex" ~justifyContent:"center" ~paddingTop:"8px" ()
+
+let stop_button_style =
+  ReactDOM.Style.make ~padding:"8px 20px" ~borderRadius:"8px" ~border:"1px solid #ef4444" ~background:"#fff"
+    ~color:"#ef4444" ~cursor:"pointer" ~fontSize:"13px" ~fontWeight:"500" ()
+
+let render_controls (chat : Use_chat.t) =
+  match Use_chat.status chat with
+  | Streaming ->
+    <div style=controls_style>
+      <button style=stop_button_style onClick=(fun _ -> Use_chat.stop chat)>(s "Stop generating")</button>
+    </div>
+  | Submitted | Ready | Error -> React.null [@react.component]
+let make () =
+  Chat_layout.render ~title:"Abort / Stop" ~description:"Stop generation mid-stream with the stop button."
+    ~endpoint:"/api/chat/basic" ~render_controls ()

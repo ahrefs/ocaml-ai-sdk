@@ -1,0 +1,85 @@
+let s = React.string
+
+let nav_style =
+  ReactDOM.Style.make ~width:"260px" ~borderRight:"1px solid #e5e7eb" ~background:"#fff" ~padding:"16px"
+    ~overflowY:"auto" ~height:"100vh" ~display:"flex" ~flexDirection:"column" ()
+
+let title_style = ReactDOM.Style.make ~fontSize:"14px" ~fontWeight:"700" ~color:"#6b7280" ~marginBottom:"12px" ()
+
+let section_label_style =
+  ReactDOM.Style.make ~fontSize:"11px" ~fontWeight:"600" ~color:"#9ca3af" ~textTransform:"uppercase"
+    ~letterSpacing:"0.05em" ~marginTop:"16px" ~marginBottom:"8px" ()
+
+let link_style ~active ~stub =
+  ReactDOM.Style.make ~display:"block" ~padding:"8px 12px" ~borderRadius:"6px" ~fontSize:"13px" ~textDecoration:"none"
+    ~cursor:(if stub then "default" else "pointer")
+    ~color:
+      (match active, stub with
+      | true, _ -> "#1d4ed8"
+      | _, true -> "#d1d5db"
+      | false, false -> "#374151")
+    ~background:(if active then "#eff6ff" else "transparent")
+    ~fontWeight:(if active then "600" else "400")
+    ()
+
+let badge_style = ReactDOM.Style.make ~fontSize:"10px" ~color:"#9ca3af" ~marginLeft:"6px" ~fontStyle:"italic" ()
+
+let provider_section_style = ReactDOM.Style.make ~marginTop:"auto" ~paddingTop:"16px" ~borderTop:"1px solid #e5e7eb" ()
+
+let select_style =
+  ReactDOM.Style.make ~width:"100%" ~padding:"6px 8px" ~borderRadius:"6px" ~border:"1px solid #d1d5db" ~fontSize:"13px"
+    ~background:"#fff" ()
+
+let render ~route ~on_navigate =
+  let { Provider_context.provider; set_provider } = Provider_context.use_provider () in
+  let working =
+    Router.all_routes
+    |> List.filter (fun r -> not (Router.is_stub r))
+    |> List.map (fun r ->
+      let active = r = route in
+      let hash = Router.hash_of_route r in
+      let label = Router.route_label r in
+      <a
+        key=hash
+        href=("#" ^ hash)
+        style=(link_style ~active ~stub:false)
+        onClick=(fun e ->
+                  React.Event.Mouse.preventDefault e;
+                  on_navigate r)>
+        (s label)
+      </a>)
+  in
+  let stubs =
+    Router.all_routes
+    |> List.filter Router.is_stub
+    |> List.map (fun r ->
+      let hash = Router.hash_of_route r in
+      let label = Router.route_label r in
+      <div key=hash style=(link_style ~active:false ~stub:true)>
+        (s label) <span style=badge_style>(s "coming soon")</span>
+      </div>)
+  in
+  <nav style=nav_style>
+    <div style=title_style>(s "AI SDK Examples")</div>
+    <div style=section_label_style>(s "Demos")</div>
+    (working |> Array.of_list |> React.array)
+    <div style=section_label_style>(s "Coming Soon")</div>
+    (stubs |> Array.of_list |> React.array)
+    <div style=provider_section_style>
+      <div
+        style=(ReactDOM.Style.make ~fontSize:"11px" ~fontWeight:"600" ~color:"#9ca3af" ~textTransform:"uppercase"
+                 ~letterSpacing:"0.05em" ~marginBottom:"6px" ())>
+        (s "Provider")
+      </div>
+      <select
+        style=select_style
+        value=(Provider_context.provider_to_string provider)
+        onChange=(fun e ->
+                   let v : string = (React.Event.Form.target e)##value in
+                   match v with
+                   | "openai" -> set_provider (fun _ -> Provider_context.Openai)
+                   | _ -> set_provider (fun _ -> Provider_context.Anthropic))>
+        <option value="anthropic">(s "Anthropic")</option> <option value="openai">(s "OpenAI")</option>
+      </select>
+    </div>
+  </nav>

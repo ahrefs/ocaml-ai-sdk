@@ -84,9 +84,10 @@ let search_tool : Ai_core.Core_tool.t =
     description = Some "Search";
     parameters = `Assoc [ "type", `String "object" ];
     execute =
-      (fun args ->
-        let query = try (query_args_of_json args).query with _ -> "unknown" in
-        Lwt.return (`String (Printf.sprintf "Results for: %s" query)));
+      Some
+        (fun args ->
+          let query = try (query_args_of_json args).query with _ -> "unknown" in
+          Lwt.return (`String (Printf.sprintf "Results for: %s" query)));
     needs_approval = None;
   }
 
@@ -125,10 +126,10 @@ let test_tool_loop () =
 let test_tool_not_found () =
   let model = make_tool_model () in
   let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Test" ~tools:[] ~max_steps:3 ()) in
-  (* Tool not found -> error result, but continues *)
-  (check int) "2 steps" 2 (List.length result.steps);
-  let tr = List.nth result.tool_results 0 in
-  (check bool) "is_error" true tr.is_error
+  (* Unknown tool -> loop stops (matching upstream: break on unknown tool) *)
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
 
 let test_max_steps_1 () =
   let model = make_tool_model () in
@@ -385,7 +386,12 @@ let test_approved_tool_executes () =
   in
   (* Pass tc_1 as pre-approved pending approval — should execute directly *)
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
-    { tool_call_id = "tc_1"; tool_name = "dangerous_action"; args = `Assoc [ "target", `String "prod" ]; approved = true }
+    {
+      tool_call_id = "tc_1";
+      tool_name = "dangerous_action";
+      args = `Assoc [ "target", `String "prod" ];
+      approved = true;
+    }
   in
   let result =
     Lwt_main.run

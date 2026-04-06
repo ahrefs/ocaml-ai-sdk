@@ -1,0 +1,160 @@
+open Ai_sdk_react
+
+let s = React.string
+
+let _mlx = () [@react.component]
+let make () =
+  let { Provider_context.provider; _ } = Provider_context.use_provider () in
+  let input, set_input = React.useState (fun () -> "") in
+  let messages_ref = React.useRef Js.Nullable.null in
+  let headers = Js.Dict.fromArray [| "X-Provider", Provider_context.provider_to_string provider |] in
+  let transport = Use_chat.Default_chat_transport.(make ~api:"/api/chat/client-tools" ~headers () |> to_transport) in
+  let send_automatically_when opts =
+    Use_chat.last_assistant_message_is_complete_with_tool_calls opts
+    || Use_chat.last_assistant_message_is_complete_with_approval_responses opts
+  in
+  let chat = Use_chat.use_chat ~transport ~send_automatically_when () in
+  let render_controls ~chat ~key p =
+    let state = Tool_part.state p in
+    match String.equal state "input-available" with
+    | false -> React.null
+    | true ->
+      let name = Option.value ~default:"tool" (Tool_part.tool_name p) in
+      let tool_call_id = Tool_part.tool_call_id p in
+      let on_approve _ =
+        let output = Js.Json.parseExn {|{"latitude":48.8566,"longitude":2.3522,"city":"Paris"}|} in
+        Use_chat.add_tool_output chat (Use_chat.make_tool_output ~tool:name ~toolCallId:tool_call_id ~output)
+      in
+      let on_deny _ =
+        Use_chat.add_tool_output chat
+          (Use_chat.make_tool_output ~tool:name ~toolCallId:tool_call_id
+             ~output:(Js.Json.parseExn {|{"error":"User denied location sharing"}|}))
+      in
+      <div
+        key
+        style=(ReactDOM.Style.make ~background:"#eff6ff" ~border:"1px solid #bfdbfe" ~borderRadius:"8px" ~padding:"12px"
+                 ~marginTop:"8px" ())>
+        <div style=(ReactDOM.Style.make ~fontSize:"13px" ~fontWeight:"600" ~color:"#1d4ed8" ~marginBottom:"8px" ())>
+          (s "Client tool: share your location?")
+        </div>
+        <div style=(ReactDOM.Style.make ~display:"flex" ~gap:"8px" ())>
+          <button
+            onClick=on_approve
+            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px" ~border:"1px solid #2563eb"
+                     ~background:"#eff6ff" ~color:"#2563eb" ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+            (s "Share Location")
+          </button>
+          <button
+            onClick=on_deny
+            style=(ReactDOM.Style.make ~padding:"4px 12px" ~borderRadius:"4px" ~border:"1px solid #dc2626"
+                     ~background:"#fef2f2" ~color:"#dc2626" ~cursor:"pointer" ~fontSize:"12px" ~fontWeight:"600" ())>
+            (s "Deny")
+          </button>
+        </div>
+      </div>
+  in
+  let messages = Use_chat.messages chat in
+  let status = Use_chat.status chat in
+  let is_loading =
+    match status with
+    | Ready -> false
+    | Submitted | Streaming | Error -> true
+  in
+  (* Auto-scroll *)
+  React.useEffect1
+    (fun () ->
+      (match Js.Nullable.toOption messages_ref.current with
+      | Some el ->
+        let module Scroll = struct
+          external set_scroll_top : Dom.element -> int -> unit = "scrollTop" [@@mel.set]
+          external scroll_height : Dom.element -> int = "scrollHeight" [@@mel.get]
+        end in
+        Scroll.set_scroll_top el (Scroll.scroll_height el)
+      | None -> ());
+      None)
+    [| Js.Array.length messages |];
+  let on_submit e =
+    React.Event.Form.preventDefault e;
+    let trimmed = Js.String.trim input in
+    if String.length trimmed > 0 then (
+      Use_chat.send_text chat trimmed;
+      set_input (fun _ -> ""))
+  in
+  <div
+    style=(ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
+             ~margin:"0 auto" ~width:"100%" ())>
+    <div style=(ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ())>
+      <div style=(ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ())>
+        (s "Client-side Tools")
+      </div>
+      <div style=(ReactDOM.Style.make ~fontSize:"13px" ~color:"#6b7280" ~marginTop:"4px" ())>
+        (s "get_location is a client-side tool (approve to share), get_weather needs server-side approval.")
+      </div>
+    </div>
+    (match Use_chat.error chat with
+    | Some err ->
+      let msg =
+        match Js.Exn.message err with
+        | Some m -> m
+        | None -> "Unknown error"
+      in
+      <div
+        style=(ReactDOM.Style.make ~padding:"10px 14px" ~marginBottom:"12px" ~borderRadius:"8px" ~background:"#fef2f2"
+                 ~border:"1px solid #fecaca" ~color:"#991b1b" ~fontSize:"13px" ())>
+        <strong>(s "Error: ")</strong> (s msg)
+      </div>
+    | None -> React.null)
+    <div
+      ref=(ReactDOM.Ref.domRef messages_ref)
+      style=(ReactDOM.Style.make ~flex:"1" ~overflowY:"auto" ~paddingRight:"8px" ~marginBottom:"16px" ())>
+      (match Array.length messages with
+      | 0 ->
+        <div
+          style=(ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ~justifyContent:"center" ~height:"100%"
+                   ~color:"#9ca3af" ~fontSize:"14px" ())>
+          (s "Try: \"What's the weather here?\"")
+        </div>
+      | _ ->
+        messages
+        |> Array.to_list
+        |> List.map (fun msg -> Chat_message.render ~chat ~render_controls ~msg ())
+        |> Array.of_list
+        |> React.array)
+    </div>
+    <form
+      onSubmit=on_submit
+      style=(ReactDOM.Style.make ~display:"flex" ~gap:"8px" ~paddingTop:"12px" ~borderTop:"1px solid #e5e7eb" ())>
+      <input
+        value=input
+        onChange=(fun e ->
+                   let v : string = (React.Event.Form.target e)##value in
+                   set_input (fun _ -> v))
+        placeholder="Type a message..."
+        disabled=is_loading
+        style=(ReactDOM.Style.make ~flex:"1" ~padding:"10px 14px" ~borderRadius:"8px" ~border:"1px solid #d1d5db"
+                 ~fontSize:"14px" ~outline:"none" ())
+      />
+      <button
+        type_="submit"
+        disabled=(is_loading || String.length (Js.String.trim input) = 0)
+        style=(ReactDOM.Style.make ~padding:"10px 20px" ~borderRadius:"8px" ~border:"none"
+                 ~background:(if is_loading || String.length (Js.String.trim input) = 0 then "#d1d5db" else "#2563eb")
+                 ~color:"#fff"
+                 ~cursor:(if is_loading then "default" else "pointer")
+                 ~fontSize:"14px" ~fontWeight:"500" ())>
+        (s (if is_loading then "..." else "Send"))
+      </button>
+    </form>
+    (match status with
+    | Streaming ->
+      <div style=(ReactDOM.Style.make ~fontSize:"12px" ~color:"#6b7280" ~marginTop:"8px" ())>(s "Streaming...")</div>
+    | Submitted ->
+      <div style=(ReactDOM.Style.make ~fontSize:"12px" ~color:"#6b7280" ~marginTop:"8px" ())>
+        (s "Waiting for response...")
+      </div>
+    | Error ->
+      <div style=(ReactDOM.Style.make ~fontSize:"12px" ~color:"#6b7280" ~marginTop:"8px" ())>
+        (s "An error occurred.")
+      </div>
+    | Ready -> React.null)
+  </div>

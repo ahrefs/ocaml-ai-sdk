@@ -17,33 +17,36 @@ type role =
 
 type text_ui_part
 
-external text_ui_part_text : text_ui_part -> string = "text" [@@mel.get]
+module Text_part = struct
+  type t = text_ui_part
 
-external text_ui_part_state : text_ui_part -> string option = "state" [@@mel.get] [@@mel.return nullable]
+  external text : t -> string = "text" [@@mel.get]
+  external state : t -> string option = "state" [@@mel.get] [@@mel.return nullable]
+end
 
 type reasoning_ui_part
 
-external reasoning_ui_part_text : reasoning_ui_part -> string = "text" [@@mel.get]
+module Reasoning_part = struct
+  type t = reasoning_ui_part
 
-external reasoning_ui_part_state : reasoning_ui_part -> string option = "state" [@@mel.get] [@@mel.return nullable]
+  external text : t -> string = "text" [@@mel.get]
+  external state : t -> string option = "state" [@@mel.get] [@@mel.return nullable]
+end
 
 type tool_ui_part
 
-external tool_ui_part_tool_call_id : tool_ui_part -> string = "toolCallId" [@@mel.get]
-external tool_ui_part_state : tool_ui_part -> string = "state" [@@mel.get]
+module Tool_part = struct
+  type t = tool_ui_part
 
-external tool_ui_part_tool_name : tool_ui_part -> string option = "toolName" [@@mel.get] [@@mel.return nullable]
-
-external tool_ui_part_title : tool_ui_part -> string option = "title" [@@mel.get] [@@mel.return nullable]
-
-external tool_ui_part_input : tool_ui_part -> Js.Json.t option = "input" [@@mel.get] [@@mel.return nullable]
-
-external tool_ui_part_output : tool_ui_part -> Js.Json.t option = "output" [@@mel.get] [@@mel.return nullable]
-
-external tool_ui_part_error_text : tool_ui_part -> string option = "errorText" [@@mel.get] [@@mel.return nullable]
-
-external tool_ui_part_provider_executed : tool_ui_part -> bool option = "providerExecuted"
-[@@mel.get] [@@mel.return nullable]
+  external tool_call_id : t -> string = "toolCallId" [@@mel.get]
+  external state : t -> string = "state" [@@mel.get]
+  external tool_name : t -> string option = "toolName" [@@mel.get] [@@mel.return nullable]
+  external title : t -> string option = "title" [@@mel.get] [@@mel.return nullable]
+  external input : t -> Js.Json.t option = "input" [@@mel.get] [@@mel.return nullable]
+  external output : t -> Js.Json.t option = "output" [@@mel.get] [@@mel.return nullable]
+  external error_text : t -> string option = "errorText" [@@mel.get] [@@mel.return nullable]
+  external provider_executed : t -> bool option = "providerExecuted" [@@mel.get] [@@mel.return nullable]
+end
 
 type tool_approval
 
@@ -52,28 +55,34 @@ external tool_approval_id : tool_approval -> string = "id" [@@mel.get]
 
 type source_url_ui_part
 
-external source_url_ui_part_source_id : source_url_ui_part -> string = "sourceId" [@@mel.get]
-external source_url_ui_part_url : source_url_ui_part -> string = "url" [@@mel.get]
+module Source_url_part = struct
+  type t = source_url_ui_part
 
-external source_url_ui_part_title : source_url_ui_part -> string option = "title" [@@mel.get] [@@mel.return nullable]
+  external source_id : t -> string = "sourceId" [@@mel.get]
+  external url : t -> string = "url" [@@mel.get]
+  external title : t -> string option = "title" [@@mel.get] [@@mel.return nullable]
+end
 
 type source_document_ui_part
 
-external source_document_ui_part_source_id : source_document_ui_part -> string = "sourceId" [@@mel.get]
+module Source_document_part = struct
+  type t = source_document_ui_part
 
-external source_document_ui_part_media_type : source_document_ui_part -> string = "mediaType" [@@mel.get]
-
-external source_document_ui_part_title : source_document_ui_part -> string = "title" [@@mel.get]
-
-external source_document_ui_part_filename : source_document_ui_part -> string option = "filename"
-[@@mel.get] [@@mel.return nullable]
+  external source_id : t -> string = "sourceId" [@@mel.get]
+  external media_type : t -> string = "mediaType" [@@mel.get]
+  external title : t -> string = "title" [@@mel.get]
+  external filename : t -> string option = "filename" [@@mel.get] [@@mel.return nullable]
+end
 
 type file_ui_part
 
-external file_ui_part_media_type : file_ui_part -> string = "mediaType" [@@mel.get]
-external file_ui_part_url : file_ui_part -> string = "url" [@@mel.get]
+module File_part = struct
+  type t = file_ui_part
 
-external file_ui_part_filename : file_ui_part -> string option = "filename" [@@mel.get] [@@mel.return nullable]
+  external media_type : t -> string = "mediaType" [@@mel.get]
+  external url : t -> string = "url" [@@mel.get]
+  external filename : t -> string option = "filename" [@@mel.get] [@@mel.return nullable]
+end
 
 type step_start_ui_part
 
@@ -133,18 +142,52 @@ let classify (part : ui_message_part) =
 
 type ui_message
 
-external ui_message_id : ui_message -> string = "id" [@@mel.get]
-external ui_message_role_raw : ui_message -> string = "role" [@@mel.get]
-external ui_message_parts : ui_message -> ui_message_part array = "parts" [@@mel.get]
+module Message = struct
+  type t = ui_message
 
-external ui_message_metadata : ui_message -> Js.Json.t option = "metadata" [@@mel.get] [@@mel.return nullable]
+  external id : t -> string = "id" [@@mel.get]
+  external role_raw : t -> string = "role" [@@mel.get]
+  external parts : t -> ui_message_part array = "parts" [@@mel.get]
+  external metadata : t -> Js.Json.t option = "metadata" [@@mel.get] [@@mel.return nullable]
 
-let ui_message_role (msg : ui_message) : role =
-  match ui_message_role_raw msg with
-  | "system" -> System
-  | "user" -> User
-  | "assistant" -> Assistant
-  | _ -> User
+  let role (msg : t) : role =
+    match role_raw msg with
+    | "system" -> System
+    | "user" -> User
+    | "assistant" -> Assistant
+    | _ -> User
+end
+
+(* Backwards-compatible top-level accessors *)
+let ui_message_id = Message.id
+let ui_message_role = Message.role
+let ui_message_role_raw = Message.role_raw
+let ui_message_parts = Message.parts
+let ui_message_metadata = Message.metadata
+
+(* Backwards-compatible part accessors *)
+let text_ui_part_text = Text_part.text
+let text_ui_part_state = Text_part.state
+let reasoning_ui_part_text = Reasoning_part.text
+let reasoning_ui_part_state = Reasoning_part.state
+let tool_ui_part_tool_call_id = Tool_part.tool_call_id
+let tool_ui_part_state = Tool_part.state
+let tool_ui_part_tool_name = Tool_part.tool_name
+let tool_ui_part_title = Tool_part.title
+let tool_ui_part_input = Tool_part.input
+let tool_ui_part_output = Tool_part.output
+let tool_ui_part_error_text = Tool_part.error_text
+let tool_ui_part_provider_executed = Tool_part.provider_executed
+let source_url_ui_part_source_id = Source_url_part.source_id
+let source_url_ui_part_url = Source_url_part.url
+let source_url_ui_part_title = Source_url_part.title
+let source_document_ui_part_source_id = Source_document_part.source_id
+let source_document_ui_part_media_type = Source_document_part.media_type
+let source_document_ui_part_title = Source_document_part.title
+let source_document_ui_part_filename = Source_document_part.filename
+let file_ui_part_media_type = File_part.media_type
+let file_ui_part_url = File_part.url
+let file_ui_part_filename = File_part.filename
 
 (** {1 Chat Request Options} *)
 

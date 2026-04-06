@@ -48,8 +48,7 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
               push
                 (Some (Ui_message_chunk.Tool_output_error { tool_call_id; error_text = Yojson.Basic.to_string result }))
             else push (Some (Ui_message_chunk.Tool_output_available { tool_call_id; output = result }))
-          | Tool_output_denied { tool_call_id } ->
-            push (Some (Ui_message_chunk.Tool_output_denied { tool_call_id }))
+          | Tool_output_denied { tool_call_id } -> push (Some (Ui_message_chunk.Tool_output_denied { tool_call_id }))
           | Tool_approval_request { approval_id; tool_call_id; tool_name; args } ->
             if not (Hashtbl.mem started_tools tool_call_id) then begin
               Hashtbl.replace started_tools tool_call_id tool_name;

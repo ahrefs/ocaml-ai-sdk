@@ -107,9 +107,10 @@ let weather_tool : Ai_core.Core_tool.t =
     parameters =
       `Assoc [ "type", `String "object"; "properties", `Assoc [ "city", `Assoc [ "type", `String "string" ] ] ];
     execute =
-      (fun args ->
-        let city = try (city_args_of_json args).city with _ -> "unknown" in
-        Lwt.return (`Assoc [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny" ]));
+      Some
+        (fun args ->
+          let city = try (city_args_of_json args).city with _ -> "unknown" in
+          Lwt.return (`Assoc [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny" ]));
     needs_approval = None;
   }
 

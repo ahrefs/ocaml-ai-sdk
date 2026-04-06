@@ -12,7 +12,16 @@
   (extension mlx)
   (merlin_reader mlx)
   (format
-   (run ocamlformat-mlx %{input-file}))
+   (progn
+    (ignore-stdout (cat %{project_root}/.ocamlformat))
+    (run ocamlformat-mlx
+     --disable-conf-files --enable-outside-detected-project
+     --profile=default --break-cases=toplevel --no-break-infix-before-func
+     --break-infix=fit-or-vertical --cases-exp-indent=2 --doc-comments=before
+     --exp-grouping=preserve --leading-nested-match-parens --let-and=sparse
+     -m 120 --max-indent=2 --module-item-spacing=preserve --nested-match=align
+     --parens-ite --parens-tuple=multi-line-only --no-parse-docstrings
+     --type-decl=sparse %{input-file})))
   (preprocess
    (run mlx-pp %{input-file}))))
 

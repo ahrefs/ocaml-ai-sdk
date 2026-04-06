@@ -10,8 +10,8 @@ type t =
 let to_string = function
   | Stop -> "stop"
   | Length -> "length"
-  | Tool_calls -> "tool_calls"
-  | Content_filter -> "content_filter"
+  | Tool_calls -> "tool-calls"
+  | Content_filter -> "content-filter"
   | Error -> "error"
   | Other s -> s
   | Unknown -> "unknown"
@@ -28,8 +28,8 @@ let to_wire_string = function
 let of_string = function
   | "stop" -> Stop
   | "length" -> Length
-  | "tool_calls" -> Tool_calls
-  | "content_filter" -> Content_filter
+  | "tool_calls" | "tool-calls" -> Tool_calls
+  | "content_filter" | "content-filter" -> Content_filter
   | "error" -> Error
   | "unknown" -> Unknown
   | s -> Other s

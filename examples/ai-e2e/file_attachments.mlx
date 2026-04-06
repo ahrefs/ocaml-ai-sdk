@@ -1,0 +1,63 @@
+let s = React.string
+
+let container_style =
+  ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
+    ~margin:"0 auto" ~width:"100%" ()
+
+let header_style = ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
+
+let title_style = ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ()
+
+let description_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#6b7280" ~marginTop:"4px" ()
+
+let banner_style =
+  ReactDOM.Style.make ~padding:"16px" ~borderRadius:"8px" ~background:"#fffbeb" ~border:"1px solid #fde68a"
+    ~marginTop:"16px" ()
+
+let banner_title_style = ReactDOM.Style.make ~fontWeight:"600" ~fontSize:"14px" ~color:"#92400e" ~marginBottom:"8px" ()
+
+let banner_text_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#78350f" ~lineHeight:"1.5" ()
+
+let code_style =
+  ReactDOM.Style.make ~marginTop:"16px" ~padding:"16px" ~borderRadius:"8px" ~background:"#f9fafb"
+    ~border:"1px solid #e5e7eb" ~fontFamily:"ui-monospace, monospace" ~fontSize:"12px" ~color:"#374151"
+    ~whiteSpace:"pre-wrap" ~overflowX:"auto" ()
+  (* File attachments demo: images and files in chat messages.
+   Needs:
+   - Server-side: file upload endpoint (e.g. /api/upload)
+   - Server-side: file part support in parse_messages_from_body (partially exists)
+   - Client-side: sendMessage with files parameter
+   - Client-side: file input UI with drag-and-drop
+   - File parts are already rendered by the message component *)
+  [@react.component]
+let make () =
+  <div style=container_style>
+    <div style=header_style>
+      <div style=title_style>(s "File Attachments")</div>
+      <div style=description_style>(s "Image and file attachments in messages.")</div>
+    </div>
+    <div style=banner_style>
+      <div style=banner_title_style>(s "Coming Soon")</div>
+      <div style=banner_text_style>
+        (s "This demo requires file upload support and sendMessage with files. ")
+        (s "The message renderer already handles File parts (images displayed inline).")
+      </div>
+    </div>
+    <div style=code_style>
+      (s
+         {|(* Planned implementation:
+
+(* File input with preview *)
+let file_input_ref = React.useRef Js.Nullable.null in
+let files, set_files = React.useState (fun () -> [||]) in
+
+(* Send message with file attachments *)
+Use_chat.send_message_with_files chat
+  (Use_chat.make_text_message ~text:input)
+  ~files
+
+(* The message renderer already handles File parts:
+   - Images: displayed as <img> with max-width
+   - Other files: shown as a file badge with filename *) *)|})
+    </div>
+  </div>

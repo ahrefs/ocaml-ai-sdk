@@ -50,6 +50,7 @@ val handle_chat :
   ?system:string ->
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?send_reasoning:bool ->
+  ?max_output_tokens:int ->
   ?cors:bool ->
   ?provider_options:Ai_provider.Provider_options.t ->
   Cohttp_lwt_unix.Server.conn ->

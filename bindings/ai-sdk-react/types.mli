@@ -21,24 +21,39 @@ type role =
 
 type text_ui_part
 
-val text_ui_part_text : text_ui_part -> string
-val text_ui_part_state : text_ui_part -> string option
+(** Text content part. *)
+module Text_part : sig
+  type t = text_ui_part
+
+  val text : t -> string
+  val state : t -> string option
+end
 
 type reasoning_ui_part
 
-val reasoning_ui_part_text : reasoning_ui_part -> string
-val reasoning_ui_part_state : reasoning_ui_part -> string option
+(** Reasoning / thinking content part. *)
+module Reasoning_part : sig
+  type t = reasoning_ui_part
+
+  val text : t -> string
+  val state : t -> string option
+end
 
 type tool_ui_part
 
-val tool_ui_part_tool_call_id : tool_ui_part -> string
-val tool_ui_part_state : tool_ui_part -> string
-val tool_ui_part_tool_name : tool_ui_part -> string option
-val tool_ui_part_title : tool_ui_part -> string option
-val tool_ui_part_input : tool_ui_part -> Js.Json.t option
-val tool_ui_part_output : tool_ui_part -> Js.Json.t option
-val tool_ui_part_error_text : tool_ui_part -> string option
-val tool_ui_part_provider_executed : tool_ui_part -> bool option
+(** Tool invocation part with input, output, and state. *)
+module Tool_part : sig
+  type t = tool_ui_part
+
+  val tool_call_id : t -> string
+  val state : t -> string
+  val tool_name : t -> string option
+  val title : t -> string option
+  val input : t -> Js.Json.t option
+  val output : t -> Js.Json.t option
+  val error_text : t -> string option
+  val provider_executed : t -> bool option
+end
 
 type tool_approval
 
@@ -47,22 +62,37 @@ val tool_approval_id : tool_approval -> string
 
 type source_url_ui_part
 
-val source_url_ui_part_source_id : source_url_ui_part -> string
-val source_url_ui_part_url : source_url_ui_part -> string
-val source_url_ui_part_title : source_url_ui_part -> string option
+(** Source URL citation part. *)
+module Source_url_part : sig
+  type t = source_url_ui_part
+
+  val source_id : t -> string
+  val url : t -> string
+  val title : t -> string option
+end
 
 type source_document_ui_part
 
-val source_document_ui_part_source_id : source_document_ui_part -> string
-val source_document_ui_part_media_type : source_document_ui_part -> string
-val source_document_ui_part_title : source_document_ui_part -> string
-val source_document_ui_part_filename : source_document_ui_part -> string option
+(** Source document citation part. *)
+module Source_document_part : sig
+  type t = source_document_ui_part
+
+  val source_id : t -> string
+  val media_type : t -> string
+  val title : t -> string
+  val filename : t -> string option
+end
 
 type file_ui_part
 
-val file_ui_part_media_type : file_ui_part -> string
-val file_ui_part_url : file_ui_part -> string
-val file_ui_part_filename : file_ui_part -> string option
+(** File attachment part. *)
+module File_part : sig
+  type t = file_ui_part
+
+  val media_type : t -> string
+  val url : t -> string
+  val filename : t -> string option
+end
 
 type step_start_ui_part
 
@@ -107,11 +137,97 @@ val classify : ui_message_part -> classified_part
 
 type ui_message
 
+(** UI message accessors. *)
+module Message : sig
+  type t = ui_message
+
+  val id : t -> string
+  val role : t -> role
+  val role_raw : t -> string
+  val parts : t -> ui_message_part array
+  val metadata : t -> Js.Json.t option
+end
+
+(** @deprecated Use {!Message.id} *)
 val ui_message_id : ui_message -> string
+
+(** @deprecated Use {!Message.role} *)
 val ui_message_role : ui_message -> role
+
+(** @deprecated Use {!Message.role_raw} *)
 val ui_message_role_raw : ui_message -> string
+
+(** @deprecated Use {!Message.parts} *)
 val ui_message_parts : ui_message -> ui_message_part array
+
+(** @deprecated Use {!Message.metadata} *)
 val ui_message_metadata : ui_message -> Js.Json.t option
+
+(** @deprecated Use {!Text_part} module *)
+val text_ui_part_text : text_ui_part -> string
+
+(** @deprecated Use {!Text_part} module *)
+val text_ui_part_state : text_ui_part -> string option
+
+(** @deprecated Use {!Reasoning_part} module *)
+val reasoning_ui_part_text : reasoning_ui_part -> string
+
+(** @deprecated Use {!Reasoning_part} module *)
+val reasoning_ui_part_state : reasoning_ui_part -> string option
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_tool_call_id : tool_ui_part -> string
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_state : tool_ui_part -> string
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_tool_name : tool_ui_part -> string option
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_title : tool_ui_part -> string option
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_input : tool_ui_part -> Js.Json.t option
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_output : tool_ui_part -> Js.Json.t option
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_error_text : tool_ui_part -> string option
+
+(** @deprecated Use {!Tool_part} module *)
+val tool_ui_part_provider_executed : tool_ui_part -> bool option
+
+(** @deprecated Use {!Source_url_part} module *)
+val source_url_ui_part_source_id : source_url_ui_part -> string
+
+(** @deprecated Use {!Source_url_part} module *)
+val source_url_ui_part_url : source_url_ui_part -> string
+
+(** @deprecated Use {!Source_url_part} module *)
+val source_url_ui_part_title : source_url_ui_part -> string option
+
+(** @deprecated Use {!Source_document_part} module *)
+val source_document_ui_part_source_id : source_document_ui_part -> string
+
+(** @deprecated Use {!Source_document_part} module *)
+val source_document_ui_part_media_type : source_document_ui_part -> string
+
+(** @deprecated Use {!Source_document_part} module *)
+val source_document_ui_part_title : source_document_ui_part -> string
+
+(** @deprecated Use {!Source_document_part} module *)
+val source_document_ui_part_filename : source_document_ui_part -> string option
+
+(** @deprecated Use {!File_part} module *)
+val file_ui_part_media_type : file_ui_part -> string
+
+(** @deprecated Use {!File_part} module *)
+val file_ui_part_url : file_ui_part -> string
+
+(** @deprecated Use {!File_part} module *)
+val file_ui_part_filename : file_ui_part -> string option
 
 (** {1 Chat Request Options} *)
 

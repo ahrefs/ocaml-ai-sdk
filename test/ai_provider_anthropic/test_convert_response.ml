@@ -11,7 +11,7 @@ let test_stop_reason_max_tokens () =
 
 let test_stop_reason_tool_use () =
   let r = Ai_provider_anthropic.Convert_response.map_stop_reason (Some "tool_use") in
-  (check string) "tool_calls" "tool_calls" (Ai_provider.Finish_reason.to_string r)
+  (check string) "tool_calls" "tool-calls" (Ai_provider.Finish_reason.to_string r)
 
 let test_stop_reason_none () =
   let r = Ai_provider_anthropic.Convert_response.map_stop_reason None in
@@ -54,7 +54,7 @@ let test_parse_tool_use_response () =
   in
   let result = Ai_provider_anthropic.Convert_response.parse_response json in
   (check int) "2 content" 2 (List.length result.content);
-  (check string) "finish" "tool_calls" (Ai_provider.Finish_reason.to_string result.finish_reason)
+  (check string) "finish" "tool-calls" (Ai_provider.Finish_reason.to_string result.finish_reason)
 
 let test_parse_thinking_response () =
   let json =

@@ -9,7 +9,7 @@ let test_tool_construction () =
     {
       description = Some "Search the web";
       parameters = `Assoc [ "type", `String "object" ];
-      execute = (fun _args -> Lwt.return (`String "result"));
+      execute = Some (fun _args -> Lwt.return (`String "result"));
       needs_approval = None;
     }
   in
@@ -21,13 +21,19 @@ let test_tool_execute () =
       description = None;
       parameters = `Null;
       execute =
-        (fun args ->
-          let q = (query_args_of_json args).query in
-          Lwt.return (`String (Printf.sprintf "Found: %s" q)));
+        Some
+          (fun args ->
+            let q = (query_args_of_json args).query in
+            Lwt.return (`String (Printf.sprintf "Found: %s" q)));
       needs_approval = None;
     }
   in
-  let result = Lwt_main.run (tool.execute (`Assoc [ "query", `String "ocaml" ])) in
+  let exec =
+    match tool.execute with
+    | Some f -> f
+    | None -> failwith "expected execute"
+  in
+  let result = Lwt_main.run (exec (`Assoc [ "query", `String "ocaml" ])) in
   (check string) "result" {|"Found: ocaml"|} (Yojson.Basic.to_string result)
 
 (* Generate_text_result tests *)
