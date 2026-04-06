@@ -145,7 +145,7 @@ You can use multiple tools in sequence to build a complete answer.|}
 
 let structured_system =
   {|You are a helpful assistant. Always respond with structured data.
-Your response must be JSON with:
+Your response must be raw JSON (no markdown, no code fences) with:
 - "summary": a concise natural language answer
 - "data": an array of {"label": "...", "value": "..."} key data points|}
 

@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+} from "ai";
 
 // Derive API URL from the current page host — same host, port 28601
 const apiUrl =
@@ -10,9 +13,12 @@ const apiUrl =
 
 export default function Chat() {
   const [input, setInput] = useState("");
-  const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({ api: apiUrl }),
-  });
+  const { messages, sendMessage, addToolApprovalResponse, status, error } =
+    useChat({
+      transport: new DefaultChatTransport({ api: apiUrl }),
+      sendAutomaticallyWhen:
+        lastAssistantMessageIsCompleteWithApprovalResponses,
+    });
 
   const isLoading = status !== "ready";
 
@@ -104,11 +110,12 @@ export default function Chat() {
                 if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
                   const isResult = part.state === "output-available";
                   const isError = part.state === "error";
+                  const isApproval = part.state === "approval-requested";
                   return (
                     <div
                       key={i}
                       style={{
-                        background: isError ? "#fee" : "#f5f5f5",
+                        background: isApproval ? "#fffbeb" : isError ? "#fee" : "#f5f5f5",
                         padding: 8,
                         borderRadius: 4,
                         fontSize: 13,
@@ -124,6 +131,50 @@ export default function Chat() {
                       {part.input != null && (
                         <div style={{ marginTop: 4, color: "#555" }}>
                           Input: {JSON.stringify(part.input)}
+                        </div>
+                      )}
+                      {isApproval && part.approval && (
+                        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                          <button
+                            onClick={() =>
+                              addToolApprovalResponse({
+                                id: part.approval.id,
+                                approved: true,
+                              })
+                            }
+                            style={{
+                              padding: "4px 12px",
+                              borderRadius: 4,
+                              border: "1px solid #16a34a",
+                              background: "#f0fdf4",
+                              color: "#16a34a",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              fontWeight: 600,
+                            }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() =>
+                              addToolApprovalResponse({
+                                id: part.approval.id,
+                                approved: false,
+                              })
+                            }
+                            style={{
+                              padding: "4px 12px",
+                              borderRadius: 4,
+                              border: "1px solid #dc2626",
+                              background: "#fef2f2",
+                              color: "#dc2626",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              fontWeight: 600,
+                            }}
+                          >
+                            Deny
+                          </button>
                         </div>
                       )}
                       {isResult && part.output != null && (
