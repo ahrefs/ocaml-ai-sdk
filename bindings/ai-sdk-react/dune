@@ -1,5 +1,6 @@
 (library
  (name ai_sdk_react)
+ (public_name ai-sdk-react)
  (modes melange)
  (libraries melange.dom)
  (preprocess
