@@ -14,15 +14,6 @@ let to_string = function
   | Content_filter -> "content-filter"
   | Error -> "error"
   | Other s -> s
-  | Unknown -> "unknown"
-
-let to_wire_string = function
-  | Stop -> "stop"
-  | Length -> "length"
-  | Tool_calls -> "tool-calls"
-  | Content_filter -> "content-filter"
-  | Error -> "error"
-  | Other s -> s
   | Unknown -> "other"
 
 let of_string = function
@@ -31,5 +22,5 @@ let of_string = function
   | "tool_calls" | "tool-calls" -> Tool_calls
   | "content_filter" | "content-filter" -> Content_filter
   | "error" -> Error
-  | "unknown" -> Unknown
+  | "other" | "unknown" -> Unknown
   | s -> Other s

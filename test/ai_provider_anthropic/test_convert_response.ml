@@ -15,7 +15,7 @@ let test_stop_reason_tool_use () =
 
 let test_stop_reason_none () =
   let r = Ai_provider_anthropic.Convert_response.map_stop_reason None in
-  (check string) "unknown" "unknown" (Ai_provider.Finish_reason.to_string r)
+  (check string) "unknown" "other" (Ai_provider.Finish_reason.to_string r)
 
 (* Parse response *)
 let test_parse_text_response () =

@@ -223,7 +223,7 @@ let to_json = function
     finish_json_to_json
       {
         type_ = "finish";
-        finish_reason = Option.map Ai_provider.Finish_reason.to_wire_string finish_reason;
+        finish_reason = Option.map Ai_provider.Finish_reason.to_string finish_reason;
         message_metadata;
       }
   | Abort { reason } -> abort_json_to_json { type_ = "abort"; reason }
