@@ -1,9 +1,9 @@
 open Alcotest
 
 (* Helper: create a retryable Provider_error *)
-let retryable_error ?(status = 429) msg =
+let retryable_error msg =
   Ai_provider.Provider_error.Provider_error
-    { provider = "test"; kind = Api_error { status; body = msg }; is_retryable = true }
+    { provider = "test"; kind = Api_error { status = 429; body = msg }; is_retryable = true }
 
 (* Helper: create a non-retryable Provider_error *)
 let non_retryable_error msg =
