@@ -12,6 +12,7 @@ val generate_text :
   ?tool_choice:Ai_provider.Tool_choice.t ->
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?max_steps:int ->
+  ?max_retries:int ->
   ?stop_when:Stop_condition.t list ->
   ?max_output_tokens:int ->
   ?temperature:float ->
