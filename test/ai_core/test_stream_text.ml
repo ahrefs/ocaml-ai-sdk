@@ -706,6 +706,30 @@ let test_stream_retries_on_retryable_error () =
   (check int) "called twice" 2 !call_count;
   Lwt.return_unit
 
+let test_stream_with_smooth_transform () =
+  (* "Hello world" streamed char-by-char, smoothed word-by-word *)
+  let model = make_text_stream_model "Hello world" in
+  let transform = Ai_core.Smooth_stream.create ~delay_ms:0 () in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Test" ~transform () in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let texts =
+    List.filter_map
+      (function
+        | Ai_core.Text_stream_part.Text_delta { text; _ } -> Some text
+        | _ -> None)
+      parts
+  in
+  (* Word chunking: "Hello " is emitted as a chunk, "world" flushed at end *)
+  (check (list string)) "smoothed words" [ "Hello "; "world" ] texts
+
+let test_stream_text_stream_reflects_transform () =
+  let model = make_text_stream_model "Hello world" in
+  let transform = Ai_core.Smooth_stream.create ~delay_ms:0 () in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Test" ~transform () in
+  let text_parts = Lwt_main.run (Lwt_stream.to_list result.text_stream) in
+  (* text_stream should also reflect the smoothed output *)
+  (check (list string)) "text_stream smoothed" [ "Hello "; "world" ] text_parts
+
 let () =
   run "Stream_text"
     [
@@ -730,6 +754,11 @@ let () =
           test_case "has_tool_call" `Quick test_stream_stop_when_has_tool_call;
           test_case "on_finish_fires" `Quick test_stream_stop_when_on_finish_fires;
           test_case "max_steps_limits" `Quick test_stream_stop_when_max_steps_limits;
+        ] );
+      ( "transform",
+        [
+          test_case "smooth_stream" `Quick test_stream_with_smooth_transform;
+          test_case "text_stream_reflects" `Quick test_stream_text_stream_reflects_transform;
         ] );
       ( "output",
         [

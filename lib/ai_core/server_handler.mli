@@ -55,6 +55,7 @@ val handle_chat :
   ?max_output_tokens:int ->
   ?cors:bool ->
   ?provider_options:Ai_provider.Provider_options.t ->
+  ?transform:(Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t) ->
   Cohttp_lwt_unix.Server.conn ->
   Cohttp.Request.t ->
   Cohttp_lwt.Body.t ->

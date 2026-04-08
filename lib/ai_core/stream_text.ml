@@ -120,7 +120,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
 let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option)
   ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option) ?(max_steps = 1) ?max_retries ?stop_when
   ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
-  ?on_chunk ?on_finish ?(pending_tool_approvals = []) () =
+  ?on_chunk ?on_finish ?transform ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -128,7 +128,6 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
   let provider_tools = Prompt_builder.tools_to_provider tools in
   (* Create output streams *)
   let full_stream, full_push = Lwt_stream.create () in
-  let text_stream, text_push = Lwt_stream.create () in
   let partial_output_stream, partial_output_push = Lwt_stream.create () in
   (* Promises for final values *)
   let usage_promise, usage_resolver = Lwt.wait () in
@@ -153,18 +152,9 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
     | _ -> fun (_ : string) -> ()
   in
   let id_gen = make_id_gen () in
-  (* Wrapper that also pushes text to text_stream *)
-  let push_full part =
-    full_push part;
-    match part with
-    | Some (Text_stream_part.Text_delta { text; _ }) -> text_push (Some text)
-    | None -> text_push None
-    | _ -> ()
-  in
-  (* Background streaming loop *)
   Lwt.async (fun () ->
     let emit_event part =
-      push_full (Some part);
+      full_push (Some part);
       Option.iter (fun f -> f part) on_chunk
     in
     let execute_and_emit (tc : Generate_text_result.tool_call) =
@@ -176,7 +166,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
     in
     let finish_stream ~finish_reason ~usage ~all_steps =
       emit_event (Text_stream_part.Finish { finish_reason; usage });
-      push_full None;
+      full_push None;
       let parsed_output = Output.parse_output output all_steps in
       partial_output_push None;
       Lwt.wakeup_later usage_resolver usage;
@@ -216,7 +206,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
         in
         let%lwt text, reasoning, tool_calls, fr, step_usage =
-          consume_provider_stream ~id_gen ~push:push_full ~on_chunk ~on_text_accumulated stream_result.stream
+          consume_provider_stream ~id_gen ~push:full_push ~on_chunk ~on_text_accumulated stream_result.stream
         in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
@@ -384,17 +374,44 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           ~step_num:(1 + List.length initial_steps))
       (fun exn ->
         let msg = Printexc.to_string exn in
-        push_full (Some (Text_stream_part.Error { error = msg }));
-        push_full None;
+        full_push (Some (Text_stream_part.Error { error = msg }));
+        full_push None;
         partial_output_push None;
         Lwt.wakeup_later_exn usage_resolver exn;
         Lwt.wakeup_later_exn finish_resolver exn;
         Lwt.wakeup_later_exn steps_resolver exn;
         Lwt.wakeup_later output_resolver None;
         Lwt.return_unit));
+  let transformed_stream =
+    match transform with
+    | Some f -> f full_stream
+    | None -> full_stream
+  in
+  let consumer_full_stream, consumer_full_push = Lwt_stream.create () in
+  let text_stream, text_push = Lwt_stream.create () in
+  Lwt.async (fun () ->
+    try%lwt
+      let%lwt () =
+        Lwt_stream.iter_s
+          (fun part ->
+            consumer_full_push (Some part);
+            (match part with
+            | Text_stream_part.Text_delta { text; _ } -> text_push (Some text)
+            | _ -> ());
+            Lwt.return_unit)
+          transformed_stream
+      in
+      consumer_full_push None;
+      text_push None;
+      Lwt.return_unit
+    with exn ->
+      consumer_full_push (Some (Text_stream_part.Error { error = Printexc.to_string exn }));
+      consumer_full_push None;
+      text_push None;
+      Lwt.return_unit);
   {
     Stream_text_result.text_stream;
-    full_stream;
+    full_stream = consumer_full_stream;
     partial_output_stream;
     usage = usage_promise;
     finish_reason = finish_promise;
