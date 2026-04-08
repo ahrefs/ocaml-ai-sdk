@@ -14,6 +14,7 @@
   test_partial_json
   test_output
   test_ui_message_stream_writer)
+ (package ocaml-ai-sdk)
  (libraries
   ai_provider
   ai_provider_anthropic

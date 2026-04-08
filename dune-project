@@ -86,6 +86,8 @@
    (>= 1.3))
   (ppx_deriving
    (>= 5.2))
+  (lwt_ppx
+   (>= 5.9))
   (alcotest :with-test)))
 
 (package

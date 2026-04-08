@@ -11,6 +11,7 @@
   test_openai_model
   test_factory
   test_e2e)
+ (package ocaml-ai-sdk)
  (libraries
   ai_provider
   ai_provider_openai

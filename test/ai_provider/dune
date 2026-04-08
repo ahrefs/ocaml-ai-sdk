@@ -6,4 +6,5 @@
   test_tool_mode_content
   test_call_options
   test_integration)
+ (package ocaml-ai-sdk)
  (libraries ai_provider alcotest lwt lwt.unix))
