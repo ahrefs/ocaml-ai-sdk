@@ -33,7 +33,15 @@ let mock_text_response =
         ];
       stop_reason = Some "end_turn";
       usage =
-        { input_tokens = 10; output_tokens = 5; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+        {
+          input_tokens = 10;
+          output_tokens = 5;
+          cache_read_input_tokens = None;
+          cache_creation_input_tokens = None;
+          cache_creation = None;
+          service_tier = None;
+          inference_geo = None;
+        };
     }
 
 let mock_tool_response =
@@ -64,7 +72,15 @@ let mock_tool_response =
         ];
       stop_reason = Some "tool_use";
       usage =
-        { input_tokens = 20; output_tokens = 15; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+        {
+          input_tokens = 20;
+          output_tokens = 15;
+          cache_read_input_tokens = None;
+          cache_creation_input_tokens = None;
+          cache_creation = None;
+          service_tier = None;
+          inference_geo = None;
+        };
     }
 
 let make_config response =

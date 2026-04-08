@@ -523,6 +523,140 @@ let test_mixed_tools_safe_executes_stream () =
     (check int) "step has 1 tool result" 1 (List.length step.tool_results)
   | _ -> Alcotest.fail "expected exactly 1 step"
 
+(* Mock model that always streams a tool call, for testing stop_when *)
+let make_multi_step_stream_model () =
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-multi-step-stream"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      incr call_count;
+      let stream, push = Lwt_stream.create () in
+      let tc_id = Printf.sprintf "tc_%d" !call_count in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = Printf.sprintf "Step %d." !call_count }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Tool_call_delta
+              {
+                tool_call_type = "function";
+                tool_call_id = tc_id;
+                tool_name = "search";
+                args_text_delta = Printf.sprintf {|{"query":"step%d"}|} !call_count;
+              }));
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = tc_id }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 10; total_tokens = Some 20 } }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_stream_stop_when_step_count () =
+  let model = make_multi_step_stream_model () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Go"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:10
+      ~stop_when:[ Ai_core.Stop_condition.step_count_is 3 ]
+      ()
+  in
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let steps = Lwt_main.run result.steps in
+  (check int) "3 steps" 3 (List.length steps)
+
+let test_stream_stop_when_has_tool_call () =
+  (* Model that calls "search" on step 1, "done_tool" on step 2 *)
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-tool-switch-stream"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      incr call_count;
+      let stream, push = Lwt_stream.create () in
+      let tool_name =
+        match !call_count with
+        | 2 -> "done_tool"
+        | _ -> "search"
+      in
+      let tc_id = Printf.sprintf "tc_%d" !call_count in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Tool_call_delta
+              {
+                tool_call_type = "function";
+                tool_call_id = tc_id;
+                tool_name;
+                args_text_delta = {|{"query":"test"}|};
+              }));
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = tc_id }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 } }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  let model = (module M : Ai_provider.Language_model.S) in
+  let done_tool =
+    Ai_core.Core_tool.create ~description:"Done"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "done"))
+      ()
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Go"
+      ~tools:[ "search", search_tool; "done_tool", done_tool ]
+      ~max_steps:10
+      ~stop_when:[ Ai_core.Stop_condition.has_tool_call "done_tool" ]
+      ()
+  in
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let steps = Lwt_main.run result.steps in
+  (check int) "2 steps" 2 (List.length steps)
+
+let test_stream_stop_when_on_finish_fires () =
+  let model = make_multi_step_stream_model () in
+  let on_finish_called = ref false in
+  let finish_steps = ref 0 in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Go"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:10
+      ~stop_when:[ Ai_core.Stop_condition.step_count_is 2 ]
+      ~on_finish:(fun r ->
+        on_finish_called := true;
+        finish_steps := List.length r.steps)
+      ()
+  in
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let _steps = Lwt_main.run result.steps in
+  (check bool) "on_finish called" true !on_finish_called;
+  (check int) "on_finish got 2 steps" 2 !finish_steps
+
+let test_stream_stop_when_max_steps_limits () =
+  let model = make_multi_step_stream_model () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Go"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:2
+      ~stop_when:[ Ai_core.Stop_condition.step_count_is 10 ]
+      ()
+  in
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let steps = Lwt_main.run result.steps in
+  (* max_steps=2 is the hard limit *)
+  (check int) "2 steps" 2 (List.length steps)
+
 let () =
   run "Stream_text"
     [
@@ -541,6 +675,13 @@ let () =
           test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes_stream;
         ] );
       "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
+      ( "stop_when",
+        [
+          test_case "step_count" `Quick test_stream_stop_when_step_count;
+          test_case "has_tool_call" `Quick test_stream_stop_when_has_tool_call;
+          test_case "on_finish_fires" `Quick test_stream_stop_when_on_finish_fires;
+          test_case "max_steps_limits" `Quick test_stream_stop_when_max_steps_limits;
+        ] );
       ( "output",
         [
           test_case "with_object_output" `Quick test_stream_with_object_output;

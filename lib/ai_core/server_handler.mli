@@ -47,6 +47,7 @@ val handle_chat :
   model:Ai_provider.Language_model.t ->
   ?tools:(string * Core_tool.t) list ->
   ?max_steps:int ->
+  ?stop_when:Stop_condition.t list ->
   ?system:string ->
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?send_reasoning:bool ->
