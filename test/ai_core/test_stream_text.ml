@@ -592,12 +592,7 @@ let test_stream_stop_when_has_tool_call () =
       push
         (Some
            (Ai_provider.Stream_part.Tool_call_delta
-              {
-                tool_call_type = "function";
-                tool_call_id = tc_id;
-                tool_name;
-                args_text_delta = {|{"query":"test"}|};
-              }));
+              { tool_call_type = "function"; tool_call_id = tc_id; tool_name; args_text_delta = {|{"query":"test"}|} }));
       push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = tc_id }));
       push
         (Some

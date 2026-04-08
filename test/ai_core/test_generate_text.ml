@@ -633,8 +633,9 @@ let test_stop_when_empty_conditions () =
   let model = make_tool_model () in
   let result =
     Lwt_main.run
-      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go" ~tools:[ "search", search_tool ] ~max_steps:5
-         ~stop_when:[] ())
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool ]
+         ~max_steps:5 ~stop_when:[] ())
   in
   (* make_tool_model returns tool call on first call, text on second *)
   (check int) "2 steps" 2 (List.length result.steps)
