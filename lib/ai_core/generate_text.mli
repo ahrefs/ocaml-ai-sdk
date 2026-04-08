@@ -1,7 +1,13 @@
 (** Non-streaming text generation with multi-step tool execution.
 
     Calls the provider model, executes tools if requested, feeds results
-    back, and loops until the model stops or [max_steps] is reached. *)
+    back, and loops until the model stops or [max_steps] is reached.
+
+    Each provider call is retried on retryable errors and transient network
+    failures with exponential backoff (see {!Retry.with_retries}).
+
+    @param max_retries Number of additional attempts per provider call
+      (default 2). Set to 0 to disable retries. *)
 
 val generate_text :
   model:Ai_provider.Language_model.t ->

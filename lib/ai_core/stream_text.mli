@@ -2,7 +2,13 @@
 
     Returns synchronously with streams that are filled asynchronously.
     Tool calls are executed between steps, with the model called again
-    to continue generation. *)
+    to continue generation.
+
+    Each provider call is retried on retryable errors and transient network
+    failures with exponential backoff (see {!Retry.with_retries}).
+
+    @param max_retries Number of additional attempts per provider call
+      (default 2). Set to 0 to disable retries. *)
 
 val stream_text :
   model:Ai_provider.Language_model.t ->

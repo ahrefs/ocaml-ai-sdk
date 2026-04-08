@@ -24,8 +24,7 @@ let to_string { provider; kind; is_retryable = _ } =
   | Deserialization_error { message; raw } ->
     Printf.sprintf "[%s] Deserialization error: %s (raw: %s)" provider message raw
 
-let make_api_error ~provider ~status ~body ~is_retryable =
-  { provider; kind = Api_error { status; body }; is_retryable }
+let make_api_error ~provider ~status ~body ~is_retryable = { provider; kind = Api_error { status; body }; is_retryable }
 
 let () =
   Printexc.register_printer (function

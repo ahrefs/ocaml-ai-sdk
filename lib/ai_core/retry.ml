@@ -20,11 +20,18 @@ let reason_to_string = function
   | Max_retries_exceeded -> "max_retries_exceeded"
   | Error_not_retryable -> "error_not_retryable"
 
-let is_retryable_provider_error = function
-  | Ai_provider.Provider_error.Provider_error { is_retryable; _ } -> is_retryable
+let is_transient_network_error = function
+  | Unix.Unix_error ((ECONNRESET | ECONNREFUSED | ETIMEDOUT | EPIPE | ENETUNREACH | EHOSTUNREACH), _, _) -> true
   | _ -> false
 
+let is_retryable_error = function
+  | Ai_provider.Provider_error.Provider_error { is_retryable; _ } -> is_retryable
+  | exn -> is_transient_network_error exn
+
 let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor = 2) f =
+  if max_retries < 0 then invalid_arg "Retry.with_retries: max_retries must be >= 0";
+  if initial_delay_ms < 0 then invalid_arg "Retry.with_retries: initial_delay_ms must be >= 0";
+  if backoff_factor < 1 then invalid_arg "Retry.with_retries: backoff_factor must be >= 1";
   let rec loop ~delay_ms ~errors_rev ~i =
     Lwt.catch f (fun exn ->
       match max_retries with
@@ -43,7 +50,7 @@ let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor 
                  last_error = exn;
                })
         | false ->
-        match is_retryable_provider_error exn with
+        match is_retryable_error exn with
         | true ->
           let%lwt () = Lwt_unix.sleep (Float.of_int delay_ms /. 1000.0) in
           loop ~delay_ms:(backoff_factor * delay_ms) ~errors_rev ~i:(i + 1)

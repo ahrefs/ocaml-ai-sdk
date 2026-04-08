@@ -1,8 +1,9 @@
 (** Retry with exponential backoff for provider calls.
 
-    Wraps a thunk and retries on retryable [Provider_error] exceptions.
-    Non-retryable errors and non-Provider exceptions are re-raised
-    immediately. Matches upstream AI SDK retry behavior. *)
+    Wraps a thunk and retries on retryable [Provider_error] exceptions
+    and transient network errors ([Unix.Unix_error] with [ECONNRESET],
+    [ETIMEDOUT], etc.). Other errors are re-raised immediately.
+    Matches upstream AI SDK retry behavior. *)
 
 type retry_reason =
   | Max_retries_exceeded

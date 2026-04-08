@@ -152,6 +152,34 @@ let test_non_retryable_after_retries () =
     (check int) "2 errors" 2 (List.length errors)
   | None -> fail "expected Retry_error"
 
+(* Test: transient network errors (Unix_error) are retried *)
+let test_network_error_retried () =
+  let call_count = ref 0 in
+  let%lwt result =
+    Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+      incr call_count;
+      match !call_count with
+      | 1 -> Lwt.fail (Unix.Unix_error (Unix.ECONNRESET, "connect", ""))
+      | _ -> Lwt.return "recovered")
+  in
+  (check string) "result" "recovered" result;
+  (check int) "called twice" 2 !call_count;
+  Lwt.return_unit
+
+(* Test: negative max_retries raises invalid_arg *)
+let test_negative_max_retries () =
+  let caught = ref false in
+  (try ignore (Lwt_main.run (Ai_core.Retry.with_retries ~max_retries:(-1) (fun () -> Lwt.return "ok")))
+   with Invalid_argument _ -> caught := true);
+  (check bool) "caught invalid_arg" true !caught
+
+(* Test: backoff_factor < 1 raises invalid_arg *)
+let test_invalid_backoff_factor () =
+  let caught = ref false in
+  (try ignore (Lwt_main.run (Ai_core.Retry.with_retries ~backoff_factor:0 (fun () -> Lwt.return "ok")))
+   with Invalid_argument _ -> caught := true);
+  (check bool) "caught invalid_arg" true !caught
+
 let () =
   run "Retry"
     [
@@ -164,5 +192,8 @@ let () =
           test_case "succeeds_on_retry" `Quick (run_lwt test_succeeds_on_retry);
           test_case "unknown_exception" `Quick test_unknown_exception_not_retried;
           test_case "non_retryable_after_retries" `Quick test_non_retryable_after_retries;
+          test_case "network_error_retried" `Quick (run_lwt test_network_error_retried);
+          test_case "negative_max_retries" `Quick test_negative_max_retries;
+          test_case "invalid_backoff_factor" `Quick test_invalid_backoff_factor;
         ] );
     ]
