@@ -7,6 +7,11 @@
 
     Usage: dune exec examples/agent_loop.exe *)
 
+open Melange_json.Primitives
+
+type search_args = { query : string } [@@deriving of_json]
+type summarize_args = { summary : string } [@@deriving of_json]
+
 let () =
   Lwt_main.run
     begin
@@ -24,7 +29,7 @@ let () =
                  "required", `List [ `String "query" ];
                ])
           ~execute:(fun args ->
-            let query = try Yojson.Basic.Util.(member "query" args |> to_string) with _ -> "unknown" in
+            let { query } = search_args_of_json args in
             Printf.printf "  [tool] Searching for: %s\n%!" query;
             Lwt.return (`String (Printf.sprintf "Results for '%s': OCaml is a functional programming language." query)))
           ()
@@ -39,7 +44,7 @@ let () =
                  "required", `List [ `String "summary" ];
                ])
           ~execute:(fun args ->
-            let summary = try Yojson.Basic.Util.(member "summary" args |> to_string) with _ -> "No summary" in
+            let { summary } = summarize_args_of_json args in
             Printf.printf "  [tool] Summary: %s\n%!" summary;
             Lwt.return (`String summary))
           ()
