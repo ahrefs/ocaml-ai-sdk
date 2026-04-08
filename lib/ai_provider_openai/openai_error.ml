@@ -38,13 +38,9 @@ let of_response ~status ~body =
     | Yojson.Json_error _ -> None, body
     | Melange_json.Of_json_error _ -> None, body
   in
-  let retryable =
+  let is_retryable =
     match error_type with
     | Some t -> is_retryable t
     | None -> false
   in
-  {
-    Ai_provider.Provider_error.provider = "openai";
-    kind = Api_error { status; body = message };
-    is_retryable = retryable;
-  }
+  Ai_provider.Provider_error.make_api_error ~provider:"openai" ~status ~body:message ~is_retryable

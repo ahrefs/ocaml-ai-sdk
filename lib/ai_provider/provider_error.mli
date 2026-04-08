@@ -19,4 +19,7 @@ type t = {
 
 exception Provider_error of t
 
+(** Construct an API error with the given retryable status. *)
+val make_api_error : provider:string -> status:int -> body:string -> is_retryable:bool -> t
+
 val to_string : t -> string
