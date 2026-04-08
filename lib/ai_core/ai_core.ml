@@ -1,4 +1,5 @@
 module Core_tool = Core_tool
+module Retry = Retry
 module Stop_condition = Stop_condition
 module Generate_text_result = Generate_text_result
 module Text_stream_part = Text_stream_part

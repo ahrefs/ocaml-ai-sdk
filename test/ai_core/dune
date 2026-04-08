@@ -5,6 +5,7 @@
   test_ui_message_chunk
   test_ui_message_stream
   test_prompt_builder
+  test_retry
   test_generate_text
   test_stream_text
   test_to_ui_stream
