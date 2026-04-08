@@ -117,14 +117,13 @@ type t = {
  (name ai_provider_anthropic)
  (public_name ocaml-ai-sdk.ai_provider_anthropic)
  (libraries ai_provider lwt lwt.unix cohttp-lwt-unix yojson 
-            melange-json-native devkit base64)
+            melange-json-native base64)
  (preprocess (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
 ```
 
 Key Dependencies:
 - `cohttp-lwt-unix` - HTTP client
 - `base64` - Encoding file data
-- `devkit` - String/utility functions
 - `lwt_ppx` - Async syntax
 
 ### lib/ai_core/dune

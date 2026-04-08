@@ -36,7 +36,6 @@ ocaml-ai-sdk (package)
 - **JSON**: Yojson + Melange.json-native for serialization
 - **HTTP**: Cohttp-lwt-unix for HTTP requests
 - **Schema**: Jsonschema (0.1+) for validation
-- **Utilities**: Devkit (1.20240429+) for strings, web utilities, exceptions
 - **Build**: Dune 3.21+ with Melange support
 - **PPX**: Lwt_ppx (let%lwt syntax), ppx_deriving.show, melange-json-native.ppx
 

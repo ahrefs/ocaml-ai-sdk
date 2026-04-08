@@ -77,7 +77,6 @@ Key dependencies managed by Dune:
 - yojson (>= 2.2) - JSON parsing
 - cohttp-lwt-unix (>= 5.3) - HTTP client
 - melange-json-native (>= 2.0) - Type-safe JSON
-- devkit (>= 1.20240429) - Utilities
 - base64 - Base64 encoding (for file data)
 - jsonschema (>= 0.1) - JSON Schema validation
 

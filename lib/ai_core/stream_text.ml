@@ -264,8 +264,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
               | None -> Lwt.return None
             in
             (match stop_with_steps with
-            | Some all_steps_so_far ->
-              finish_stream ~finish_reason:fr ~usage:new_total ~all_steps:all_steps_so_far
+            | Some all_steps_so_far -> finish_stream ~finish_reason:fr ~usage:new_total ~all_steps:all_steps_so_far
             | None ->
               let assistant_content =
                 let parts = ref [] in

@@ -3,9 +3,7 @@ You are an Software engineer expert in OCaml, and your job is to write expert-le
 # Backend Stack
 
 **Core Libraries:**
-- **Devkit** - Our primary utility library for string operations (`Stre`), web utilities (`Web`), exception handling (`Exn`), time operations (`Time`), file operations, and more. Thread-safe and battle-tested. Use this over standard library equivalents.
 - **Lwt** - Asynchronous programming with promises. Use `Lwt.Unix` for async I/O, `Lwt_ppx` for `let%lwt` syntax, and `Background_pool` in api_adaptor for background tasks.
-- **Containers** - A modular, clean and powerful extension of the OCaml standard library.
 
 **Web & API:**
 - **Routes** - Type-safe HTTP routing for web endpoints.
@@ -147,11 +145,8 @@ failwith "error"
 assert false
 
 (* DO - formatted messages with context *)
-Devkit.Exn.fail "Invalid user ID: %d (expected 1-%d)" user_id max_id
+Printf.ksprintf failwith "Invalid user ID: %d (expected 1-%d)" user_id max_id
 invalid_arg "expected non-empty list"
-
-(* DO - default value on exception *)
-let n = Devkit.Exn.default 0 int_of_string "invalid" in
 ```
 
 ## 4. Pattern Matching Over Nested Conditionals
@@ -356,13 +351,11 @@ let create_user ~name ~email ?nickname details = ...  (* MEH *)
 
 ```
 (* DON'T - too many top-level opens *)
-open Devkit
 open Lwt
 open MyModule1
 open MyModule2
 
 (* DO - minimize opens, use aliases *)
-open Devkit
 module M = MyModule1
 
 (* DO - scoped opens for syntax extensions *)
@@ -488,60 +481,6 @@ let fib =
 | Pattern matching on structure | In-place mutation required |
 | Sharing tails efficiently | Performance-critical loops |
 
-## Devkit Operations
-
-### Devkit String Operations (Stre)
-
-```
-(* Remove prefix/suffix *)
-let path = Stre.drop_prefix "https://example.com" "https://" in
-(* Result: "example.com" *)
-
-let name = Stre.drop_suffix "document.pdf" ".pdf" in
-(* Result: "document" *)
-
-(* Replace all occurrences *)
-let replaced = Stre.replace_all ~str:text ~sub:"Hello" ~by:"Hi" in
-
-(* Split by character *)
-let parts = Stre.nsplitc "a,b,c,d" ',' in
-(* Result: ["a"; "b"; "c"; "d"] *)
-
-(* Case-insensitive operations *)
-if Stre.iequal "Hello" "HELLO" then
-  Printf.printf "Equal (case-insensitive)\n"
-```
-
-### Devkit URL Operations (Web)
-
-```
-(* ALWAYS use Web for URL operations - handles UTF-8 properly *)
-let encoded = Web.urlencode "Hello Günter" in  (* "Hello+G%C3%BCnter" *)
-let decoded = Web.urldecode "Hello+G%C3%BCnter" in  (* "Hello Günter" *)
-
-(* Build query strings - NEVER use sprintf for this *)
-let params = [("name", "John Doe"); ("age", "30")] in
-let query = Web.make_url_args params in  (* "name=John+Doe&age=30" *)
-let parsed = Web.parse_url_args query in
-```
-
-### Devkit Time Operations (Time)
-
-```
-(* Calculate time elapsed using Action.timer *)
-let t = new Action.timer in
-(* ... do work ... *)
-Printf.printf "Took %s\n" t#get_str  (* formatted string *)
-(* or use t#get for Time.t *)
-
-(* DO - use UTC string representation *)
-Time.gmt_string t
-(* DON'T - Time.to_string t (depends on server timezone) *)
-
-(* Human-readable time since *)
-Printf.printf "Updated %s ago\n" (Time.ago_str last_update)
-```
-
 ## Record Punning
 
 ```
@@ -654,17 +593,6 @@ lazy (f ())
 (* DO *)
 lazy expr
 Lazy.from_fun f  (* When f is already a function *)
-```
-
-### File Operations
-
-```
-(* DON'T - may leave corrupt files on ENOSPC *)
-Lwt_io.with_file ~mode:Output filename handler
-Std.output_file filename content
-
-(* DO - atomic overwrite *)
-Devkit.Files.save_as filename content
 ```
 
 ### Banned Operations
@@ -797,4 +725,3 @@ let is_even n = n land 1 = 0
 - [ ] Always use ocamlformat
 - [ ] Prefer immutability - mutate only when measured benefit
 - [ ] Profile before optimizing - never guess
-- [ ] Use Devkit utilities - thread-safe, performant, tested
