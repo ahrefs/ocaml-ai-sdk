@@ -1,5 +1,6 @@
 module Core_tool = Core_tool
 module Stop_condition = Stop_condition
+module Smooth_stream = Smooth_stream
 module Generate_text_result = Generate_text_result
 module Text_stream_part = Text_stream_part
 module Ui_message_chunk = Ui_message_chunk

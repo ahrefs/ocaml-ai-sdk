@@ -8,6 +8,8 @@
   cohttp-lwt-unix
   yojson
   jsonschema
-  melange-json-native)
+  melange-json-native
+  re2
+  uuseg.string)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))

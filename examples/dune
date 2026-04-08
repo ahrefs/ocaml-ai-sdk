@@ -1,5 +1,13 @@
 (executables
- (names one_shot streaming tool_use thinking generate stream_chat agent_loop)
+ (names
+  one_shot
+  streaming
+  tool_use
+  thinking
+  generate
+  stream_chat
+  agent_loop
+  smooth_streaming)
  (libraries
   ai_provider
   ai_provider_anthropic
@@ -7,6 +15,7 @@
   lwt
   lwt.unix
   yojson
-  melange-json-native)
+  melange-json-native
+  re2)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx)))

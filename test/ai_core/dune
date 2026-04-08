@@ -13,7 +13,8 @@
   test_sse_snapshots
   test_partial_json
   test_output
-  test_ui_message_stream_writer)
+  test_ui_message_stream_writer
+  test_smooth_stream)
  (package ocaml-ai-sdk)
  (libraries
   ai_provider
@@ -26,6 +27,8 @@
   melange-json-native
   cohttp
   cohttp-lwt
-  cohttp-lwt-unix)
+  cohttp-lwt-unix
+  re2
+  uuseg.string)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx)))

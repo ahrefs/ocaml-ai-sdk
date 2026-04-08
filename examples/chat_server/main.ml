@@ -146,7 +146,7 @@ let handler conn req body =
     Lwt.catch
       (fun () ->
         Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
-          conn req body)
+          ~transform:(Ai_core.Smooth_stream.create ()) conn req body)
       (fun exn ->
         let msg = Printexc.to_string exn in
         Printf.eprintf "[ERROR] /chat: %s\n%!" msg;

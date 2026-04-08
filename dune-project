@@ -86,6 +86,10 @@
    (>= 5.2))
   (lwt_ppx
    (>= 5.9))
+  (re2
+   (>= 0.16))
+  (uuseg
+   (>= 17.0))
   (alcotest :with-test)))
 
 (package
