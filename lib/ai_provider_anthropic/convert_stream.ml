@@ -145,6 +145,7 @@ let transform events ~warnings =
                           {
                             Ai_provider.Provider_error.provider = "anthropic";
                             kind = Api_error { status = 0; body = Printf.sprintf "%s: %s" error_type message };
+                            is_retryable = false;
                           };
                       }))
             | _ -> ()
@@ -157,6 +158,7 @@ let transform events ~warnings =
                         {
                           Ai_provider.Provider_error.provider = "anthropic";
                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
+                          is_retryable = false;
                         };
                     })))
         events

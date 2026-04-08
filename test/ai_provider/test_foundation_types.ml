@@ -42,15 +42,29 @@ let test_warning_other () =
 (* Provider_error tests *)
 let test_provider_error_api () =
   let e : Ai_provider.Provider_error.t =
-    { provider = "test"; kind = Api_error { status = 429; body = "rate limited" } }
+    { provider = "test"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = false }
   in
   let s = Ai_provider.Provider_error.to_string e in
   (check bool) "contains status" true (String.length s > 0)
 
 let test_provider_error_exception () =
-  let e : Ai_provider.Provider_error.t = { provider = "test"; kind = Network_error { message = "timeout" } } in
+  let e : Ai_provider.Provider_error.t =
+    { provider = "test"; kind = Network_error { message = "timeout" }; is_retryable = false }
+  in
   check_raises "raises Provider_error" (Ai_provider.Provider_error.Provider_error e) (fun () ->
     raise (Ai_provider.Provider_error.Provider_error e))
+
+let test_provider_error_retryable () =
+  let e : Ai_provider.Provider_error.t =
+    { provider = "test"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = true }
+  in
+  (check bool) "is retryable" true e.is_retryable
+
+let test_provider_error_not_retryable () =
+  let e : Ai_provider.Provider_error.t =
+    { provider = "test"; kind = Api_error { status = 400; body = "bad request" }; is_retryable = false }
+  in
+  (check bool) "not retryable" false e.is_retryable
 
 let () =
   run "Foundation_types"
@@ -67,5 +81,7 @@ let () =
         [
           test_case "api_error" `Quick test_provider_error_api;
           test_case "exception" `Quick test_provider_error_exception;
+          test_case "retryable" `Quick test_provider_error_retryable;
+          test_case "not_retryable" `Quick test_provider_error_not_retryable;
         ] );
     ]

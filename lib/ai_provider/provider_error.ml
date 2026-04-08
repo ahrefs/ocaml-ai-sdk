@@ -12,11 +12,12 @@ type error_kind =
 type t = {
   provider : string;
   kind : error_kind;
+  is_retryable : bool;
 }
 
 exception Provider_error of t
 
-let to_string { provider; kind } =
+let to_string { provider; kind; is_retryable = _ } =
   match kind with
   | Api_error { status; body } -> Printf.sprintf "[%s] API error (HTTP %d): %s" provider status body
   | Network_error { message } -> Printf.sprintf "[%s] Network error: %s" provider message

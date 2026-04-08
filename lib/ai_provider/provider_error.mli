@@ -14,6 +14,7 @@ type error_kind =
 type t = {
   provider : string;
   kind : error_kind;
+  is_retryable : bool;
 }
 
 exception Provider_error of t
