@@ -54,6 +54,10 @@ abstraction inspired by the Vercel AI SDK, targeting AI SDK v6 wire compatibilit
 - **Tool approval workflow** — `needs_approval` predicate on `Core_tool.t`,
   step loop partitioning, `Tool_approval_request` chunk type, stateless
   re-submission with `approved_tool_call_ids`
+- **`Stop_condition`** — step loop termination predicates matching upstream
+  `stopWhen`: `step_count_is`, `has_tool_call`, `is_met` (OR semantics
+  with short-circuit); wired through `generate_text`, `stream_text`, and
+  `server_handler`; `max_steps` remains as independent hard safety cap
 - **Partial JSON parser** — for streaming structured output
 
 ### Melange Bindings (`ai-sdk-react`)
@@ -65,8 +69,8 @@ abstraction inspired by the Vercel AI SDK, targeting AI SDK v6 wire compatibilit
 
 ### Examples
 
-- `one_shot`, `streaming`, `tool_use`, `thinking`, `generate`, `stream_chat`
-  — standalone CLI examples
+- `one_shot`, `streaming`, `tool_use`, `thinking`, `generate`, `stream_chat`,
+  `agent_loop` — standalone CLI examples
 - `chat_server` — cohttp chat server with React frontend, tool approval,
   structured output
 - `custom_stream` — custom data streaming with Melange frontend
