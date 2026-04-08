@@ -13,18 +13,17 @@ let decr_in_flight t =
 
 let merge t stream =
   t.in_flight := !(t.in_flight) + 1;
-  (* Lwt.async safety: unbounded push target, Lwt.catch wraps all errors,
+  (* Lwt.async safety: unbounded push target, try%lwt wraps all errors,
      in_flight counter prevents premature stream close. See .mli for details. *)
   Lwt.async (fun () ->
-    Lwt.catch
-      (fun () ->
-        let%lwt () = Lwt_stream.iter (fun chunk -> t.push (Some chunk)) stream in
-        decr_in_flight t;
-        Lwt.return_unit)
-      (fun exn ->
-        t.push (Some (Ui_message_chunk.Error { error_text = Printexc.to_string exn }));
-        decr_in_flight t;
-        Lwt.return_unit))
+    try%lwt
+      let%lwt () = Lwt_stream.iter (fun chunk -> t.push (Some chunk)) stream in
+      decr_in_flight t;
+      Lwt.return_unit
+    with exn ->
+      t.push (Some (Ui_message_chunk.Error { error_text = Printexc.to_string exn }));
+      decr_in_flight t;
+      Lwt.return_unit)
 
 let create_ui_message_stream ?message_id ?(on_error = Printexc.to_string) ?on_finish ~execute () =
   let stream, push = Lwt_stream.create () in
@@ -34,20 +33,19 @@ let create_ui_message_stream ?message_id ?(on_error = Printexc.to_string) ?on_fi
   (* Lwt.async safety: same rationale as merge — see .mli *)
   Lwt.async (fun () ->
     let%lwt is_aborted =
-      Lwt.catch
-        (fun () ->
-          let%lwt () = execute writer in
-          let%lwt () = if !(writer.in_flight) > 0 then writer.all_done else Lwt.return_unit in
-          Lwt.return_false)
-        (fun exn ->
-          let error_text = on_error exn in
-          push (Some (Ui_message_chunk.Error { error_text }));
-          Lwt.return_true)
+      try%lwt
+        let%lwt () = execute writer in
+        let%lwt () = if !(writer.in_flight) > 0 then writer.all_done else Lwt.return_unit in
+        Lwt.return_false
+      with exn ->
+        let error_text = on_error exn in
+        push (Some (Ui_message_chunk.Error { error_text }));
+        Lwt.return_true
     in
     push (Some (Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
     let%lwt () =
       match on_finish with
-      | Some f -> Lwt.catch (fun () -> f ~finish_reason:None ~is_aborted) (fun _exn -> Lwt.return_unit)
+      | Some f -> (try%lwt f ~finish_reason:None ~is_aborted with _exn -> Lwt.return_unit)
       | None -> Lwt.return_unit
     in
     push None;

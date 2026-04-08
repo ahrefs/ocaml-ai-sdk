@@ -39,13 +39,12 @@ let execute_tool ~tools ~tool_call_id ~tool_name ~args =
         is_error = true;
       }
   | Some { execute = Some exec; _ } ->
-    Lwt.catch
-      (fun () ->
-        let%lwt result = exec args in
-        Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false })
-      (fun exn ->
-        Lwt.return
-          { Generate_text_result.tool_call_id; tool_name; result = `String (Printexc.to_string exn); is_error = true })
+  try%lwt
+    let%lwt result = exec args in
+    Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false }
+  with exn ->
+    Lwt.return
+      { Generate_text_result.tool_call_id; tool_name; result = `String (Printexc.to_string exn); is_error = true }
 
 (** Partition tool calls into (blocked, executable).
     Blocked = needs approval OR client-only (no server execute).

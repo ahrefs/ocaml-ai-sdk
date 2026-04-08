@@ -143,17 +143,16 @@ let handler conn req body =
   match meth, path with
   | `OPTIONS, "/chat" -> Ai_core.Server_handler.handle_cors_preflight conn req body
   | _, "/chat" ->
-    Lwt.catch
-      (fun () ->
-        Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
-          ~transform:(Ai_core.Smooth_stream.create ()) conn req body)
-      (fun exn ->
-        let msg = Printexc.to_string exn in
-        Printf.eprintf "[ERROR] /chat: %s\n%!" msg;
-        let body = Cohttp_lwt.Body.of_string msg in
-        let headers = Cohttp.Header.of_list (("content-type", "text/plain") :: Ai_core.Server_handler.cors_headers) in
-        let response = Cohttp.Response.make ~status:`Internal_server_error ~headers () in
-        Lwt.return (response, body))
+    (try%lwt
+       Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
+         ~transform:(Ai_core.Smooth_stream.create ()) conn req body
+     with exn ->
+       let msg = Printexc.to_string exn in
+       Printf.eprintf "[ERROR] /chat: %s\n%!" msg;
+       let body = Cohttp_lwt.Body.of_string msg in
+       let headers = Cohttp.Header.of_list (("content-type", "text/plain") :: Ai_core.Server_handler.cors_headers) in
+       let response = Cohttp.Response.make ~status:`Internal_server_error ~headers () in
+       Lwt.return (response, body))
   | _ ->
     let body = Cohttp_lwt.Body.of_string "Not found" in
     let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in

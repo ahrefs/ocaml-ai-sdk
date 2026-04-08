@@ -17,7 +17,7 @@ val write : t -> Ui_message_chunk.t -> unit
 
     {b Why Lwt.async is safe here:}
     - The push target is an unbounded [Lwt_stream] — pushes never block or fail.
-    - [Lwt.catch] wraps the consumer so exceptions become [Error] chunks
+    - [try%lwt] wraps the consumer so exceptions become [Error] chunks
       instead of hitting [Lwt.async_exception_hook].
     - An in-flight counter ensures the output stream stays open until all
       merge tasks complete — no writes to a closed stream. *)
