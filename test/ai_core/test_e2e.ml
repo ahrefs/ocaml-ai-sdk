@@ -37,7 +37,16 @@ let mock_response ~id ~content ~stop_reason ~input_tokens ~output_tokens =
       content;
       stop_reason = Some stop_reason;
       usage =
-        no_cache { input_tokens; output_tokens; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+        no_cache
+          {
+            input_tokens;
+            output_tokens;
+            cache_read_input_tokens = None;
+            cache_creation_input_tokens = None;
+            cache_creation = None;
+            service_tier = None;
+            inference_geo = None;
+          };
     }
 
 (* Simple text response *)

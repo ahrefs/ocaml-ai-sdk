@@ -118,17 +118,13 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
     (Buffer.contents text_buf, Buffer.contents reasoning_buf, List.rev !completed_tool_calls, !finish_reason, !usage)
 
 let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option)
-  ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option) ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p
-  ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish
+  ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option) ?(max_steps = 1) ?stop_when ?max_output_tokens
+  ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish
   ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let mode = Output.mode_of_output output in
-  let tools =
-    match tools with
-    | Some t -> t
-    | None -> []
-  in
+  let tools = Option.value ~default:[] tools in
   let provider_tools = Prompt_builder.tools_to_provider tools in
   (* Create output streams *)
   let full_stream, full_push = Lwt_stream.create () in
@@ -178,19 +174,38 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
            { tool_call_id = tr.tool_call_id; tool_name = tr.tool_name; result = tr.result; is_error = tr.is_error });
       Lwt.return tr
     in
+    let finish_stream ~finish_reason ~usage ~all_steps =
+      emit_event (Text_stream_part.Finish { finish_reason; usage });
+      push_full None;
+      let parsed_output = Output.parse_output output all_steps in
+      partial_output_push None;
+      Lwt.wakeup_later usage_resolver usage;
+      Lwt.wakeup_later finish_resolver finish_reason;
+      Lwt.wakeup_later steps_resolver all_steps;
+      Lwt.wakeup_later output_resolver parsed_output;
+      Option.iter
+        (fun f ->
+          f
+            {
+              Generate_text_result.text = Generate_text_result.join_text all_steps;
+              reasoning = Generate_text_result.join_reasoning all_steps;
+              tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps;
+              tool_results = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_results) all_steps;
+              steps = all_steps;
+              finish_reason;
+              usage;
+              response = { id = None; model = None; headers = []; body = `Null };
+              warnings = [];
+              output = parsed_output;
+            })
+        on_finish;
+      Lwt.return_unit
+    in
     emit_event Text_stream_part.Start;
     let rec step_loop ~current_messages ~steps ~total_usage ~step_num =
-      if step_num > max_steps then begin
-        emit_event
-          (Text_stream_part.Finish { finish_reason = Ai_provider.Finish_reason.Other "max_steps"; usage = total_usage });
-        push_full None;
-        partial_output_push None;
-        Lwt.wakeup_later usage_resolver total_usage;
-        Lwt.wakeup_later finish_resolver (Ai_provider.Finish_reason.Other "max_steps");
-        Lwt.wakeup_later steps_resolver (List.rev steps);
-        Lwt.wakeup_later output_resolver None;
-        Lwt.return_unit
-      end
+      if step_num > max_steps then
+        finish_stream ~finish_reason:(Ai_provider.Finish_reason.Other "max_steps") ~usage:total_usage
+          ~all_steps:(List.rev steps)
       else begin
         emit_event Text_stream_part.Start_step;
         let opts =
@@ -237,61 +252,44 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           match blocked_calls with
           | _ :: _ ->
             (* Some tools need approval — stop the stream *)
-            emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
-            push_full None;
-            let all_steps = List.rev (step :: steps) in
-            let parsed_output = Output.parse_output output all_steps in
-            partial_output_push None;
-            Lwt.wakeup_later usage_resolver new_total;
-            Lwt.wakeup_later finish_resolver fr;
-            Lwt.wakeup_later steps_resolver all_steps;
-            Lwt.wakeup_later output_resolver parsed_output;
-            (match on_finish with
-            | Some f ->
-              let all_tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps in
-              let all_tool_results =
-                List.concat_map (fun (s : Generate_text_result.step) -> s.tool_results) all_steps
-              in
-              f
-                {
-                  Generate_text_result.text = Generate_text_result.join_text all_steps;
-                  reasoning = Generate_text_result.join_reasoning all_steps;
-                  tool_calls = all_tool_calls;
-                  tool_results = all_tool_results;
-                  steps = all_steps;
-                  finish_reason = fr;
-                  usage = new_total;
-                  response = { id = None; model = None; headers = []; body = `Null };
-                  warnings = [];
-                  output = parsed_output;
-                }
-            | None -> ());
-            Lwt.return_unit
+            finish_stream ~finish_reason:fr ~usage:new_total ~all_steps:(List.rev (step :: steps))
           | [] ->
-            (* All tools executed — continue step loop *)
-            let assistant_content =
-              let parts = ref [] in
-              if String.length text > 0 then parts := Ai_provider.Content.Text { text } :: !parts;
-              List.iter
-                (fun (tc : Generate_text_result.tool_call) ->
-                  parts :=
-                    Ai_provider.Content.Tool_call
-                      {
-                        tool_call_type = "function";
-                        tool_call_id = tc.tool_call_id;
-                        tool_name = tc.tool_name;
-                        args = Yojson.Basic.to_string tc.args;
-                      }
-                    :: !parts)
-                tool_calls;
-              List.rev !parts
+            (* All tools executed — check stop conditions before continuing *)
+            let%lwt stop_with_steps =
+              match stop_when with
+              | Some conditions ->
+                let all_steps_so_far = List.rev (step :: steps) in
+                let%lwt met = Stop_condition.is_met conditions ~steps:all_steps_so_far in
+                Lwt.return (if met then Some all_steps_so_far else None)
+              | None -> Lwt.return None
             in
-            let updated_messages =
-              Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content
-                ~tool_results
-            in
-            step_loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_total
-              ~step_num:(step_num + 1)
+            (match stop_with_steps with
+            | Some all_steps_so_far ->
+              finish_stream ~finish_reason:fr ~usage:new_total ~all_steps:all_steps_so_far
+            | None ->
+              let assistant_content =
+                let parts = ref [] in
+                if String.length text > 0 then parts := Ai_provider.Content.Text { text } :: !parts;
+                List.iter
+                  (fun (tc : Generate_text_result.tool_call) ->
+                    parts :=
+                      Ai_provider.Content.Tool_call
+                        {
+                          tool_call_type = "function";
+                          tool_call_id = tc.tool_call_id;
+                          tool_name = tc.tool_name;
+                          args = Yojson.Basic.to_string tc.args;
+                        }
+                      :: !parts)
+                  tool_calls;
+                List.rev !parts
+              in
+              let updated_messages =
+                Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content
+                  ~tool_results
+              in
+              step_loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_total
+                ~step_num:(step_num + 1))
         end
         else begin
           (* Final step *)
@@ -300,35 +298,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           in
           Option.iter (fun f -> f step) on_step_finish;
           emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
-          emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
-          push_full None;
-          let all_steps = List.rev (step :: steps) in
-          let parsed_output = Output.parse_output output all_steps in
-          partial_output_push None;
-          Lwt.wakeup_later usage_resolver new_total;
-          Lwt.wakeup_later finish_resolver fr;
-          Lwt.wakeup_later steps_resolver all_steps;
-          Lwt.wakeup_later output_resolver parsed_output;
-          (* Call on_finish if provided *)
-          (match on_finish with
-          | Some f ->
-            let all_tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps in
-            let all_tool_results = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_results) all_steps in
-            f
-              {
-                Generate_text_result.text = Generate_text_result.join_text all_steps;
-                reasoning = Generate_text_result.join_reasoning all_steps;
-                tool_calls = all_tool_calls;
-                tool_results = all_tool_results;
-                steps = all_steps;
-                finish_reason = fr;
-                usage = new_total;
-                response = { id = None; model = None; headers = []; body = `Null };
-                warnings = [];
-                output = parsed_output;
-              }
-          | None -> ());
-          Lwt.return_unit
+          finish_stream ~finish_reason:fr ~usage:new_total ~all_steps:(List.rev (step :: steps))
         end
       end
     in

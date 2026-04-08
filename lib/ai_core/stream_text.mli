@@ -13,6 +13,7 @@ val stream_text :
   ?tool_choice:Ai_provider.Tool_choice.t ->
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?max_steps:int ->
+  ?stop_when:Stop_condition.t list ->
   ?max_output_tokens:int ->
   ?temperature:float ->
   ?top_p:float ->

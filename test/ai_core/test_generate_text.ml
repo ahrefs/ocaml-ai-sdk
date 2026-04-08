@@ -492,6 +492,180 @@ let test_prompt_and_messages_conflict () =
    with Failure _ -> raised := true);
   (check bool) "raises" true !raised
 
+(* Mock model that always returns a tool call, for testing stop_when *)
+let make_multi_step_tool_model () =
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-multi-step"
+
+    let generate _opts =
+      incr call_count;
+      let tc_id = Printf.sprintf "tc_%d" !call_count in
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            [
+              Ai_provider.Content.Text { text = Printf.sprintf "Step %d" !call_count };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = tc_id;
+                  tool_name = "search";
+                  args = Printf.sprintf {|{"query":"step%d"}|} !call_count;
+                };
+            ];
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 10; total_tokens = Some 20 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r"; model = Some "mock-multi-step"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_stop_when_step_count () =
+  let model = make_multi_step_tool_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool ]
+         ~max_steps:10
+         ~stop_when:[ Ai_core.Stop_condition.step_count_is 3 ]
+         ())
+  in
+  (* Should stop after 3 steps even though max_steps is 10 *)
+  (check int) "3 steps" 3 (List.length result.steps)
+
+let test_stop_when_has_tool_call () =
+  (* Model that calls "search" on step 1, "done_tool" on step 2 *)
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-tool-switch"
+
+    let generate _opts =
+      incr call_count;
+      let tool_name =
+        match !call_count with
+        | 2 -> "done_tool"
+        | _ -> "search"
+      in
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            [
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = Printf.sprintf "tc_%d" !call_count;
+                  tool_name;
+                  args = {|{"query":"test"}|};
+                };
+            ];
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r"; model = Some "mock-tool-switch"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  let model = (module M : Ai_provider.Language_model.S) in
+  let done_tool : Ai_core.Core_tool.t =
+    Ai_core.Core_tool.create ~description:"Done"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "done"))
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool; "done_tool", done_tool ]
+         ~max_steps:10
+         ~stop_when:[ Ai_core.Stop_condition.has_tool_call "done_tool" ]
+         ())
+  in
+  (* Should stop after step 2 when done_tool is called *)
+  (check int) "2 steps" 2 (List.length result.steps)
+
+let test_stop_when_max_steps_still_limits () =
+  let model = make_multi_step_tool_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool ]
+         ~max_steps:2
+         ~stop_when:[ Ai_core.Stop_condition.step_count_is 10 ]
+         ())
+  in
+  (* max_steps=2 should still be the hard limit *)
+  (check int) "2 steps" 2 (List.length result.steps)
+
+let test_stop_when_or_semantics () =
+  let model = make_multi_step_tool_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool ]
+         ~max_steps:10
+         ~stop_when:[ Ai_core.Stop_condition.step_count_is 100; Ai_core.Stop_condition.step_count_is 2 ]
+         ())
+  in
+  (* OR semantics: step_count_is 2 should fire first *)
+  (check int) "2 steps" 2 (List.length result.steps)
+
+let test_stop_when_empty_conditions () =
+  (* Empty stop_when list should never stop — behaves like no stop_when *)
+  let model = make_tool_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go" ~tools:[ "search", search_tool ] ~max_steps:5
+         ~stop_when:[] ())
+  in
+  (* make_tool_model returns tool call on first call, text on second *)
+  (check int) "2 steps" 2 (List.length result.steps)
+
+let test_stop_when_custom_predicate () =
+  (* Custom lambda: stop when any step has reasoning text *)
+  let model = make_multi_step_tool_model () in
+  let step_num = ref 0 in
+  let custom_condition ~(steps : Ai_core.Generate_text_result.step list) =
+    let _ = steps in
+    incr step_num;
+    Lwt.return (!step_num >= 2)
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool ]
+         ~max_steps:10 ~stop_when:[ custom_condition ] ())
+  in
+  (check int) "2 steps" 2 (List.length result.steps)
+
+let test_stop_when_not_set () =
+  (* Without stop_when, the loop continues until max_steps or no tool calls *)
+  let model = make_tool_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go" ~tools:[ "search", search_tool ] ~max_steps:5 ())
+  in
+  (* make_tool_model returns tool call on first call, text on second *)
+  (check int) "2 steps" 2 (List.length result.steps)
+
 let () =
   run "Generate_text"
     [
@@ -510,6 +684,16 @@ let () =
           test_case "dynamic_approval_conditional" `Quick test_dynamic_approval_conditional;
           test_case "approved_tool_executes" `Quick test_approved_tool_executes;
           test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes;
+        ] );
+      ( "stop_when",
+        [
+          test_case "step_count" `Quick test_stop_when_step_count;
+          test_case "has_tool_call" `Quick test_stop_when_has_tool_call;
+          test_case "max_steps_still_limits" `Quick test_stop_when_max_steps_still_limits;
+          test_case "or_semantics" `Quick test_stop_when_or_semantics;
+          test_case "empty_conditions" `Quick test_stop_when_empty_conditions;
+          test_case "custom_predicate" `Quick test_stop_when_custom_predicate;
+          test_case "not_set_continues" `Quick test_stop_when_not_set;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "output",

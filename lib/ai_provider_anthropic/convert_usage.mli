@@ -1,10 +1,18 @@
 (** Convert Anthropic usage to SDK format. *)
 
+type cache_creation = {
+  ephemeral_5m_input_tokens : int;
+  ephemeral_1h_input_tokens : int;
+}
+
 type anthropic_usage = {
   input_tokens : int;
   output_tokens : int;
   cache_read_input_tokens : int option;
   cache_creation_input_tokens : int option;
+  cache_creation : cache_creation option;
+  service_tier : string option;
+  inference_geo : string option;
 }
 
 (** Parse Anthropic usage from JSON. *)

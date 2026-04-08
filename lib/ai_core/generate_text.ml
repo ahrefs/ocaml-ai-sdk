@@ -20,16 +20,12 @@ let parse_content (content : Ai_provider.Content.t list) =
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
 let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option) ?output
-  ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options
-  ?on_step_finish ?(pending_tool_approvals = []) () =
+  ?(max_steps = 1) ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers
+  ?provider_options ?on_step_finish ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let mode = Output.mode_of_output output in
-  let tools =
-    match tools with
-    | Some t -> t
-    | None -> []
-  in
+  let tools = Option.value ~default:[] tools in
   let provider_tools = Prompt_builder.tools_to_provider tools in
   (* Step loop *)
   let rec loop ~current_messages ~steps ~total_usage ~all_tool_calls ~all_tool_results ~step_num =
@@ -116,15 +112,41 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
               output = parsed_output;
             }
         | [] ->
-          (* All tools executed — continue step loop *)
-          let updated_messages =
-            Prompt_builder.append_assistant_and_tool_results ~messages:current_messages
-              ~assistant_content:result.content ~tool_results
+          (* All tools executed — check stop conditions before continuing *)
+          let%lwt stop_with_steps =
+            match stop_when with
+            | None -> Lwt.return_none
+            | Some conditions ->
+              let all_steps_so_far = List.rev (step :: steps) in
+              let%lwt met = Stop_condition.is_met conditions ~steps:all_steps_so_far in
+              Lwt.return (if met then Some all_steps_so_far else None)
           in
-          loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
-            ~all_tool_calls:(List.rev_append tool_calls all_tool_calls)
-            ~all_tool_results:(List.rev_append tool_results all_tool_results)
-            ~step_num:(step_num + 1)
+          (match stop_with_steps with
+          | None ->
+            let updated_messages =
+              Prompt_builder.append_assistant_and_tool_results ~messages:current_messages
+                ~assistant_content:result.content ~tool_results
+            in
+            loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
+              ~all_tool_calls:(List.rev_append tool_calls all_tool_calls)
+              ~all_tool_results:(List.rev_append tool_results all_tool_results)
+              ~step_num:(step_num + 1)
+          | Some all_steps_so_far ->
+            let parsed_output = Output.parse_output output all_steps_so_far in
+            Lwt.return
+              Generate_text_result.
+                {
+                  text = join_text all_steps_so_far;
+                  reasoning = join_reasoning all_steps_so_far;
+                  tool_calls = List.rev (List.rev_append tool_calls all_tool_calls);
+                  tool_results = List.rev (List.rev_append tool_results all_tool_results);
+                  steps = all_steps_so_far;
+                  finish_reason = result.finish_reason;
+                  usage = new_usage;
+                  response = result.response;
+                  warnings = result.warnings;
+                  output = parsed_output;
+                })
       end
       else begin
         (* Final step - no more tool calls *)

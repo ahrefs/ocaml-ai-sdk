@@ -117,7 +117,15 @@ let test_messages_with_mock_fetch () =
           ];
         stop_reason = Some "end_turn";
         usage =
-          { input_tokens = 5; output_tokens = 2; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+          {
+            input_tokens = 5;
+            output_tokens = 2;
+            cache_read_input_tokens = None;
+            cache_creation_input_tokens = None;
+            cache_creation = None;
+            service_tier = None;
+            inference_geo = None;
+          };
       }
   in
   let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return mock_response in
