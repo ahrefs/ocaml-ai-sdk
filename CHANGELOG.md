@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Core SDK (`ai_core`)
+
+- **`Smooth_stream`** — stream transformer that buffers `Text_delta` and
+  `Reasoning_delta` chunks and re-emits them in controlled pieces with
+  configurable inter-chunk delays. Five chunking modes: `Word` (default),
+  `Line`, `Regex` (custom Re2 pattern), `Segmenter` (Unicode UAX#29 word
+  boundaries via uuseg, recommended for CJK), and `Custom` (user function).
+  Matches the upstream AI SDK's `smoothStream` transform.
+- **`?transform` parameter** on `stream_text` and `server_handler.handle_chat` —
+  generic stream transformer (`Text_stream_part.t Lwt_stream.t ->
+  Text_stream_part.t Lwt_stream.t`) applied between the raw event stream and
+  consumer-facing streams. Both `full_stream` and `text_stream` reflect the
+  transformed output.
+
+### Examples
+
+- `smooth_streaming` — demonstrates all five chunking modes
+
+### Dependencies
+
+- Added `re2` (>= 0.16) and `uuseg` (>= 17.0) to `ai_core`
+
 ## 0.1 — 2026-04-06
 
 Initial release of the OCaml AI SDK — a type-safe, provider-agnostic AI model
