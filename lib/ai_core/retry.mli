@@ -13,7 +13,6 @@ type retry_error = {
   message : string;
   reason : retry_reason;
   errors : exn list;
-  last_error : exn;
 }
 
 exception Retry_error of retry_error

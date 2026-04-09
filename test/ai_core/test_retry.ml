@@ -29,44 +29,38 @@ let test_retryable_exhausts_retries () =
   let call_count = ref 0 in
   let result =
     Lwt_main.run
-      (Lwt.catch
-         (fun () ->
-           let%lwt _ =
-             Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
-               incr call_count;
-               Lwt.fail (retryable_error "overloaded"))
-           in
-           Lwt.return_none)
-         (function
-           | Ai_core.Retry.Retry_error { reason; errors; _ } -> Lwt.return_some (reason, errors)
-           | exn -> Lwt.fail exn))
+      (try%lwt
+         let%lwt _ =
+           Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+             incr call_count;
+             Lwt.fail (retryable_error "overloaded"))
+         in
+         Lwt.return_none
+       with Ai_core.Retry.Retry_error { reason; errors; _ } -> Lwt.return_some (reason, errors))
   in
   (* 1 initial + 2 retries = 3 calls *)
   (check int) "called 3 times" 3 !call_count;
   match result with
+  | None -> fail "expected Retry_error"
   | Some (reason, errors) ->
     (check string) "reason" "max_retries_exceeded" (Ai_core.Retry.reason_to_string reason);
     (check int) "3 errors" 3 (List.length errors)
-  | None -> fail "expected Retry_error"
 
 (* Test: non-retryable error is not retried, re-raised directly on first attempt *)
 let test_non_retryable_not_retried () =
   let call_count = ref 0 in
   let caught = ref false in
   Lwt_main.run
-    (Lwt.catch
-       (fun () ->
-         let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:2 (fun () ->
-             incr call_count;
-             Lwt.fail (non_retryable_error "bad request"))
-         in
-         Lwt.return_unit)
-       (function
-         | Ai_provider.Provider_error.Provider_error _ ->
-           caught := true;
-           Lwt.return_unit
-         | exn -> Lwt.fail exn));
+    (try%lwt
+       let%lwt _ =
+         Ai_core.Retry.with_retries ~max_retries:2 (fun () ->
+           incr call_count;
+           Lwt.fail (non_retryable_error "bad request"))
+       in
+       Lwt.return_unit
+     with Ai_provider.Provider_error.Provider_error _ ->
+       caught := true;
+       Lwt.return_unit);
   (check int) "called once" 1 !call_count;
   (check bool) "caught original error" true !caught
 
@@ -75,19 +69,16 @@ let test_zero_retries_no_wrap () =
   let call_count = ref 0 in
   let caught_original = ref false in
   Lwt_main.run
-    (Lwt.catch
-       (fun () ->
-         let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:0 (fun () ->
-             incr call_count;
-             Lwt.fail (retryable_error "overloaded"))
-         in
-         Lwt.return_unit)
-       (function
-         | Ai_provider.Provider_error.Provider_error _ ->
-           caught_original := true;
-           Lwt.return_unit
-         | exn -> Lwt.fail exn));
+    (try%lwt
+       let%lwt _ =
+         Ai_core.Retry.with_retries ~max_retries:0 (fun () ->
+           incr call_count;
+           Lwt.fail (retryable_error "overloaded"))
+       in
+       Lwt.return_unit
+     with Ai_provider.Provider_error.Provider_error _ ->
+       caught_original := true;
+       Lwt.return_unit);
   (check int) "called once" 1 !call_count;
   (check bool) "original error, not wrapped" true !caught_original
 
@@ -110,19 +101,16 @@ let test_unknown_exception_not_retried () =
   let call_count = ref 0 in
   let caught = ref false in
   Lwt_main.run
-    (Lwt.catch
-       (fun () ->
-         let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:2 (fun () ->
-             incr call_count;
-             Lwt.fail (Failure "boom"))
-         in
-         Lwt.return_unit)
-       (function
-         | Failure _ ->
-           caught := true;
-           Lwt.return_unit
-         | exn -> Lwt.fail exn));
+    (try%lwt
+       let%lwt _ =
+         Ai_core.Retry.with_retries ~max_retries:2 (fun () ->
+           incr call_count;
+           Lwt.fail (Failure "boom"))
+       in
+       Lwt.return_unit
+     with Failure _ ->
+       caught := true;
+       Lwt.return_unit);
   (check int) "called once" 1 !call_count;
   (check bool) "caught Failure" true !caught
 
@@ -131,26 +119,23 @@ let test_non_retryable_after_retries () =
   let call_count = ref 0 in
   let result =
     Lwt_main.run
-      (Lwt.catch
-         (fun () ->
-           let%lwt _ =
-             Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:1 (fun () ->
-               incr call_count;
-               match !call_count with
-               | 1 -> Lwt.fail (retryable_error "rate limit")
-               | _ -> Lwt.fail (non_retryable_error "bad request"))
-           in
-           Lwt.return_none)
-         (function
-           | Ai_core.Retry.Retry_error { reason; errors; _ } -> Lwt.return_some (reason, errors)
-           | exn -> Lwt.fail exn))
+      (try%lwt
+         let%lwt _ =
+           Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:1 (fun () ->
+             incr call_count;
+             match !call_count with
+             | 1 -> Lwt.fail (retryable_error "rate limit")
+             | _ -> Lwt.fail (non_retryable_error "bad request"))
+         in
+         Lwt.return_none
+       with Ai_core.Retry.Retry_error { reason; errors; _ } -> Lwt.return_some (reason, errors))
   in
   (check int) "called twice" 2 !call_count;
   match result with
+  | None -> fail "expected Retry_error"
   | Some (reason, errors) ->
     (check string) "reason" "error_not_retryable" (Ai_core.Retry.reason_to_string reason);
     (check int) "2 errors" 2 (List.length errors)
-  | None -> fail "expected Retry_error"
 
 (* Test: transient network errors (Unix_error) are retried *)
 let test_network_error_retried () =
@@ -165,6 +150,59 @@ let test_network_error_retried () =
   (check string) "result" "recovered" result;
   (check int) "called twice" 2 !call_count;
   Lwt.return_unit
+
+(* Test: network errors exhaust retries and wrap in Retry_error *)
+let test_network_error_exhausts_retries () =
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (try%lwt
+         let%lwt _ =
+           Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+             incr call_count;
+             Lwt.fail (Unix.Unix_error (Unix.ECONNRESET, "connect", "")))
+         in
+         Lwt.return_none
+       with Ai_core.Retry.Retry_error { reason; errors; _ } -> Lwt.return_some (reason, errors))
+  in
+  (check int) "called 3 times" 3 !call_count;
+  match result with
+  | None -> fail "expected Retry_error"
+  | Some (reason, errors) ->
+    (check string) "reason" "max_retries_exceeded" (Ai_core.Retry.reason_to_string reason);
+    (check int) "3 errors" 3 (List.length errors)
+
+(* Test: backoff_factor multiplies delay between retries *)
+let test_backoff_factor_affects_delay () =
+  let timestamps = ref [] in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (try%lwt
+         let%lwt _ =
+           Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:50 ~backoff_factor:2 (fun () ->
+             timestamps := Unix.gettimeofday () :: !timestamps;
+             incr call_count;
+             Lwt.fail (retryable_error "overloaded"))
+         in
+         Lwt.return_none
+       with Ai_core.Retry.Retry_error _ -> Lwt.return_some (List.rev !timestamps))
+  in
+  (check int) "called 4 times" 4 !call_count;
+  match result with
+  | None -> fail "expected Retry_error"
+  | Some [ t0; t1; t2; t3 ] ->
+    let d1 = t1 -. t0 in
+    let d2 = t2 -. t1 in
+    let d3 = t3 -. t2 in
+    (* d1 ~50ms, d2 ~100ms, d3 ~200ms — each roughly 2x the previous.
+       Use generous bounds to avoid flaky tests on slow CI. *)
+    (check bool) "d1 >= 30ms" true (d1 >= 0.030);
+    (check bool) "d2 >= 60ms" true (d2 >= 0.060);
+    (check bool) "d3 >= 120ms" true (d3 >= 0.120);
+    (check bool) "d2 > d1" true (d2 > d1 *. 1.3);
+    (check bool) "d3 > d2" true (d3 > d2 *. 1.3)
+  | _ -> fail "expected 4 timestamps"
 
 (* Test: negative max_retries raises invalid_arg *)
 let test_negative_max_retries () =
@@ -193,6 +231,8 @@ let () =
           test_case "unknown_exception" `Quick test_unknown_exception_not_retried;
           test_case "non_retryable_after_retries" `Quick test_non_retryable_after_retries;
           test_case "network_error_retried" `Quick (run_lwt test_network_error_retried);
+          test_case "network_error_exhausts" `Quick test_network_error_exhausts_retries;
+          test_case "backoff_factor" `Quick test_backoff_factor_affects_delay;
           test_case "negative_max_retries" `Quick test_negative_max_retries;
           test_case "invalid_backoff_factor" `Quick test_invalid_backoff_factor;
         ] );
