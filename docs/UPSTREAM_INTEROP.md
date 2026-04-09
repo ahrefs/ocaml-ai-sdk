@@ -8,7 +8,7 @@ The frontend (`ai@6` / `@ai-sdk/react@3.x`) validates every SSE chunk with `z.st
 
 ### Before implementing or modifying any SSE chunk type
 
-1. Read the Zod schema in `examples/melange_chat/node_modules/ai/src/ui-message-stream/ui-message-chunks.ts`
+1. Read the Zod schema in `node_modules/ai/src/ui-message-stream/ui-message-chunks.ts`
 2. Match the **exact** field set — no additions, no omissions
 3. Verify field names match `camelCase` keys exactly (e.g. `approvalId` not `approval_id`)
 4. Check string enum values use hyphens (e.g. `"tool-calls"` not `"tool_calls"`)
@@ -40,7 +40,15 @@ The docs describe the API; the source describes the architecture. Before impleme
 2. Trace the full path: frontend action → HTTP request → server parsing → LLM call → SSE response → frontend processing
 3. Every boundary between these is a potential mismatch
 
+## Upstream Dependency Management
+
+The root `package.json` pins `ai` and `@ai-sdk/react` for upstream reference. All reference file reads use the **repo-root** `node_modules/`, not the example directories.
+
+See `docs/upstream-deps-updated.md` for current versions, update procedure, and staleness policy.
+
 ## Key Upstream Reference Files
+
+All paths relative to repo root.
 
 | What | File |
 |------|------|
@@ -48,11 +56,9 @@ The docs describe the API; the source describes the architecture. Before impleme
 | Client chunk processing | `node_modules/ai/src/ui/process-ui-message-stream.ts` |
 | UI → model message conversion | `node_modules/ai/src/ui/convert-to-model-messages.ts` |
 | Tool approval collection | `node_modules/ai/src/generate-text/collect-tool-approvals.ts` |
-| Stream text approval flow | `node_modules/ai/src/generate-text/stream-text.ts` (~lines 1339-1475) |
+| Stream text approval flow | `node_modules/ai/src/generate-text/stream-text.ts` |
 | useChat hook | `node_modules/@ai-sdk/react/src/use-chat.ts` |
 | Chat class internals | `node_modules/ai/src/ui/chat.ts` |
-
-All paths are relative to `examples/melange_chat/`.
 
 ## Full Path Trace Checklist
 
