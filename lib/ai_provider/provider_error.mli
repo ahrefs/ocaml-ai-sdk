@@ -19,7 +19,11 @@ type t = {
 
 exception Provider_error of t
 
-(** Construct an API error with the given retryable status. *)
-val make_api_error : provider:string -> status:int -> body:string -> is_retryable:bool -> t
+(** Construct an API error.
+
+    When [is_retryable] is omitted, defaults to the upstream status-code
+    heuristic: 408, 409, 429, or any 5xx are retryable. Providers may
+    override this when they can parse the error type from the response body. *)
+val make_api_error : provider:string -> status:int -> body:string -> ?is_retryable:bool -> unit -> t
 
 val to_string : t -> string

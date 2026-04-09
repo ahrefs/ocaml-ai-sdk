@@ -66,6 +66,31 @@ let test_provider_error_not_retryable () =
   in
   (check bool) "not retryable" false e.is_retryable
 
+(* make_api_error status-code default tests — matches upstream APICallError constructor *)
+let test_make_api_error_429_default_retryable () =
+  let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:429 ~body:"rate limited" () in
+  (check bool) "429 retryable by default" true e.is_retryable
+
+let test_make_api_error_500_default_retryable () =
+  let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:500 ~body:"server error" () in
+  (check bool) "500 retryable by default" true e.is_retryable
+
+let test_make_api_error_408_default_retryable () =
+  let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:408 ~body:"timeout" () in
+  (check bool) "408 retryable by default" true e.is_retryable
+
+let test_make_api_error_409_default_retryable () =
+  let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:409 ~body:"conflict" () in
+  (check bool) "409 retryable by default" true e.is_retryable
+
+let test_make_api_error_400_default_not_retryable () =
+  let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:400 ~body:"bad request" () in
+  (check bool) "400 not retryable by default" false e.is_retryable
+
+let test_make_api_error_override () =
+  let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:500 ~body:"error" ~is_retryable:false () in
+  (check bool) "override to non-retryable" false e.is_retryable
+
 let () =
   run "Foundation_types"
     [
@@ -83,5 +108,14 @@ let () =
           test_case "exception" `Quick test_provider_error_exception;
           test_case "retryable" `Quick test_provider_error_retryable;
           test_case "not_retryable" `Quick test_provider_error_not_retryable;
+        ] );
+      ( "make_api_error_defaults",
+        [
+          test_case "429_default_retryable" `Quick test_make_api_error_429_default_retryable;
+          test_case "500_default_retryable" `Quick test_make_api_error_500_default_retryable;
+          test_case "408_default_retryable" `Quick test_make_api_error_408_default_retryable;
+          test_case "409_default_retryable" `Quick test_make_api_error_409_default_retryable;
+          test_case "400_default_not_retryable" `Quick test_make_api_error_400_default_not_retryable;
+          test_case "override" `Quick test_make_api_error_override;
         ] );
     ]

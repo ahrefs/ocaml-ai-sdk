@@ -24,7 +24,11 @@ let to_string { provider; kind; is_retryable = _ } =
   | Deserialization_error { message; raw } ->
     Printf.sprintf "[%s] Deserialization error: %s (raw: %s)" provider message raw
 
-let make_api_error ~provider ~status ~body ~is_retryable = { provider; kind = Api_error { status; body }; is_retryable }
+let is_retryable_status status = status = 408 || status = 409 || status = 429 || status >= 500
+
+let make_api_error ~provider ~status ~body ?is_retryable () =
+  let is_retryable = Option.value is_retryable ~default:(is_retryable_status status) in
+  { provider; kind = Api_error { status; body }; is_retryable }
 
 let () =
   Printexc.register_printer (function
