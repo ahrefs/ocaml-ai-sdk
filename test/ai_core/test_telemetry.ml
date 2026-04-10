@@ -324,17 +324,18 @@ let test_maybe_span_disabled () =
   let called = ref false in
   let _result =
     Lwt_main.run
-      (Ai_core.Telemetry.maybe_span None "test.span" ~data:(fun () -> []) (fun _sp ->
-         called := true;
-         Lwt.return 42))
+      (Ai_core.Telemetry.maybe_span None "test.span"
+         ~data:(fun () -> [])
+         (fun _sp ->
+           called := true;
+           Lwt.return 42))
   in
   (check bool) "function called" true !called
 
 let test_maybe_span_disabled_explicit () =
   let t = Ai_core.Telemetry.create ~enabled:false () in
   let result =
-    Lwt_main.run
-      (Ai_core.Telemetry.maybe_span (Some t) "test.span" ~data:(fun () -> []) (fun _sp -> Lwt.return 99))
+    Lwt_main.run (Ai_core.Telemetry.maybe_span (Some t) "test.span" ~data:(fun () -> []) (fun _sp -> Lwt.return 99))
   in
   (check int) "returns value" 99 result
 
@@ -369,9 +370,13 @@ let test_tool_calls_to_json_string () =
   match parsed with
   | `List [ `Assoc pairs ] ->
     (check string) "toolCallId" "tc_1"
-      (match List.assoc_opt "toolCallId" pairs with Some (`String s) -> s | _ -> "");
+      (match List.assoc_opt "toolCallId" pairs with
+      | Some (`String s) -> s
+      | _ -> "");
     (check string) "toolName" "search"
-      (match List.assoc_opt "toolName" pairs with Some (`String s) -> s | _ -> "")
+      (match List.assoc_opt "toolName" pairs with
+      | Some (`String s) -> s
+      | _ -> "")
   | _ -> Alcotest.fail "expected list with one element"
 
 let () =

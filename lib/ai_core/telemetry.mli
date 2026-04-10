@@ -57,7 +57,6 @@
     - [onStepStart] integration callback: upstream added this; we only
       have [on_step_finish]. *)
 
-
 (** {1 Types} *)
 
 (** Model info for callback events. *)
@@ -237,11 +236,7 @@ val with_span_lwt :
 (** Conditionally wrap in a telemetry span. When telemetry is [None] or
     disabled, [f] is called with [Trace_core.Collector.dummy_span]. *)
 val maybe_span :
-  t option ->
-  string ->
-  data:(unit -> (string * Trace_core.user_data) list) ->
-  (Trace_core.span -> 'a Lwt.t) ->
-  'a Lwt.t
+  t option -> string -> data:(unit -> (string * Trace_core.user_data) list) -> (Trace_core.span -> 'a Lwt.t) -> 'a Lwt.t
 
 (** Fire a telemetry notification when enabled; otherwise [Lwt.return_unit]. *)
 val maybe_notify : t option -> (t -> unit Lwt.t) -> unit Lwt.t

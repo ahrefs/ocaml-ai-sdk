@@ -717,8 +717,7 @@ let make_test_collector () =
   let next_id = ref 0 in
   let callbacks : unit Trace_core.Collector.Callbacks.t =
     Trace_core.Collector.Callbacks.make
-      ~enter_span:
-        (fun () ~__FUNCTION__:_ ~__FILE__:_ ~__LINE__:_ ~level:_ ~params:_ ~data ~parent:_ name ->
+      ~enter_span:(fun () ~__FUNCTION__:_ ~__FILE__:_ ~__LINE__:_ ~level:_ ~params:_ ~data ~parent:_ name ->
         let id = !next_id in
         incr next_id;
         spans := (id, name) :: !spans;
@@ -746,7 +745,7 @@ let make_test_collector () =
       | None -> [])
     | None -> []
   in
-  (collector, get_span_names, get_span_data)
+  collector, get_span_names, get_span_data
 
 (* ---- Telemetry tests ---- *)
 
@@ -755,9 +754,7 @@ let test_telemetry_spans () =
   Trace_core.with_setup_collector collector (fun () ->
     let model = make_text_model "Hello!" in
     let telemetry = Ai_core.Telemetry.create ~enabled:true ~function_id:"test-fn" () in
-    let _result =
-      Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ())
-    in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
     let names = get_span_names () in
     (check bool) "has root" true (List.mem "ai.generateText" names);
     (check bool) "has step" true (List.mem "ai.generateText.doGenerate" names))
@@ -784,9 +781,7 @@ let test_telemetry_root_attributes () =
   Trace_core.with_setup_collector collector (fun () ->
     let model = make_text_model "Hello!" in
     let telemetry = Ai_core.Telemetry.create ~enabled:true ~function_id:"my-fn" () in
-    let _result =
-      Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ())
-    in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
     let data = get_span_data "ai.generateText" in
     (check string) "operation.name" "ai.generateText my-fn"
       (match List.assoc_opt "operation.name" data with
@@ -806,9 +801,7 @@ let test_telemetry_disabled_no_spans () =
   Trace_core.with_setup_collector collector (fun () ->
     let model = make_text_model "Hello!" in
     let telemetry = Ai_core.Telemetry.create ~enabled:false () in
-    let _result =
-      Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ())
-    in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
     let names = get_span_names () in
     (check int) "no spans when disabled" 0 (List.length names))
 
@@ -852,25 +845,18 @@ let test_telemetry_integration_callbacks () =
          ~max_steps:3 ~telemetry ())
   in
   let evts = List.rev !events in
-  (check bool) "has start" true
-    (List.exists (fun s -> String.starts_with ~prefix:"start:" s) evts);
-  (check bool) "has tool_start" true
-    (List.exists (fun s -> String.starts_with ~prefix:"tool_start:" s) evts);
-  (check bool) "has tool_finish" true
-    (List.exists (fun s -> String.starts_with ~prefix:"tool_finish:" s) evts);
-  (check bool) "has step" true
-    (List.exists (fun s -> String.starts_with ~prefix:"step:" s) evts);
-  (check bool) "has finish" true
-    (List.exists (fun s -> String.starts_with ~prefix:"finish:" s) evts)
+  (check bool) "has start" true (List.exists (fun s -> String.starts_with ~prefix:"start:" s) evts);
+  (check bool) "has tool_start" true (List.exists (fun s -> String.starts_with ~prefix:"tool_start:" s) evts);
+  (check bool) "has tool_finish" true (List.exists (fun s -> String.starts_with ~prefix:"tool_finish:" s) evts);
+  (check bool) "has step" true (List.exists (fun s -> String.starts_with ~prefix:"step:" s) evts);
+  (check bool) "has finish" true (List.exists (fun s -> String.starts_with ~prefix:"finish:" s) evts)
 
 let test_telemetry_no_outputs () =
   let collector, _get_span_names, get_span_data = make_test_collector () in
   Trace_core.with_setup_collector collector (fun () ->
     let model = make_text_model "Secret response" in
     let telemetry = Ai_core.Telemetry.create ~enabled:true ~record_outputs:false () in
-    let _result =
-      Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ())
-    in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
     (* Root span should NOT have ai.response.text when record_outputs=false *)
     let root_data = get_span_data "ai.generateText" in
     (check bool) "no response text on root" true (not (List.mem_assoc "ai.response.text" root_data));
@@ -885,9 +871,7 @@ let test_telemetry_no_inputs () =
   Trace_core.with_setup_collector collector (fun () ->
     let model = make_text_model "Hello!" in
     let telemetry = Ai_core.Telemetry.create ~enabled:true ~record_inputs:false () in
-    let _result =
-      Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ())
-    in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
     (* Root span should NOT have ai.prompt when record_inputs=false *)
     let root_data = get_span_data "ai.generateText" in
     (check bool) "no prompt on root" true (not (List.mem_assoc "ai.prompt" root_data));
@@ -900,9 +884,7 @@ let test_telemetry_step_response_attrs () =
   Trace_core.with_setup_collector collector (fun () ->
     let model = make_text_model "Hello!" in
     let telemetry = Ai_core.Telemetry.create ~enabled:true () in
-    let _result =
-      Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ())
-    in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
     let step_data = get_span_data "ai.generateText.doGenerate" in
     (* Should have response attributes from the plan *)
     (check bool) "has ai.response.text" true (List.mem_assoc "ai.response.text" step_data);

@@ -32,7 +32,8 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
     match telemetry with
     | Some t when Telemetry.enabled t ->
       let mi =
-        Telemetry.make_model_info ~provider:(Ai_provider.Language_model.provider model)
+        Telemetry.make_model_info
+          ~provider:(Ai_provider.Language_model.provider model)
           ~model_id:(Ai_provider.Language_model.model_id model)
       in
       let settings_attrs =
@@ -44,10 +45,10 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         @ Telemetry.base_attributes ~provider:mi.Telemetry.provider ~model_id:mi.Telemetry.model_id ~settings_attrs
             ~headers:(Option.value ~default:[] headers) t
       in
-      (mi, Telemetry.function_id t, Telemetry.metadata t, base)
+      mi, Telemetry.function_id t, Telemetry.metadata t, base
     | _ ->
       let mi = Telemetry.make_model_info ~provider:"" ~model_id:"" in
-      (mi, None, [], [])
+      mi, None, [], []
   in
   (* Root span wrapping the entire operation *)
   Telemetry.maybe_span telemetry "ai.generateText"
@@ -180,7 +181,8 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                   @ Telemetry.opt_float_attr "gen_ai.request.temperature" temperature
                   @ Telemetry.opt_float_attr "gen_ai.request.top_p" top_p
                   @ Telemetry.opt_int_attr "gen_ai.request.top_k" top_k
-                  @ (match stop_sequences with
+                  @
+                    (match stop_sequences with
                     | Some s when s <> [] -> [ "gen_ai.request.stop_sequences", `String (String.concat "," s) ]
                     | _ -> [])
                 | _ -> [])
