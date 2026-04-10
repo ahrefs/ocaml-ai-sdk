@@ -104,7 +104,14 @@ let test_tool_stream_parts () =
     [
       Tool_call_delta { tool_call_id = "tc_1"; tool_name = "search"; args_text_delta = {|{"query":|} };
       Tool_call { tool_call_id = "tc_1"; tool_name = "search"; args = `Assoc [ "query", `String "test" ] };
-      Tool_result { tool_call_id = "tc_1"; tool_name = "search"; result = `String "found"; is_error = false };
+      Tool_result
+        {
+          tool_call_id = "tc_1";
+          tool_name = "search";
+          result = `String "found";
+          is_error = false;
+          provider_metadata = None;
+        };
     ]
   in
   (check int) "3 parts" 3 (List.length parts)

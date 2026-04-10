@@ -46,6 +46,7 @@ let test_append_tool_results () =
         tool_name = "search";
         result = `String "found cats";
         is_error = false;
+        provider_metadata = None;
       };
     ]
   in

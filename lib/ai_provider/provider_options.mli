@@ -26,3 +26,15 @@ val find : 'a key -> t -> 'a option
 
 (** Look up an option by key. Raises [Not_found] if absent. *)
 val find_exn : 'a key -> t -> 'a
+
+(** GADT key for raw provider metadata from upstream re-submissions.
+    Stores the upstream [providerMetadata] JSON blob
+    ([Record<string, Record<string, JsonValue>>]). Each provider reads
+    its own namespace (e.g. ["anthropic"]). *)
+type _ key += Provider_metadata : Yojson.Basic.t key
+
+(** Create a [t] containing only raw provider metadata. *)
+val of_provider_metadata : Yojson.Basic.t -> t
+
+(** Extract raw provider metadata if present. *)
+val provider_metadata : t -> Yojson.Basic.t option

@@ -77,6 +77,8 @@ type parsed_part = {
   error_text : string option; [@json.key "errorText"] [@json.option]
   approved : bool option; [@json.option]
   approval : parsed_approval option; [@json.option]
+  result_provider_metadata : Melange_json.t option; [@json.key "resultProviderMetadata"] [@json.option]
+  call_provider_metadata : Melange_json.t option; [@json.key "callProviderMetadata"] [@json.option]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -109,6 +111,19 @@ let resolve_approved (p : parsed_part) =
   match p.approval with
   | Some a -> a.approved
   | None -> None
+
+(** Resolve provider metadata: prefer [resultProviderMetadata], fall back to
+    [callProviderMetadata]. Matches upstream [convert-to-model-messages.ts]. *)
+let resolve_provider_metadata (p : parsed_part) : Yojson.Basic.t option =
+  match p.result_provider_metadata with
+  | Some _ as m -> m
+  | None -> p.call_provider_metadata
+
+(** Build [provider_options] from resolved provider metadata. *)
+let provider_options_of_part (p : parsed_part) =
+  match resolve_provider_metadata p with
+  | Some json -> Ai_provider.Provider_options.of_provider_metadata json
+  | None -> empty_opts
 
 let parse_file_data (p : parsed_part) =
   match p.media_type with
@@ -148,7 +163,12 @@ let parse_tool_call (p : parsed_part) : Ai_provider.Prompt.assistant_part option
   | Tool_invocation _ ->
     (match p.tool_call_id, resolve_tool_name p, p.input with
     | Some id, Some name, Some args ->
-      Some (Ai_provider.Prompt.Tool_call { id; name; args; provider_options = empty_opts })
+      let provider_options =
+        match p.call_provider_metadata with
+        | Some json -> Ai_provider.Provider_options.of_provider_metadata json
+        | None -> empty_opts
+      in
+      Some (Ai_provider.Prompt.Tool_call { id; name; args; provider_options })
     | _ -> None)
   | _ -> None
 
@@ -157,33 +177,18 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
   | Tool_invocation _ ->
     let state = Option.map tool_state_of_string p.state in
     let tool_name = resolve_tool_name p in
+    let provider_options = provider_options_of_part p in
     (match state, p.tool_call_id, tool_name with
     | Some Output_available, Some tool_call_id, Some tool_name ->
       let result = Option.value ~default:`Null p.output in
-      Some
-        {
-          Ai_provider.Prompt.tool_call_id;
-          tool_name;
-          result;
-          is_error = false;
-          content = [];
-          provider_options = empty_opts;
-        }
+      Some { Ai_provider.Prompt.tool_call_id; tool_name; result; is_error = false; content = []; provider_options }
     | Some Output_error, Some tool_call_id, Some tool_name ->
       let result =
         match p.error_text with
         | Some e -> `String e
         | None -> `String "Tool execution failed"
       in
-      Some
-        {
-          Ai_provider.Prompt.tool_call_id;
-          tool_name;
-          result;
-          is_error = true;
-          content = [];
-          provider_options = empty_opts;
-        }
+      Some { Ai_provider.Prompt.tool_call_id; tool_name; result; is_error = true; content = []; provider_options }
     | Some Output_denied, Some tool_call_id, Some tool_name ->
       Some
         {
@@ -192,7 +197,7 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
           result = `String "Tool execution denied";
           is_error = true;
           content = [];
-          provider_options = empty_opts;
+          provider_options;
         }
     | Some Approval_responded, _, _ ->
       (* Both approved and denied are handled by the initial tool execution step

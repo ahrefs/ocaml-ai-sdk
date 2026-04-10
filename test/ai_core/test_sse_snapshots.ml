@@ -111,7 +111,8 @@ let test_tool_call_snapshot () =
       Tool_input_start { tool_call_id = "tc_1"; tool_name = "search" };
       Tool_input_delta { tool_call_id = "tc_1"; input_text_delta = {|{"query":"test"}|} };
       Tool_input_available { tool_call_id = "tc_1"; tool_name = "search"; input = `Assoc [ "query", `String "test" ] };
-      Tool_output_available { tool_call_id = "tc_1"; output = `Assoc [ "result", `String "found" ] };
+      Tool_output_available
+        { tool_call_id = "tc_1"; output = `Assoc [ "result", `String "found" ]; provider_metadata = None };
       Finish_step;
       Start_step;
       Text_start { id = "txt_2" };
@@ -194,7 +195,7 @@ let test_tool_error_snapshot () =
       Start_step;
       Tool_input_available
         { tool_call_id = "tc_1"; tool_name = "db_query"; input = `Assoc [ "sql", `String "SELECT *" ] };
-      Tool_output_error { tool_call_id = "tc_1"; error_text = "Permission denied" };
+      Tool_output_error { tool_call_id = "tc_1"; error_text = "Permission denied"; provider_metadata = None };
       Finish_step;
       Finish { finish_reason = Some Ai_provider.Finish_reason.Stop; message_metadata = None };
     ]

@@ -29,6 +29,7 @@ let execute_tool ~tools ~tool_call_id ~tool_name ~args =
         tool_name;
         result = `String (Printf.sprintf "Tool '%s' not found" tool_name);
         is_error = true;
+        provider_metadata = None;
       }
   | Some { execute = None; _ } ->
     Lwt.return
@@ -37,14 +38,21 @@ let execute_tool ~tools ~tool_call_id ~tool_name ~args =
         tool_name;
         result = `String "Client-side tool — no server execute";
         is_error = true;
+        provider_metadata = None;
       }
   | Some { execute = Some exec; _ } ->
   try%lwt
     let%lwt result = exec args in
-    Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false }
+    Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
   with exn ->
     Lwt.return
-      { Generate_text_result.tool_call_id; tool_name; result = `String (Printexc.to_string exn); is_error = true }
+      {
+        Generate_text_result.tool_call_id;
+        tool_name;
+        result = `String (Printexc.to_string exn);
+        is_error = true;
+        provider_metadata = None;
+      }
 
 (** Partition tool calls into (blocked, executable).
     Blocked = needs approval OR client-only (no server execute).

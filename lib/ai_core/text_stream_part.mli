@@ -30,6 +30,7 @@ type t =
       tool_name : string;
       result : Yojson.Basic.t;
       is_error : bool;
+      provider_metadata : Yojson.Basic.t option;
     }
   | Tool_output_denied of { tool_call_id : string }
   | Tool_approval_request of {

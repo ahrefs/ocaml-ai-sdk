@@ -20,6 +20,7 @@ type tool_result = {
   tool_name : string;
   result : Yojson.Basic.t;
   is_error : bool;
+  provider_metadata : Yojson.Basic.t option;
 }
 
 type step = {
