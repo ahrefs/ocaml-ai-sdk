@@ -312,7 +312,7 @@ let handle_cors_preflight _conn _req _body =
   Lwt.return (response, Cohttp_lwt.Body.empty)
 
 let handle_chat ~model ?tools ?max_steps ?max_retries ?stop_when ?system ?output ?send_reasoning ?max_output_tokens
-  ?(cors = true) ?provider_options ?transform _conn _req body =
+  ?(cors = true) ?provider_options ?transform ?telemetry _conn _req body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let body_json =
     try Ok (Yojson.Basic.from_string body_str)
@@ -336,7 +336,7 @@ let handle_chat ~model ?tools ?max_steps ?max_retries ?stop_when ?system ?output
     let pending_tool_approvals = collect_pending_tool_approvals body_json in
     let result =
       Stream_text.stream_text ~model ~messages ?tools ?max_steps ?max_retries ?stop_when ?output ?provider_options
-        ?transform ~pending_tool_approvals ()
+        ?transform ?telemetry ~pending_tool_approvals ()
     in
     let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
     let extra_headers = if cors then cors_headers else [] in

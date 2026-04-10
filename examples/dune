@@ -7,7 +7,8 @@
   generate
   stream_chat
   agent_loop
-  smooth_streaming)
+  smooth_streaming
+  telemetry_logging)
  (libraries
   ai_provider
   ai_provider_anthropic
@@ -16,6 +17,8 @@
   lwt.unix
   yojson
   melange-json-native
-  re2)
+  re2
+  trace.core
+  trace-tef)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx)))
