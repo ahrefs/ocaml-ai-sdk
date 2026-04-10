@@ -19,3 +19,4 @@ module Server_handler = Server_handler
 module Partial_json = Partial_json
 module Output = Output
 module Ui_message_stream_writer = Ui_message_stream_writer
+module Telemetry = Telemetry

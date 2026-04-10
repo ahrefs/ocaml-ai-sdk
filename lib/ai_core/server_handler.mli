@@ -56,6 +56,7 @@ val handle_chat :
   ?cors:bool ->
   ?provider_options:Ai_provider.Provider_options.t ->
   ?transform:(Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t) ->
+  ?telemetry:Telemetry.t ->
   Cohttp_lwt_unix.Server.conn ->
   Cohttp.Request.t ->
   Cohttp_lwt.Body.t ->
