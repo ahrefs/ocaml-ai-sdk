@@ -667,6 +667,73 @@ let test_stop_when_not_set () =
   (* make_tool_model returns tool call on first call, text on second *)
   (check int) "2 steps" 2 (List.length result.steps)
 
+(* Mock model that fails N times with retryable error, then succeeds *)
+let make_retry_model ~fail_count =
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-retry"
+
+    let generate _opts =
+      incr call_count;
+      if !call_count <= fail_count then
+        Lwt.fail
+          (Ai_provider.Provider_error.Provider_error
+             { provider = "mock"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = true })
+      else
+        Lwt.return
+          {
+            Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = "recovered" } ];
+            finish_reason = Ai_provider.Finish_reason.Stop;
+            usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+            warnings = [];
+            provider_metadata = Ai_provider.Provider_options.empty;
+            request = { body = `Null };
+            response = { id = Some "r1"; model = Some "mock-retry"; headers = []; body = `Null };
+          }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  call_count, (module M : Ai_provider.Language_model.S)
+
+let test_generate_retries_on_retryable_error () =
+  let call_count, model = make_retry_model ~fail_count:1 in
+  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~max_retries:2 ~prompt:"test" ()) in
+  (check string) "recovered" "recovered" result.text;
+  (check int) "called twice" 2 !call_count
+
+let test_generate_no_retry_on_non_retryable () =
+  let model =
+    let module M : Ai_provider.Language_model.S = struct
+      let specification_version = "V3"
+      let provider = "mock"
+      let model_id = "mock-fail"
+
+      let generate _opts =
+        Lwt.fail
+          (Ai_provider.Provider_error.Provider_error
+             { provider = "mock"; kind = Api_error { status = 400; body = "bad" }; is_retryable = false })
+
+      let stream _opts =
+        let s, p = Lwt_stream.create () in
+        p None;
+        Lwt.return { Ai_provider.Stream_result.stream = s; warnings = []; raw_response = None }
+    end in
+    (module M : Ai_provider.Language_model.S)
+  in
+  Lwt_main.run
+    (Lwt.catch
+       (fun () ->
+         let%lwt _ = Ai_core.Generate_text.generate_text ~model ~prompt:"test" () in
+         Alcotest.fail "expected error")
+       (function
+         | Ai_provider.Provider_error.Provider_error _ -> Lwt.return_unit
+         | exn -> Lwt.fail exn))
+
 let () =
   run "Generate_text"
     [
@@ -697,6 +764,11 @@ let () =
           test_case "not_set_continues" `Quick test_stop_when_not_set;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
+      ( "retry",
+        [
+          test_case "retries_on_retryable_error" `Quick test_generate_retries_on_retryable_error;
+          test_case "no_retry_on_non_retryable" `Quick test_generate_no_retry_on_non_retryable;
+        ] );
       ( "output",
         [
           test_case "object_output" `Quick test_generate_with_object_output;

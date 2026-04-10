@@ -142,10 +142,9 @@ let transform events ~warnings =
                    (Ai_provider.Stream_part.Error
                       {
                         error =
-                          {
-                            Ai_provider.Provider_error.provider = "anthropic";
-                            kind = Api_error { status = 0; body = Printf.sprintf "%s: %s" error_type message };
-                          };
+                          Ai_provider.Provider_error.make_api_error ~provider:"anthropic" ~status:0
+                            ~body:(Printf.sprintf "%s: %s" error_type message)
+                            ~is_retryable:false ();
                       }))
             | _ -> ()
           with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
@@ -157,6 +156,7 @@ let transform events ~warnings =
                         {
                           Ai_provider.Provider_error.provider = "anthropic";
                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
+                          is_retryable = false;
                         };
                     })))
         events

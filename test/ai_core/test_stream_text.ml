@@ -652,6 +652,60 @@ let test_stream_stop_when_max_steps_limits () =
   (* max_steps=2 is the hard limit *)
   (check int) "2 steps" 2 (List.length steps)
 
+let run_lwt f () = Lwt_main.run (f ())
+
+(* Mock model that fails N times on stream with retryable error, then succeeds *)
+let make_stream_retry_model ~fail_count =
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-stream-retry"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content = [];
+          finish_reason = Ai_provider.Finish_reason.Stop;
+          usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = None; model = None; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      incr call_count;
+      if !call_count <= fail_count then
+        Lwt.fail
+          (Ai_provider.Provider_error.Provider_error
+             { provider = "mock"; kind = Api_error { status = 529; body = "overloaded" }; is_retryable = true })
+      else begin
+        let stream, push = Lwt_stream.create () in
+        push (Some (Ai_provider.Stream_part.Text { text = "streamed" }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Finish
+                {
+                  finish_reason = Ai_provider.Finish_reason.Stop;
+                  usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
+                }));
+        push None;
+        Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+      end
+  end in
+  call_count, (module M : Ai_provider.Language_model.S)
+
+let test_stream_retries_on_retryable_error () =
+  let call_count, model = make_stream_retry_model ~fail_count:1 in
+  let result = Ai_core.Stream_text.stream_text ~model ~max_retries:2 ~prompt:"test" () in
+  (* Consume the text stream to completion *)
+  let%lwt texts = Lwt_stream.to_list result.text_stream in
+  let text = String.concat "" texts in
+  (check string) "streamed text" "streamed" text;
+  (check int) "called twice" 2 !call_count;
+  Lwt.return_unit
+
 let test_stream_with_smooth_transform () =
   (* "Hello world" streamed char-by-char, smoothed word-by-word *)
   let model = make_text_stream_model "Hello world" in
@@ -711,4 +765,5 @@ let () =
           test_case "with_object_output" `Quick test_stream_with_object_output;
           test_case "without_output" `Quick test_stream_without_output;
         ] );
+      "retry", [ test_case "retries_on_retryable_error" `Quick (run_lwt test_stream_retries_on_retryable_error) ];
     ]

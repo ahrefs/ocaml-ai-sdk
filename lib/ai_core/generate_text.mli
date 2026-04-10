@@ -1,7 +1,13 @@
 (** Non-streaming text generation with multi-step tool execution.
 
     Calls the provider model, executes tools if requested, feeds results
-    back, and loops until the model stops or [max_steps] is reached. *)
+    back, and loops until the model stops or [max_steps] is reached.
+
+    Each provider call is retried on retryable errors and transient network
+    failures with exponential backoff (see {!Retry.with_retries}).
+
+    @param max_retries Number of additional attempts per provider call
+      (default 2). Set to 0 to disable retries. *)
 
 val generate_text :
   model:Ai_provider.Language_model.t ->
@@ -12,6 +18,7 @@ val generate_text :
   ?tool_choice:Ai_provider.Tool_choice.t ->
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?max_steps:int ->
+  ?max_retries:int ->
   ?stop_when:Stop_condition.t list ->
   ?max_output_tokens:int ->
   ?temperature:float ->

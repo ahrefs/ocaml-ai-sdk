@@ -142,6 +142,7 @@ let transform events ~warnings =
                         {
                           Ai_provider.Provider_error.provider = "openai";
                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
+                          is_retryable = false;
                         };
                     })))
         events

@@ -20,7 +20,7 @@ let parse_content (content : Ai_provider.Content.t list) =
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
 let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option) ?output
-  ?(max_steps = 1) ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers
+  ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers
   ?provider_options ?on_step_finish ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
@@ -64,7 +64,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
           ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
       in
-      let%lwt result = Ai_provider.Language_model.generate model opts in
+      let%lwt result = Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.generate model opts) in
       let text, reasoning, tool_calls = parse_content result.content in
       let new_usage = Generate_text_result.add_usage total_usage result.usage in
       (* Check if we need to execute tools *)

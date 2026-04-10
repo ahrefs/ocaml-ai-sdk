@@ -17,6 +17,16 @@ All notable changes to this project will be documented in this file.
   Text_stream_part.t Lwt_stream.t`) applied between the raw event stream and
   consumer-facing streams. Both `full_stream` and `text_stream` reflect the
   transformed output.
+- **Retry with exponential backoff** — `Retry` module with jitter, configurable
+  initial delay and backoff factor, and parameter validation. `?max_retries`
+  threaded through `generate_text`, `stream_text`, and
+  `server_handler.handle_chat`. Retries only on errors marked retryable.
+
+### Provider Abstraction Layer (`ai_provider`)
+
+- **`is_retryable` field** on `Provider_error.t` — defaults from HTTP status
+  code (429, 5xx are retryable). Anthropic and OpenAI providers set it
+  explicitly based on error classification.
 
 ### Examples
 

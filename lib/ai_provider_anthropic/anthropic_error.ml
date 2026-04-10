@@ -48,9 +48,5 @@ let of_response ~status ~body =
     | Yojson.Json_error _ -> None, body
     | Melange_json.Of_json_error _ -> None, body
   in
-  let body =
-    match error_type with
-    | Some t when is_retryable t -> "[retryable] " ^ message
-    | Some _ | None -> message
-  in
-  { Ai_provider.Provider_error.provider = "anthropic"; kind = Api_error { status; body } }
+  let is_retryable = Option.map is_retryable error_type in
+  Ai_provider.Provider_error.make_api_error ~provider:"anthropic" ~status ~body:message ?is_retryable ()
