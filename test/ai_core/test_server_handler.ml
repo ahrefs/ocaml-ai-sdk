@@ -582,6 +582,112 @@ let test_collect_pending_approvals_invalid_json () =
   let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
   (check int) "0 on invalid" 0 (List.length approvals)
 
+(* === Provider metadata tests === *)
+
+let test_parse_tool_result_with_result_provider_metadata () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"output-available","input":{"city":"NYC"},"output":{"temp":72},
+             "resultProviderMetadata":{"anthropic":{"cacheReadInputTokens":42}}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant _; Tool { content = [ { provider_options; _ } ] } ] ->
+    let pm = Ai_provider.Provider_options.provider_metadata provider_options in
+    (check bool) "has provider_metadata" true (Option.is_some pm);
+    let json_str = Yojson.Basic.to_string (Option.get pm) in
+    (check string) "metadata" {|{"anthropic":{"cacheReadInputTokens":42}}|} json_str
+  | _ -> fail "expected tool result with provider metadata"
+
+let test_parse_tool_result_with_call_provider_metadata_fallback () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-search","toolCallId":"tc_2","toolName":"search",
+             "state":"output-available","input":{"q":"test"},"output":"result",
+             "callProviderMetadata":{"anthropic":{"cacheWriteInputTokens":100}}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant _; Tool { content = [ { provider_options; _ } ] } ] ->
+    let pm = Ai_provider.Provider_options.provider_metadata provider_options in
+    (check bool) "has provider_metadata from fallback" true (Option.is_some pm);
+    let json_str = Yojson.Basic.to_string (Option.get pm) in
+    (check string) "metadata" {|{"anthropic":{"cacheWriteInputTokens":100}}|} json_str
+  | _ -> fail "expected tool result with provider metadata from callProviderMetadata"
+
+let test_parse_tool_result_prefers_result_over_call_metadata () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-search","toolCallId":"tc_3","toolName":"search",
+             "state":"output-available","input":{"q":"test"},"output":"result",
+             "resultProviderMetadata":{"anthropic":{"cacheReadInputTokens":50}},
+             "callProviderMetadata":{"anthropic":{"cacheWriteInputTokens":100}}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant _; Tool { content = [ { provider_options; _ } ] } ] ->
+    let pm = Ai_provider.Provider_options.provider_metadata provider_options in
+    let json_str = Yojson.Basic.to_string (Option.get pm) in
+    (check string) "prefers resultProviderMetadata" {|{"anthropic":{"cacheReadInputTokens":50}}|} json_str
+  | _ -> fail "expected tool result with resultProviderMetadata preferred"
+
+let test_parse_tool_result_no_provider_metadata () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-weather","toolCallId":"tc_4","toolName":"weather",
+             "state":"output-available","input":{"city":"NYC"},"output":{"temp":72}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant _; Tool { content = [ { provider_options; _ } ] } ] ->
+    let pm = Ai_provider.Provider_options.provider_metadata provider_options in
+    (check bool) "no provider_metadata" true (Option.is_none pm)
+  | _ -> fail "expected tool result without provider metadata"
+
+let test_parse_tool_call_with_call_provider_metadata () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-weather","toolCallId":"tc_5","toolName":"weather",
+             "state":"output-available","input":{"city":"NYC"},"output":{"temp":72},
+             "callProviderMetadata":{"anthropic":{"cacheWriteInputTokens":200}}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant { content = [ Tool_call { provider_options; _ } ] }; Tool _ ] ->
+    let pm = Ai_provider.Provider_options.provider_metadata provider_options in
+    (check bool) "tool_call has call provider metadata" true (Option.is_some pm);
+    let json_str = Yojson.Basic.to_string (Option.get pm) in
+    (check string) "call metadata" {|{"anthropic":{"cacheWriteInputTokens":200}}|} json_str
+  | _ -> fail "expected tool call with call provider metadata"
+
+let test_parse_tool_error_with_provider_metadata () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-search","toolCallId":"tc_6","toolName":"search",
+             "state":"output-error","input":{"q":"test"},"errorText":"timeout",
+             "resultProviderMetadata":{"anthropic":{"cacheReadInputTokens":5}}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant _; Tool { content = [ { provider_options; is_error; _ } ] } ] ->
+    (check bool) "is error" true is_error;
+    let pm = Ai_provider.Provider_options.provider_metadata provider_options in
+    (check bool) "has provider_metadata" true (Option.is_some pm)
+  | _ -> fail "expected tool error result with provider metadata"
+
 let () =
   run "Server_handler"
     [
@@ -646,5 +752,16 @@ let () =
           test_case "no messages field" `Quick test_parse_no_messages_field;
           test_case "text part missing text" `Quick test_parse_text_part_missing_text_skipped;
           test_case "extra request fields" `Quick test_parse_extra_request_fields_ignored;
+        ] );
+      ( "parse_messages: provider metadata",
+        [
+          test_case "resultProviderMetadata on tool result" `Quick test_parse_tool_result_with_result_provider_metadata;
+          test_case "callProviderMetadata fallback on tool result" `Quick
+            test_parse_tool_result_with_call_provider_metadata_fallback;
+          test_case "resultProviderMetadata preferred over callProviderMetadata" `Quick
+            test_parse_tool_result_prefers_result_over_call_metadata;
+          test_case "no provider metadata" `Quick test_parse_tool_result_no_provider_metadata;
+          test_case "callProviderMetadata on tool call" `Quick test_parse_tool_call_with_call_provider_metadata;
+          test_case "provider metadata on tool error" `Quick test_parse_tool_error_with_provider_metadata;
         ] );
     ]

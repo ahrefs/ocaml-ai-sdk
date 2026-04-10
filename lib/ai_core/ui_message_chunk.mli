@@ -44,10 +44,12 @@ type t =
   | Tool_output_available of {
       tool_call_id : string;
       output : Yojson.Basic.t;
+      provider_metadata : Yojson.Basic.t option;
     }
   | Tool_output_error of {
       tool_call_id : string;
       error_text : string;
+      provider_metadata : Yojson.Basic.t option;
     }
   | Source_url of {
       source_id : string;

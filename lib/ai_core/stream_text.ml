@@ -217,7 +217,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
       let%lwt tr = Core_tool.execute_tool ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args in
       emit_event
         (Text_stream_part.Tool_result
-           { tool_call_id = tr.tool_call_id; tool_name = tr.tool_name; result = tr.result; is_error = tr.is_error });
+           {
+             tool_call_id = tr.tool_call_id;
+             tool_name = tr.tool_name;
+             result = tr.result;
+             is_error = tr.is_error;
+             provider_metadata = tr.provider_metadata;
+           });
       Lwt.return tr
     in
     let execute_tool_with_telemetry ~step_num (tc : Generate_text_result.tool_call) =
@@ -275,7 +281,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           | _ -> ());
           emit_event
             (Text_stream_part.Tool_result
-               { tool_call_id = tr.tool_call_id; tool_name = tr.tool_name; result = tr.result; is_error = tr.is_error });
+               {
+                 tool_call_id = tr.tool_call_id;
+                 tool_name = tr.tool_name;
+                 result = tr.result;
+                 is_error = tr.is_error;
+                 provider_metadata = tr.provider_metadata;
+               });
           Lwt.return tr)
     in
     let finish_stream ~finish_reason ~usage ~all_steps =
@@ -564,6 +576,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                       tool_name = ta.tool_name;
                       result = Core_tool.denied_result;
                       is_error = false;
+                      provider_metadata = None;
                     }
                 | true -> execute_and_emit { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
               approvals

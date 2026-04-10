@@ -40,10 +40,12 @@ type t =
   | Tool_output_available of {
       tool_call_id : string;
       output : Yojson.Basic.t;
+      provider_metadata : Yojson.Basic.t option;
     }
   | Tool_output_error of {
       tool_call_id : string;
       error_text : string;
+      provider_metadata : Yojson.Basic.t option;
     }
   | Source_url of {
       source_id : string;
@@ -142,6 +144,7 @@ type tool_output_available_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
   output : Melange_json.t;
+  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -149,6 +152,7 @@ type tool_output_error_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
   error_text : string; [@json.key "errorText"]
+  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -241,10 +245,10 @@ let to_json = function
     tool_input_delta_json_to_json { type_ = "tool-input-delta"; tool_call_id; input_text_delta }
   | Tool_input_available { tool_call_id; tool_name; input } ->
     tool_input_available_json_to_json { type_ = "tool-input-available"; tool_call_id; tool_name; input }
-  | Tool_output_available { tool_call_id; output } ->
-    tool_output_available_json_to_json { type_ = "tool-output-available"; tool_call_id; output }
-  | Tool_output_error { tool_call_id; error_text } ->
-    tool_output_error_json_to_json { type_ = "tool-output-error"; tool_call_id; error_text }
+  | Tool_output_available { tool_call_id; output; provider_metadata } ->
+    tool_output_available_json_to_json { type_ = "tool-output-available"; tool_call_id; output; provider_metadata }
+  | Tool_output_error { tool_call_id; error_text; provider_metadata } ->
+    tool_output_error_json_to_json { type_ = "tool-output-error"; tool_call_id; error_text; provider_metadata }
   | Source_url { source_id; url; title } -> source_url_json_to_json { type_ = "source-url"; source_id; url; title }
   | File { url; media_type } -> file_json_to_json { type_ = "file"; url; media_type }
   | Message_metadata { message_metadata } ->

@@ -43,11 +43,14 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
             end;
             Hashtbl.remove started_tools tool_call_id;
             push (Some (Ui_message_chunk.Tool_input_available { tool_call_id; tool_name; input = args }))
-          | Tool_result { tool_call_id; result; is_error; tool_name = _ } ->
+          | Tool_result { tool_call_id; result; is_error; tool_name = _; provider_metadata } ->
             if is_error then
               push
-                (Some (Ui_message_chunk.Tool_output_error { tool_call_id; error_text = Yojson.Basic.to_string result }))
-            else push (Some (Ui_message_chunk.Tool_output_available { tool_call_id; output = result }))
+                (Some
+                   (Ui_message_chunk.Tool_output_error
+                      { tool_call_id; error_text = Yojson.Basic.to_string result; provider_metadata }))
+            else
+              push (Some (Ui_message_chunk.Tool_output_available { tool_call_id; output = result; provider_metadata }))
           | Tool_output_denied { tool_call_id } -> push (Some (Ui_message_chunk.Tool_output_denied { tool_call_id }))
           | Tool_approval_request { approval_id; tool_call_id; tool_name; args } ->
             if not (Hashtbl.mem started_tools tool_call_id) then begin

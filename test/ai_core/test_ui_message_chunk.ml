@@ -69,14 +69,38 @@ let test_tool_input_available () =
 
 let test_tool_output_available () =
   let json =
-    json_str (Tool_output_available { tool_call_id = "tc_1"; output = `Assoc [ "result", `String "found" ] })
+    json_str
+      (Tool_output_available
+         { tool_call_id = "tc_1"; output = `Assoc [ "result", `String "found" ]; provider_metadata = None })
   in
   (check string) "tool-output-available"
     {|{"type":"tool-output-available","toolCallId":"tc_1","output":{"result":"found"}}|} json
 
+let test_tool_output_available_with_provider_metadata () =
+  let metadata = `Assoc [ "anthropic", `Assoc [ "cacheReadInputTokens", `Int 42 ] ] in
+  let json =
+    json_str
+      (Tool_output_available
+         { tool_call_id = "tc_1"; output = `Assoc [ "result", `String "found" ]; provider_metadata = Some metadata })
+  in
+  (check string) "tool-output-available with providerMetadata"
+    {|{"type":"tool-output-available","toolCallId":"tc_1","output":{"result":"found"},"providerMetadata":{"anthropic":{"cacheReadInputTokens":42}}}|}
+    json
+
 let test_tool_output_error () =
-  let json = json_str (Tool_output_error { tool_call_id = "tc_1"; error_text = "not found" }) in
+  let json =
+    json_str (Tool_output_error { tool_call_id = "tc_1"; error_text = "not found"; provider_metadata = None })
+  in
   (check string) "tool-output-error" {|{"type":"tool-output-error","toolCallId":"tc_1","errorText":"not found"}|} json
+
+let test_tool_output_error_with_provider_metadata () =
+  let metadata = `Assoc [ "anthropic", `Assoc [ "cacheReadInputTokens", `Int 10 ] ] in
+  let json =
+    json_str (Tool_output_error { tool_call_id = "tc_1"; error_text = "not found"; provider_metadata = Some metadata })
+  in
+  (check string) "tool-output-error with providerMetadata"
+    {|{"type":"tool-output-error","toolCallId":"tc_1","errorText":"not found","providerMetadata":{"anthropic":{"cacheReadInputTokens":10}}}|}
+    json
 
 (* Error *)
 let test_error () =
@@ -170,7 +194,9 @@ let () =
           test_case "input_delta" `Quick test_tool_input_delta;
           test_case "input_available" `Quick test_tool_input_available;
           test_case "output_available" `Quick test_tool_output_available;
+          test_case "output_available_with_provider_metadata" `Quick test_tool_output_available_with_provider_metadata;
           test_case "output_error" `Quick test_tool_output_error;
+          test_case "output_error_with_provider_metadata" `Quick test_tool_output_error_with_provider_metadata;
         ] );
       ( "other",
         [

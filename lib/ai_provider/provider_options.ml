@@ -53,3 +53,12 @@ let find_exn k opts =
   match find k opts with
   | Some v -> v
   | None -> raise Not_found
+
+(** Raw provider metadata from upstream re-submissions.
+    Stores [Record<string, Record<string, JsonValue>>] — each provider
+    reads its own namespace (e.g. ["anthropic"]). *)
+type _ key += Provider_metadata : Yojson.Basic.t key
+
+let of_provider_metadata json = set Provider_metadata json empty
+
+let provider_metadata opts = find Provider_metadata opts
