@@ -714,6 +714,8 @@ let is_even n = n land 1 = 0
 
 **MUST READ `docs/UPSTREAM_INTEROP.md` before any work on SSE chunks, request parsing, or tool workflows.** It contains wire format rules, upstream reference files, and a full path trace checklist. Failure to follow these rules causes hard runtime errors in the frontend.
 
+**Upstream reference files live in repo-root `node_modules/` (not example directories).** See `docs/upstream-deps-updated.md` for current versions and update policy.
+
 ## New Module Checklist
 
 - [ ] Create both .ml and .mli files with documentation

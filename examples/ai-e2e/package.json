@@ -9,8 +9,8 @@
     "dev": "npm run build && echo 'Run: dune exec examples/ai-e2e/server/main.exe'"
   },
   "dependencies": {
-    "@ai-sdk/react": "^3.0.118",
-    "ai": "^6.0.0",
+    "@ai-sdk/react": "^3.0.155",
+    "ai": "^6.0.153",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

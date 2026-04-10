@@ -16,14 +16,13 @@ let done_sse = "data: [DONE]\n\n"
 let stream_to_sse chunks =
   let sse_stream, push = Lwt_stream.create () in
   Lwt.async (fun () ->
-    Lwt.catch
-      (fun () ->
-        let%lwt () = Lwt_stream.iter (fun chunk -> push (Some (chunk_to_sse chunk))) chunks in
-        push (Some done_sse);
-        push None;
-        Lwt.return_unit)
-      (fun _exn ->
-        push (Some done_sse);
-        push None;
-        Lwt.return_unit));
+    try%lwt
+      let%lwt () = Lwt_stream.iter (fun chunk -> push (Some (chunk_to_sse chunk))) chunks in
+      push (Some done_sse);
+      push None;
+      Lwt.return_unit
+    with _exn ->
+      push (Some done_sse);
+      push None;
+      Lwt.return_unit);
   sse_stream

@@ -88,8 +88,7 @@ let create ~config ~model =
 
     let generate opts =
       let body, warnings, extra_headers = prepare_request ~model ~stream:false opts in
-      let%lwt response = Anthropic_api.messages ~config ~body ~extra_headers ~stream:false in
-      match response with
+      match%lwt Anthropic_api.messages ~config ~body ~extra_headers ~stream:false with
       | `Json json ->
         let result = Convert_response.parse_response json in
         Lwt.return { result with warnings = warnings @ result.warnings }
@@ -97,8 +96,7 @@ let create ~config ~model =
 
     let stream opts =
       let body, warnings, extra_headers = prepare_request ~model ~stream:true opts in
-      let%lwt response = Anthropic_api.messages ~config ~body ~extra_headers ~stream:true in
-      match response with
+      match%lwt Anthropic_api.messages ~config ~body ~extra_headers ~stream:true with
       | `Stream line_stream ->
         let sse_events = Sse.parse_events line_stream in
         let parts = Convert_stream.transform sse_events ~warnings in

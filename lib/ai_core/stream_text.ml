@@ -293,95 +293,92 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         end
       end
     in
-    Lwt.catch
-      (fun () ->
-        (* Execute pending tool approvals before starting the LLM step loop *)
-        let%lwt start_messages, initial_steps =
-          match pending_tool_approvals with
-          | [] -> Lwt.return (initial_messages, [])
-          | approvals ->
-            emit_event Text_stream_part.Start_step;
-            (* Emit tool input chunks so the frontend creates tool invocations *)
-            List.iter
+    try%lwt
+      (* Execute pending tool approvals before starting the LLM step loop *)
+      let%lwt start_messages, initial_steps =
+        match pending_tool_approvals with
+        | [] -> Lwt.return (initial_messages, [])
+        | approvals ->
+          emit_event Text_stream_part.Start_step;
+          (* Emit tool input chunks so the frontend creates tool invocations *)
+          List.iter
+            (fun (ta : Generate_text_result.pending_tool_approval) ->
+              emit_event
+                (Text_stream_part.Tool_call { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args }))
+            approvals;
+          (* Denied before approved — matches upstream emit order *)
+          approvals
+          |> List.filter (fun (ta : Generate_text_result.pending_tool_approval) -> not ta.approved)
+          |> List.iter (fun (ta : Generate_text_result.pending_tool_approval) ->
+            emit_event (Text_stream_part.Tool_output_denied { tool_call_id = ta.tool_call_id }));
+          let%lwt tool_results =
+            Lwt_list.map_s
               (fun (ta : Generate_text_result.pending_tool_approval) ->
-                emit_event
-                  (Text_stream_part.Tool_call
-                     { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args }))
-              approvals;
-            (* Denied before approved — matches upstream emit order *)
-            approvals
-            |> List.filter (fun (ta : Generate_text_result.pending_tool_approval) -> not ta.approved)
-            |> List.iter (fun (ta : Generate_text_result.pending_tool_approval) ->
-              emit_event (Text_stream_part.Tool_output_denied { tool_call_id = ta.tool_call_id }));
-            let%lwt tool_results =
-              Lwt_list.map_s
-                (fun (ta : Generate_text_result.pending_tool_approval) ->
-                  match ta.approved with
-                  | false ->
-                    Lwt.return
-                      {
-                        Generate_text_result.tool_call_id = ta.tool_call_id;
-                        tool_name = ta.tool_name;
-                        result = Core_tool.denied_result;
-                        is_error = false;
-                      }
-                  | true ->
-                    execute_and_emit { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
-                approvals
-            in
-            let tool_calls =
-              List.map
-                (fun (ta : Generate_text_result.pending_tool_approval) ->
-                  { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
-                approvals
-            in
-            let step : Generate_text_result.step =
-              {
-                text = "";
-                reasoning = "";
-                tool_calls;
-                tool_results;
-                finish_reason = Ai_provider.Finish_reason.Tool_calls;
-                usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
-              }
-            in
-            Option.iter (fun f -> f step) on_step_finish;
-            emit_event
-              (Text_stream_part.Finish_step
-                 {
-                   finish_reason = Ai_provider.Finish_reason.Tool_calls;
-                   usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
-                 });
-            (* Append tool results to messages for the next LLM call *)
-            let tool_result_parts =
-              List.map
-                (fun (tr : Generate_text_result.tool_result) ->
-                  {
-                    Ai_provider.Prompt.tool_call_id = tr.tool_call_id;
-                    tool_name = tr.tool_name;
-                    result = tr.result;
-                    is_error = tr.is_error;
-                    content = [];
-                    provider_options = Ai_provider.Provider_options.empty;
-                  })
-                tool_results
-            in
-            let updated_messages = initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
-            Lwt.return (updated_messages, [ step ])
-        in
-        step_loop ~current_messages:start_messages ~steps:(List.rev initial_steps)
-          ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
-          ~step_num:(1 + List.length initial_steps))
-      (fun exn ->
-        let msg = Printexc.to_string exn in
-        full_push (Some (Text_stream_part.Error { error = msg }));
-        full_push None;
-        partial_output_push None;
-        Lwt.wakeup_later_exn usage_resolver exn;
-        Lwt.wakeup_later_exn finish_resolver exn;
-        Lwt.wakeup_later_exn steps_resolver exn;
-        Lwt.wakeup_later output_resolver None;
-        Lwt.return_unit));
+                match ta.approved with
+                | false ->
+                  Lwt.return
+                    {
+                      Generate_text_result.tool_call_id = ta.tool_call_id;
+                      tool_name = ta.tool_name;
+                      result = Core_tool.denied_result;
+                      is_error = false;
+                    }
+                | true -> execute_and_emit { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+              approvals
+          in
+          let tool_calls =
+            List.map
+              (fun (ta : Generate_text_result.pending_tool_approval) ->
+                { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+              approvals
+          in
+          let step : Generate_text_result.step =
+            {
+              text = "";
+              reasoning = "";
+              tool_calls;
+              tool_results;
+              finish_reason = Ai_provider.Finish_reason.Tool_calls;
+              usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+            }
+          in
+          Option.iter (fun f -> f step) on_step_finish;
+          emit_event
+            (Text_stream_part.Finish_step
+               {
+                 finish_reason = Ai_provider.Finish_reason.Tool_calls;
+                 usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+               });
+          (* Append tool results to messages for the next LLM call *)
+          let tool_result_parts =
+            List.map
+              (fun (tr : Generate_text_result.tool_result) ->
+                {
+                  Ai_provider.Prompt.tool_call_id = tr.tool_call_id;
+                  tool_name = tr.tool_name;
+                  result = tr.result;
+                  is_error = tr.is_error;
+                  content = [];
+                  provider_options = Ai_provider.Provider_options.empty;
+                })
+              tool_results
+          in
+          let updated_messages = initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
+          Lwt.return (updated_messages, [ step ])
+      in
+      step_loop ~current_messages:start_messages ~steps:(List.rev initial_steps)
+        ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
+        ~step_num:(1 + List.length initial_steps)
+    with exn ->
+      let msg = Printexc.to_string exn in
+      full_push (Some (Text_stream_part.Error { error = msg }));
+      full_push None;
+      partial_output_push None;
+      Lwt.wakeup_later_exn usage_resolver exn;
+      Lwt.wakeup_later_exn finish_resolver exn;
+      Lwt.wakeup_later_exn steps_resolver exn;
+      Lwt.wakeup_later output_resolver None;
+      Lwt.return_unit);
   let transformed_stream =
     match transform with
     | Some f -> f full_stream
