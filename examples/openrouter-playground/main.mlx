@@ -1,0 +1,464 @@
+open Ai_sdk_react
+
+let s = React.string
+
+external json_stringify : Js.Json.t -> string = "stringify" [@@mel.scope "JSON"]
+external set_scroll_top : Dom.element -> int -> unit = "scrollTop" [@@mel.set]
+external scroll_height : Dom.element -> int = "scrollHeight" [@@mel.get]
+
+(* --- Settings --- *)
+
+type settings = {
+  model : string;
+  fallback_models : string;
+  web_search_enabled : bool;
+  web_search_max_results : int;
+  provider_order : string;
+  provider_allow_fallbacks : bool;
+  provider_sort : string;
+  usage_enabled : bool;
+  reasoning_effort : string;
+  reasoning_max_tokens : string;
+  extra_body : string;
+}
+
+let default_settings =
+  {
+    model = "openai/gpt-4o-mini";
+    fallback_models = "";
+    web_search_enabled = false;
+    web_search_max_results = 5;
+    provider_order = "";
+    provider_allow_fallbacks = true;
+    provider_sort = "";
+    usage_enabled = false;
+    reasoning_effort = "";
+    reasoning_max_tokens = "";
+    extra_body = "";
+  }
+
+let split_comma str =
+  Js.String.split ~sep:"," str
+  |> Array.to_list
+  |> List.map Js.String.trim
+  |> List.filter (fun item -> String.length item > 0)
+
+let settings_to_json (cfg : settings) : Js.Json.t =
+  let dict = Js.Dict.empty () in
+  Js.Dict.set dict "model" (Js.Json.string cfg.model);
+  (match split_comma cfg.fallback_models with
+  | [] -> ()
+  | ms ->
+    Js.Dict.set dict "fallback_models" (Js.Json.array (Array.of_list (List.map Js.Json.string ms))));
+  (match cfg.web_search_enabled with
+  | true ->
+    let ws = Js.Dict.empty () in
+    Js.Dict.set ws "enabled" (Js.Json.boolean true);
+    Js.Dict.set ws "max_results" (Js.Json.number (Float.of_int cfg.web_search_max_results));
+    Js.Dict.set dict "web_search" (Js.Json.object_ ws)
+  | false -> ());
+  let order = split_comma cfg.provider_order in
+  (match order, cfg.provider_sort, cfg.provider_allow_fallbacks with
+  | [], "", true -> ()
+  | _ ->
+    let pr = Js.Dict.empty () in
+    (match order with
+    | [] -> ()
+    | ms ->
+      Js.Dict.set pr "order" (Js.Json.array (Array.of_list (List.map Js.Json.string ms))));
+    (match cfg.provider_allow_fallbacks with
+    | true -> ()
+    | false -> Js.Dict.set pr "allow_fallbacks" (Js.Json.boolean false));
+    (match cfg.provider_sort with
+    | "" -> ()
+    | sort -> Js.Dict.set pr "sort" (Js.Json.string sort));
+    Js.Dict.set dict "provider_routing" (Js.Json.object_ pr));
+  (match cfg.usage_enabled with
+  | true -> Js.Dict.set dict "usage" (Js.Json.boolean true)
+  | false -> ());
+  (match cfg.reasoning_effort, cfg.reasoning_max_tokens with
+  | "", "" -> ()
+  | _ ->
+    let r = Js.Dict.empty () in
+    (match cfg.reasoning_effort with
+    | "" -> ()
+    | e -> Js.Dict.set r "effort" (Js.Json.string e));
+    (match cfg.reasoning_max_tokens with
+    | "" -> ()
+    | n ->
+      (try Js.Dict.set r "max_tokens" (Js.Json.number (Float.of_int (int_of_string n)))
+       with _ -> ()));
+    Js.Dict.set dict "reasoning" (Js.Json.object_ r));
+  (match cfg.extra_body with
+  | "" -> ()
+  | json_str -> (try Js.Dict.set dict "extra_body" (Js.Json.parseExn json_str) with _ -> ()));
+  Js.Json.object_ dict
+
+(* --- Styles --- *)
+
+let layout_style =
+  ReactDOM.Style.make ~display:"flex" ~height:"100vh" ~fontFamily:"system-ui, -apple-system, sans-serif" ()
+
+let chat_area_style =
+  ReactDOM.Style.make ~flex:"1" ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~minWidth:"0" ()
+
+let chat_header_style =
+  ReactDOM.Style.make ~padding:"16px 24px" ~borderBottom:"1px solid #e5e7eb" ~fontWeight:"700" ~fontSize:"18px"
+    ~color:"#111827" ()
+
+let messages_style =
+  ReactDOM.Style.make ~flex:"1" ~overflowY:"auto" ~padding:"16px 24px" ()
+
+let empty_style =
+  ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ~justifyContent:"center" ~height:"100%" ~color:"#9ca3af"
+    ~fontSize:"14px" ()
+
+let form_style =
+  ReactDOM.Style.make ~display:"flex" ~gap:"8px" ~padding:"12px 24px" ~borderTop:"1px solid #e5e7eb" ()
+
+let input_style =
+  ReactDOM.Style.make ~flex:"1" ~padding:"10px 14px" ~borderRadius:"8px" ~border:"1px solid #d1d5db" ~fontSize:"14px"
+    ~outline:"none" ()
+
+let button_style ~disabled =
+  ReactDOM.Style.make ~padding:"10px 20px" ~borderRadius:"8px" ~border:"none"
+    ~background:(if disabled then "#d1d5db" else "#2563eb")
+    ~color:"#fff"
+    ~cursor:(if disabled then "default" else "pointer")
+    ~fontSize:"14px" ~fontWeight:"500" ()
+
+let error_style =
+  ReactDOM.Style.make ~padding:"10px 14px" ~margin:"12px 24px 0" ~borderRadius:"8px" ~background:"#fef2f2"
+    ~border:"1px solid #fecaca" ~color:"#991b1b" ~fontSize:"13px" ()
+
+let status_style =
+  ReactDOM.Style.make ~fontSize:"12px" ~color:"#6b7280" ~padding:"4px 24px 8px" ()
+
+let message_style ~is_user =
+  ReactDOM.Style.make ~padding:"12px 16px" ~borderRadius:"8px"
+    ~background:(if is_user then "#eff6ff" else "#fff")
+    ~border:(if is_user then "1px solid #bfdbfe" else "1px solid #e5e7eb")
+    ~marginBottom:"12px" ()
+
+let role_style ~is_user =
+  ReactDOM.Style.make ~fontSize:"12px" ~fontWeight:"600"
+    ~color:(if is_user then "#1d4ed8" else "#374151")
+    ~marginBottom:"6px" ~textTransform:"uppercase" ~letterSpacing:"0.05em" ()
+
+let panel_style ~is_open =
+  ReactDOM.Style.make
+    ~width:(if is_open then "340px" else "0px")
+    ~minWidth:(if is_open then "340px" else "0px")
+    ~borderLeft:(if is_open then "1px solid #e5e7eb" else "none")
+    ~overflowY:"auto" ~overflowX:"hidden" ~transition:"width 0.2s, min-width 0.2s" ~background:"#fafafa" ()
+
+let panel_inner_style =
+  ReactDOM.Style.make ~padding:"16px" ~width:"308px" ()
+
+let panel_title_style =
+  ReactDOM.Style.make ~fontSize:"16px" ~fontWeight:"700" ~color:"#111827" ~marginBottom:"16px" ()
+
+let section_title_style =
+  ReactDOM.Style.make ~fontSize:"13px" ~fontWeight:"600" ~color:"#374151" ~marginBottom:"8px" ~marginTop:"16px" ()
+
+let label_style =
+  ReactDOM.Style.make ~display:"block" ~fontSize:"12px" ~color:"#6b7280" ~marginBottom:"4px" ()
+
+let field_input_style =
+  ReactDOM.Style.make ~width:"100%" ~padding:"6px 10px" ~borderRadius:"6px" ~border:"1px solid #d1d5db"
+    ~fontSize:"13px" ~outline:"none" ~boxSizing:"border-box" ()
+
+let select_style =
+  ReactDOM.Style.make ~width:"100%" ~padding:"6px 10px" ~borderRadius:"6px" ~border:"1px solid #d1d5db"
+    ~fontSize:"13px" ~outline:"none" ~background:"#fff" ~boxSizing:"border-box" ()
+
+let checkbox_row_style =
+  ReactDOM.Style.make ~display:"flex" ~alignItems:"center" ~gap:"8px" ~marginBottom:"8px" ()
+
+let textarea_style =
+  ReactDOM.Style.make ~width:"100%" ~padding:"6px 10px" ~borderRadius:"6px" ~border:"1px solid #d1d5db"
+    ~fontSize:"12px" ~fontFamily:"ui-monospace, monospace" ~outline:"none" ~minHeight:"60px" ~resize:"vertical"
+    ~boxSizing:"border-box" ()
+
+let toggle_btn_style =
+  ReactDOM.Style.make ~position:"absolute" ~top:"8px" ~right:"8px" ~padding:"4px 10px" ~borderRadius:"6px"
+    ~border:"1px solid #d1d5db" ~background:"#fff" ~cursor:"pointer" ~fontSize:"12px" ~color:"#374151"
+    ~zIndex:"10" ()
+
+(* --- Message rendering --- *)
+
+let render_text_part ~key p =
+  let text = Text_part.text p in
+  <div key style=(ReactDOM.Style.make ~whiteSpace:"pre-wrap" ())>(s text)</div>
+
+let render_reasoning_part ~key p =
+  let text = Reasoning_part.text p in
+  let is_streaming =
+    match Reasoning_part.state p with
+    | Some "streaming" -> true
+    | _ -> false
+  in
+  <details
+    key
+    open_=is_streaming
+    style=(ReactDOM.Style.make ~borderLeft:"3px solid #9333ea" ~paddingLeft:"12px" ~marginTop:"8px"
+             ~marginBottom:"8px" ())>
+    <summary
+      style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"13px" ~fontWeight:"500" ~color:"#9333ea"
+               ~userSelect:"none" ())>
+      (s (if is_streaming then "Thinking..." else "Thought process"))
+    </summary>
+    <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"13px" ~color:"#6b7280" ~whiteSpace:"pre-wrap" ())>
+      (s text)
+    </div>
+  </details>
+
+let render_part i part =
+  let key = string_of_int i in
+  match classify part with
+  | Text p -> render_text_part ~key p
+  | Reasoning p -> render_reasoning_part ~key p
+  | _ -> React.null
+
+let render_message msg =
+  let role = Message.role msg in
+  let is_user =
+    match role with
+    | User -> true
+    | _ -> false
+  in
+  let role_label = if is_user then "You" else "Assistant" in
+  let parts =
+    Message.parts msg |> Array.to_list |> List.mapi render_part |> Array.of_list |> React.array
+  in
+  <div key=(Message.id msg) style=(message_style ~is_user)>
+    <div style=(role_style ~is_user)>(s role_label)</div> parts
+  </div>
+
+(* --- Settings panel component --- *)
+
+module Settings_panel = struct
+  let make ~settings ~on_change ~is_open () =
+    let upd f =
+      on_change (fun prev -> f prev)
+    in
+    let text_field ~label:lbl ~value ~on_input =
+      <div style=(ReactDOM.Style.make ~marginBottom:"8px" ())>
+        <label style=label_style>(s lbl)</label>
+        <input
+          type_="text"
+          value
+          onChange=(fun e ->
+            let v : string = (React.Event.Form.target e)##value in
+            on_input v)
+          style=field_input_style
+        />
+      </div>
+    in
+    let number_field ~label:lbl ~value ~min ~max ~on_input =
+      <div style=(ReactDOM.Style.make ~marginBottom:"8px" ())>
+        <label style=label_style>(s lbl)</label>
+        <input
+          type_="number"
+          value=(string_of_int value)
+          min=(string_of_int min)
+          max=(string_of_int max)
+          onChange=(fun e ->
+            let v : string = (React.Event.Form.target e)##value in
+            try on_input (int_of_string v) with _ -> ())
+          style=field_input_style
+        />
+      </div>
+    in
+    let checkbox_field ~label:lbl ~checked ~on_toggle =
+      <div style=checkbox_row_style>
+        <input
+          type_="checkbox"
+          checked
+          onChange=(fun _ -> on_toggle (not checked))
+        />
+        <span style=(ReactDOM.Style.make ~fontSize:"13px" ~color:"#374151" ())>(s lbl)</span>
+      </div>
+    in
+    let select_field ~label:lbl ~value ~options ~on_select =
+      <div style=(ReactDOM.Style.make ~marginBottom:"8px" ())>
+        <label style=label_style>(s lbl)</label>
+        <select
+          value
+          onChange=(fun e ->
+            let v : string = (React.Event.Form.target e)##value in
+            on_select v)
+          style=select_style>
+          (options
+           |> List.map (fun (v, lbl) ->
+             <option key=v value=v>(s lbl)</option>)
+           |> Array.of_list
+           |> React.array)
+        </select>
+      </div>
+    in
+    <div style=(panel_style ~is_open)>
+      <div style=panel_inner_style>
+        <div style=panel_title_style>(s "Settings")</div>
+
+        (* Section 1: Model *)
+        <div style=section_title_style>(s "Model")</div>
+        (text_field ~label:"Model ID" ~value:settings.model
+           ~on_input:(fun v -> upd (fun cfg -> { cfg with model = v })))
+        (text_field ~label:"Fallback models (comma-separated)" ~value:settings.fallback_models
+           ~on_input:(fun v -> upd (fun cfg -> { cfg with fallback_models = v })))
+
+        (* Section 2: Web Search *)
+        <div style=section_title_style>(s "Web Search")</div>
+        (checkbox_field ~label:"Enable web search" ~checked:settings.web_search_enabled
+           ~on_toggle:(fun v -> upd (fun cfg -> { cfg with web_search_enabled = v })))
+        (match settings.web_search_enabled with
+        | true ->
+          number_field ~label:"Max results" ~value:settings.web_search_max_results ~min:1 ~max:10
+            ~on_input:(fun v -> upd (fun cfg -> { cfg with web_search_max_results = v }))
+        | false -> React.null)
+
+        (* Section 3: Provider Routing *)
+        <div style=section_title_style>(s "Provider Routing")</div>
+        (text_field ~label:"Provider order (comma-separated)" ~value:settings.provider_order
+           ~on_input:(fun v -> upd (fun cfg -> { cfg with provider_order = v })))
+        (checkbox_field ~label:"Allow fallbacks" ~checked:settings.provider_allow_fallbacks
+           ~on_toggle:(fun v -> upd (fun cfg -> { cfg with provider_allow_fallbacks = v })))
+        (select_field ~label:"Sort by" ~value:settings.provider_sort
+           ~options:[("", "None"); ("price", "Price"); ("throughput", "Throughput"); ("latency", "Latency")]
+           ~on_select:(fun v -> upd (fun cfg -> { cfg with provider_sort = v })))
+
+        (* Section 4: Usage *)
+        <div style=section_title_style>(s "Usage Tracking")</div>
+        (checkbox_field ~label:"Enable usage accounting" ~checked:settings.usage_enabled
+           ~on_toggle:(fun v -> upd (fun cfg -> { cfg with usage_enabled = v })))
+
+        (* Section 5: Reasoning *)
+        <div style=section_title_style>(s "Reasoning")</div>
+        (select_field ~label:"Effort" ~value:settings.reasoning_effort
+           ~options:[
+             ("", "Default");
+             ("none", "None");
+             ("minimal", "Minimal");
+             ("low", "Low");
+             ("medium", "Medium");
+             ("high", "High");
+             ("xhigh", "Extra High");
+           ]
+           ~on_select:(fun v -> upd (fun cfg -> { cfg with reasoning_effort = v })))
+        (text_field ~label:"Max tokens budget" ~value:settings.reasoning_max_tokens
+           ~on_input:(fun v -> upd (fun cfg -> { cfg with reasoning_max_tokens = v })))
+
+        (* Section 6: Extra Body *)
+        <div style=section_title_style>(s "Extra Body (JSON)")</div>
+        <textarea
+          value=settings.extra_body
+          onChange=(fun e ->
+            let v : string = (React.Event.Form.target e)##value in
+            upd (fun cfg -> { cfg with extra_body = v }))
+          style=textarea_style
+          placeholder="{\"temperature\": 0.7}"
+        />
+      </div>
+    </div>
+  end [@react.component]
+
+(* --- App component --- *)
+
+module App = struct
+  let make () =
+    let settings, set_settings = React.useState (fun () -> default_settings) in
+    let input, set_input = React.useState (fun () -> "") in
+    let panel_open, set_panel_open = React.useState (fun () -> true) in
+    let messages_ref = React.useRef Js.Nullable.null in
+    let transport =
+      Use_chat.Default_chat_transport.(make ~api:"/api/chat" () |> to_transport)
+    in
+    let chat = Use_chat.use_chat ~transport () in
+    let msgs = Use_chat.messages chat in
+    let status = Use_chat.status chat in
+    let is_loading =
+      match status with
+      | Ready -> false
+      | Submitted | Streaming | Error -> true
+    in
+    (* Auto-scroll *)
+    React.useEffect1
+      (fun () ->
+        (match Js.Nullable.toOption messages_ref.current with
+        | Some el -> set_scroll_top el (scroll_height el)
+        | None -> ());
+        None)
+      [| Array.length msgs |];
+    let on_submit e =
+      React.Event.Form.preventDefault e;
+      let trimmed = Js.String.trim input in
+      match String.length trimmed > 0 with
+      | true ->
+        let config_json = settings_to_json settings in
+        let headers = Js.Dict.fromArray [| ("X-OpenRouter-Config", json_stringify config_json) |] in
+        let opts = make_chat_request_options ~headers () in
+        Use_chat.send_message_with_options chat (Use_chat.make_text_message ~text:trimmed) opts;
+        set_input (fun _ -> "")
+      | false -> ()
+    in
+    <div style=layout_style>
+      <div style=chat_area_style>
+        <div style=(ReactDOM.Style.make ~position:"relative" ())>
+          <div style=chat_header_style>(s "OpenRouter Playground")</div>
+          <button
+            onClick=(fun _ -> set_panel_open (fun prev -> not prev))
+            style=toggle_btn_style>
+            (s (if panel_open then "Hide Settings" else "Show Settings"))
+          </button>
+        </div>
+        (match Use_chat.error chat with
+        | Some err ->
+          let msg =
+            match Js.Exn.message err with
+            | Some m -> m
+            | None -> "Unknown error"
+          in
+          <div style=error_style><strong>(s "Error: ")</strong> (s msg)</div>
+        | None -> React.null)
+        <div ref=(ReactDOM.Ref.domRef messages_ref) style=messages_style>
+          (match Array.length msgs with
+          | 0 -> <div style=empty_style>(s "Send a message to start chatting...")</div>
+          | _ ->
+            msgs
+            |> Array.to_list
+            |> List.map render_message
+            |> Array.of_list
+            |> React.array)
+        </div>
+        (match status with
+        | Streaming -> <div style=status_style>(s "Streaming...")</div>
+        | Submitted -> <div style=status_style>(s "Waiting for response...")</div>
+        | Error -> <div style=status_style>(s "An error occurred.")</div>
+        | Ready -> React.null)
+        <form onSubmit=on_submit style=form_style>
+          <input
+            value=input
+            onChange=(fun e ->
+              let v : string = (React.Event.Form.target e)##value in
+              set_input (fun _ -> v))
+            placeholder="Type a message..."
+            disabled=is_loading
+            style=input_style
+          />
+          <button
+            type_="submit"
+            disabled=(is_loading || String.length (Js.String.trim input) = 0)
+            style=(button_style ~disabled:(is_loading || String.length (Js.String.trim input) = 0))>
+            (s (if is_loading then "..." else "Send"))
+          </button>
+        </form>
+      </div>
+      (Settings_panel.make ~settings ~on_change:set_settings ~is_open:panel_open ())
+    </div>
+  end [@react.component]
+
+let () =
+  match ReactDOM.querySelector "#root" with
+  | Some root -> ReactDOM.Client.render (ReactDOM.Client.createRoot root) (React.createElement App.make ())
+  | None -> Js.Console.error "Could not find #root element"
