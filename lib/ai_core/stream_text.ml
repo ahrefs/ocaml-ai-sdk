@@ -205,64 +205,61 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
       Lwt.return tr
     in
     let execute_tool_with_telemetry ~step_num (tc : Generate_text_result.tool_call) =
-      Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__
-        ~data:(fun () ->
-          match telemetry with
-          | Some t ->
-            Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name
-              ~tool_call_id:tc.tool_call_id ~args:tc.args t
-          | None -> [])
-        (fun tool_span ->
-          let%lwt () =
-            Telemetry.maybe_notify telemetry (fun t ->
-              Telemetry.notify_on_tool_call_start t
-                {
-                  step_number = step_num;
-                  model = tp.model_info;
-                  tool_name = tc.tool_name;
-                  tool_call_id = tc.tool_call_id;
-                  args = tc.args;
-                  function_id = tp.function_id_;
-                  metadata = tp.metadata_;
-                })
+      Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
+        match telemetry with
+        | Some t ->
+          Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name ~tool_call_id:tc.tool_call_id
+            ~args:tc.args t
+        | None -> [])
+      @@ fun tool_span ->
+      let%lwt () =
+        Telemetry.maybe_notify telemetry (fun t ->
+          Telemetry.notify_on_tool_call_start t
+            {
+              step_number = step_num;
+              model = tp.model_info;
+              tool_name = tc.tool_name;
+              tool_call_id = tc.tool_call_id;
+              args = tc.args;
+              function_id = tp.function_id_;
+              metadata = tp.metadata_;
+            })
+      in
+      let t0 = Unix.gettimeofday () in
+      let%lwt tr = Core_tool.execute_tool ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args in
+      let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+      let%lwt () =
+        Telemetry.maybe_notify telemetry (fun t ->
+          let outcome =
+            if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result) else Telemetry.Success tr.result
           in
-          let t0 = Unix.gettimeofday () in
-          let%lwt tr =
-            Core_tool.execute_tool ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args
-          in
-          let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
-          let%lwt () =
-            Telemetry.maybe_notify telemetry (fun t ->
-              let outcome =
-                if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result) else Telemetry.Success tr.result
-              in
-              Telemetry.notify_on_tool_call_finish t
-                {
-                  step_number = step_num;
-                  model = tp.model_info;
-                  tool_name = tc.tool_name;
-                  tool_call_id = tc.tool_call_id;
-                  args = tc.args;
-                  result = outcome;
-                  duration_ms;
-                  function_id = tp.function_id_;
-                  metadata = tp.metadata_;
-                })
-          in
-          (match telemetry with
-          | Some t when Telemetry.enabled t ->
-            Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
-          | _ -> ());
-          emit_event
-            (Text_stream_part.Tool_result
-               {
-                 tool_call_id = tr.tool_call_id;
-                 tool_name = tr.tool_name;
-                 result = tr.result;
-                 is_error = tr.is_error;
-                 provider_metadata = tr.provider_metadata;
-               });
-          Lwt.return tr)
+          Telemetry.notify_on_tool_call_finish t
+            {
+              step_number = step_num;
+              model = tp.model_info;
+              tool_name = tc.tool_name;
+              tool_call_id = tc.tool_call_id;
+              args = tc.args;
+              result = outcome;
+              duration_ms;
+              function_id = tp.function_id_;
+              metadata = tp.metadata_;
+            })
+      in
+      (match telemetry with
+      | Some t when Telemetry.enabled t ->
+        Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
+      | _ -> ());
+      emit_event
+        (Text_stream_part.Tool_result
+           {
+             tool_call_id = tr.tool_call_id;
+             tool_name = tr.tool_name;
+             result = tr.result;
+             is_error = tr.is_error;
+             provider_metadata = tr.provider_metadata;
+           });
+      Lwt.return tr
     in
     let finish_stream ~finish_reason ~usage ~all_steps =
       emit_event (Text_stream_part.Finish { finish_reason; usage });
@@ -334,27 +331,26 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
         in
         let%lwt text, reasoning, tool_calls, fr, step_usage =
-          Telemetry.maybe_span telemetry "ai.streamText.doStream" ~__FILE__ ~__LINE__
-            ~data:(fun () ->
-              match telemetry with
-              | Some t ->
-                Telemetry.step_request_attrs ~operation_id:"ai.streamText.doStream" ~model_info:tp.model_info
-                  ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences t
-              | None -> [])
-            (fun step_span ->
-              let%lwt stream_result =
-                Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
-              in
-              let%lwt text, reasoning, tool_calls, fr, step_usage =
-                consume_provider_stream ~id_gen ~push:full_push ~on_chunk ~on_text_accumulated stream_result.stream
-              in
-              (* Add response attributes to step span *)
-              (match telemetry with
-              | Some t when Telemetry.enabled t ->
-                Trace_core.add_data_to_span step_span
-                  (Telemetry.step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason:fr ~usage:step_usage t)
-              | _ -> ());
-              Lwt.return (text, reasoning, tool_calls, fr, step_usage))
+          Telemetry.maybe_span telemetry "ai.streamText.doStream" ~__FILE__ ~__LINE__ ~data:(fun () ->
+            match telemetry with
+            | Some t ->
+              Telemetry.step_request_attrs ~operation_id:"ai.streamText.doStream" ~model_info:tp.model_info
+                ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences t
+            | None -> [])
+          @@ fun step_span ->
+          let%lwt stream_result =
+            Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
+          in
+          let%lwt text, reasoning, tool_calls, fr, step_usage =
+            consume_provider_stream ~id_gen ~push:full_push ~on_chunk ~on_text_accumulated stream_result.stream
+          in
+          (* Add response attributes to step span *)
+          (match telemetry with
+          | Some t when Telemetry.enabled t ->
+            Trace_core.add_data_to_span step_span
+              (Telemetry.step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason:fr ~usage:step_usage t)
+          | _ -> ());
+          Lwt.return (text, reasoning, tool_calls, fr, step_usage)
         in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
