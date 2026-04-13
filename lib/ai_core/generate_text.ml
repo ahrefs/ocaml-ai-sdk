@@ -32,33 +32,28 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
     Telemetry.precompute ~operation_id:"ai.generateText" ~model ?max_output_tokens ?temperature ?top_p ?top_k
       ?stop_sequences ?seed ?max_retries ?headers telemetry
   in
+  let root_span_data () =
+    match telemetry with
+    | Some t ->
+      tp.base_data
+      @ Telemetry.select_attributes t
+          [
+            ( "ai.prompt",
+              Telemetry.Input
+                (fun () ->
+                  `String
+                    (Yojson.Basic.to_string
+                       (`Assoc
+                          [
+                            ("system", match system with Some s -> `String s | None -> `Null);
+                            ("prompt", match prompt with Some p -> `String p | None -> `Null);
+                            "messages", `List (List.map (fun _ -> `String "<message>") initial_messages);
+                          ]))) );
+          ]
+    | None -> []
+  in
   (* Root span wrapping the entire operation *)
-  Telemetry.maybe_span telemetry "ai.generateText"
-    ~data:(fun () ->
-      match telemetry with
-      | Some t when Telemetry.enabled t ->
-        tp.base_data
-        @ Telemetry.select_attributes t
-            [
-              ( "ai.prompt",
-                Telemetry.Input
-                  (fun () ->
-                    `String
-                      (Yojson.Basic.to_string
-                         (`Assoc
-                            [
-                              ( "system",
-                                match system with
-                                | Some s -> `String s
-                                | None -> `Null );
-                              ( "prompt",
-                                match prompt with
-                                | Some p -> `String p
-                                | None -> `Null );
-                              "messages", `List (List.map (fun _ -> `String "<message>") initial_messages);
-                            ]))) );
-            ]
-      | _ -> [])
+  Telemetry.maybe_span telemetry "ai.generateText" ~__FILE__ ~__LINE__ ~data:root_span_data
     (fun root_span ->
       let%lwt () =
         Telemetry.maybe_notify telemetry (fun t ->
@@ -110,14 +105,13 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
           in
           (* Step span wrapping the LLM call *)
           let%lwt result, text, reasoning, tool_calls =
-            Telemetry.maybe_span telemetry "ai.generateText.doGenerate"
+            Telemetry.maybe_span telemetry "ai.generateText.doGenerate" ~__FILE__ ~__LINE__
               ~data:(fun () ->
                 match telemetry with
-                | Some t when Telemetry.enabled t ->
+                | Some t ->
                   Telemetry.step_request_attrs ~operation_id:"ai.generateText.doGenerate" ~model_info:tp.model_info
-                    ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences
-                    t
-                | _ -> [])
+                    ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences t
+                | None -> [])
               (fun step_span ->
                 let%lwt result =
                   Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.generate model opts)
@@ -152,13 +146,13 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
             let%lwt tool_results =
               Lwt_list.map_s
                 (fun (tc : Generate_text_result.tool_call) ->
-                  Telemetry.maybe_span telemetry "ai.toolCall"
+                  Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__
                     ~data:(fun () ->
                       match telemetry with
-                      | Some t when Telemetry.enabled t ->
+                      | Some t ->
                         Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name
                           ~tool_call_id:tc.tool_call_id ~args:tc.args t
-                      | _ -> [])
+                      | None -> [])
                     (fun tool_span ->
                       let%lwt () =
                         Telemetry.maybe_notify telemetry (fun t ->

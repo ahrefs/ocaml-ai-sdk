@@ -217,20 +217,24 @@ val opt_string_attr : string -> string option -> (string * Trace_core.user_data)
 val opt_int_attr : string -> int option -> (string * Trace_core.user_data) list
 val opt_float_attr : string -> float option -> (string * Trace_core.user_data) list
 
-(** {1 Lwt Span Helpers} *)
+(** {1 Lwt Span Helpers}
 
-(** [with_span_lwt name ~data f] opens a span, runs [f span], and closes
-    the span when the Lwt promise resolves or fails. On failure, the
-    exception message is recorded on the span via [add_data_to_span]
-    before re-raising.
+    An Lwt-aware ambient span provider (backed by {!Lwt.key}) is
+    installed at module load time.  This makes {!Trace_core.current_span}
+    work across Lwt fibers, so nested [with_span] calls automatically
+    form a parent-child hierarchy without explicit [~parent] passing. *)
 
-    Uses [Trace_core.enter_span] / [exit_span] (not [with_span]) so
-    the span stays open across Lwt yield points.
+(** [with_span ~__FILE__ ~__LINE__ ~data name f] opens a span, sets it
+    as the ambient current span (via {!Lwt.with_value}), runs [f span],
+    and closes the span when the Lwt promise settles (via
+    {!Lwt.on_termination}).
 
-    When no [Trace_core] collector is installed, the span is a dummy
-    and the overhead is a single allocation + [Lwt.catch]. *)
-val with_span_lwt :
+    When no [Trace_core] collector is installed, [f] receives a dummy
+    span and no overhead is incurred. *)
+val with_span :
   ?parent:Trace_core.span ->
+  __FILE__:string ->
+  __LINE__:int ->
   data:(unit -> (string * Trace_core.user_data) list) ->
   string ->
   (Trace_core.span -> 'a Lwt.t) ->
@@ -244,7 +248,13 @@ val with_span_lwt :
 (** Conditionally wrap in a telemetry span. When telemetry is [None] or
     disabled, [f] is called with [Trace_core.Collector.dummy_span]. *)
 val maybe_span :
-  t option -> string -> data:(unit -> (string * Trace_core.user_data) list) -> (Trace_core.span -> 'a Lwt.t) -> 'a Lwt.t
+  t option ->
+  string ->
+  __FILE__:string ->
+  __LINE__:int ->
+  data:(unit -> (string * Trace_core.user_data) list) ->
+  (Trace_core.span -> 'a Lwt.t) ->
+  'a Lwt.t
 
 (** Fire a telemetry notification when enabled; otherwise [Lwt.return_unit]. *)
 val maybe_notify : t option -> (t -> unit Lwt.t) -> unit Lwt.t

@@ -181,17 +181,20 @@ let test_settings_attributes_some () =
 
 (* ---- Lwt Span Helper ---- *)
 
-let test_with_span_lwt_success () =
+let test_with_span_success () =
   let result =
-    Lwt_main.run (Ai_core.Telemetry.with_span_lwt ~data:(fun () -> []) "test.span" (fun _sp -> Lwt.return 42))
+    Lwt_main.run
+      (Ai_core.Telemetry.with_span ~__FILE__ ~__LINE__ ~data:(fun () -> []) "test.span" (fun _sp -> Lwt.return 42))
   in
   (check int) "returns value" 42 result
 
-let test_with_span_lwt_exception () =
+let test_with_span_exception () =
   let raised =
     try
       ignore
-        (Lwt_main.run (Ai_core.Telemetry.with_span_lwt ~data:(fun () -> []) "test.span" (fun _sp -> failwith "boom")));
+        (Lwt_main.run
+           (Ai_core.Telemetry.with_span ~__FILE__ ~__LINE__ ~data:(fun () -> []) "test.span" (fun _sp ->
+              failwith "boom")));
       false
     with Failure msg -> String.equal msg "boom"
   in
@@ -324,7 +327,7 @@ let test_maybe_span_disabled () =
   let called = ref false in
   let _result =
     Lwt_main.run
-      (Ai_core.Telemetry.maybe_span None "test.span"
+      (Ai_core.Telemetry.maybe_span None "test.span" ~__FILE__ ~__LINE__
          ~data:(fun () -> [])
          (fun _sp ->
            called := true;
@@ -335,7 +338,9 @@ let test_maybe_span_disabled () =
 let test_maybe_span_disabled_explicit () =
   let t = Ai_core.Telemetry.create ~enabled:false () in
   let result =
-    Lwt_main.run (Ai_core.Telemetry.maybe_span (Some t) "test.span" ~data:(fun () -> []) (fun _sp -> Lwt.return 99))
+    Lwt_main.run
+      (Ai_core.Telemetry.maybe_span (Some t) "test.span" ~__FILE__ ~__LINE__ ~data:(fun () -> []) (fun _sp ->
+         Lwt.return 99))
   in
   (check int) "returns value" 99 result
 
@@ -409,10 +414,10 @@ let () =
           test_case "empty" `Quick test_settings_attributes_empty;
           test_case "some values" `Quick test_settings_attributes_some;
         ] );
-      ( "with_span_lwt",
+      ( "with_span",
         [
-          test_case "success" `Quick test_with_span_lwt_success;
-          test_case "exception" `Quick test_with_span_lwt_exception;
+          test_case "success" `Quick test_with_span_success;
+          test_case "exception" `Quick test_with_span_exception;
         ] );
       ( "integrations",
         [

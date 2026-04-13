@@ -131,44 +131,6 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
     Telemetry.precompute ~operation_id:"ai.streamText" ~model ?max_output_tokens ?temperature ?top_p ?top_k
       ?stop_sequences ?seed ?max_retries ?headers telemetry
   in
-  let telem_enabled =
-    match telemetry with
-    | Some t when Telemetry.enabled t -> true
-    | _ -> false
-  in
-  (* Root span — manually managed across Lwt.async boundary *)
-  let root_span =
-    match telem_enabled with
-    | true ->
-      let data () =
-        match telemetry with
-        | Some t ->
-          tp.base_data
-          @ Telemetry.select_attributes t
-              [
-                ( "ai.prompt",
-                  Telemetry.Input
-                    (fun () ->
-                      `String
-                        (Yojson.Basic.to_string
-                           (`Assoc
-                              [
-                                ( "system",
-                                  match system with
-                                  | Some s -> `String s
-                                  | None -> `Null );
-                                ( "prompt",
-                                  match prompt with
-                                  | Some p -> `String p
-                                  | None -> `Null );
-                                "messages", `List (List.map (fun _ -> `String "<message>") initial_messages);
-                              ]))) );
-              ]
-        | None -> []
-      in
-      Trace_core.enter_span ~__FILE__ ~__LINE__ ~flavor:`Async ~data "ai.streamText"
-    | false -> Trace_core.Collector.dummy_span
-  in
   (* Create output streams *)
   let full_stream, full_push = Lwt_stream.create () in
   let partial_output_stream, partial_output_push = Lwt_stream.create () in
@@ -194,8 +156,37 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         | None -> ())
     | _ -> fun (_ : string) -> ()
   in
+
+  let root_span_data () =
+    match telemetry with
+    | Some t ->
+      tp.base_data
+      @ Telemetry.select_attributes t
+          [
+            ( "ai.prompt",
+              Telemetry.Input
+                (fun () ->
+                  `String
+                    (Yojson.Basic.to_string
+                       (`Assoc
+                          [
+                            ( "system",
+                              match system with
+                              | Some s -> `String s
+                              | None -> `Null );
+                            ( "prompt",
+                              match prompt with
+                              | Some p -> `String p
+                              | None -> `Null );
+                            "messages", `List (List.map (fun _ -> `String "<message>") initial_messages);
+                          ]))) );
+          ]
+    | None -> []
+  in
+
   let id_gen = make_id_gen () in
   Lwt.async (fun () ->
+    Telemetry.maybe_span telemetry "ai.streamText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
     let emit_event part =
       full_push (Some part);
       Option.iter (fun f -> f part) on_chunk
@@ -214,13 +205,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
       Lwt.return tr
     in
     let execute_tool_with_telemetry ~step_num (tc : Generate_text_result.tool_call) =
-      Telemetry.maybe_span telemetry "ai.toolCall"
+      Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__
         ~data:(fun () ->
           match telemetry with
-          | Some t when Telemetry.enabled t ->
+          | Some t ->
             Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name
               ~tool_call_id:tc.tool_call_id ~args:tc.args t
-          | _ -> [])
+          | None -> [])
         (fun tool_span ->
           let%lwt () =
             Telemetry.maybe_notify telemetry (fun t ->
@@ -302,7 +293,6 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
               metadata = tp.metadata_;
             })
       in
-      Trace_core.exit_span root_span;
       Option.iter
         (fun f ->
           f
@@ -344,13 +334,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
         in
         let%lwt text, reasoning, tool_calls, fr, step_usage =
-          Telemetry.maybe_span telemetry "ai.streamText.doStream"
+          Telemetry.maybe_span telemetry "ai.streamText.doStream" ~__FILE__ ~__LINE__
             ~data:(fun () ->
               match telemetry with
-              | Some t when Telemetry.enabled t ->
+              | Some t ->
                 Telemetry.step_request_attrs ~operation_id:"ai.streamText.doStream" ~model_info:tp.model_info
                   ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences t
-              | _ -> [])
+              | None -> [])
             (fun step_span ->
               let%lwt stream_result =
                 Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
@@ -539,11 +529,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
         ~step_num:(1 + List.length initial_steps)
     with exn ->
-      (match telem_enabled with
-      | true ->
-        Trace_core.add_data_to_span root_span [ "error", `Bool true; "error.message", `String (Printexc.to_string exn) ];
-        Trace_core.exit_span root_span
-      | false -> ());
+      Trace_core.add_data_to_span root_span [ "error", `Bool true; "error.message", `String (Printexc.to_string exn) ];
       let msg = Printexc.to_string exn in
       full_push (Some (Text_stream_part.Error { error = msg }));
       full_push None;

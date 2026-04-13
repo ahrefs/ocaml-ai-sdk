@@ -165,21 +165,32 @@ let settings_attributes ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequ
   | Some _ -> acc
   | None -> acc
 
-(* ---- Lwt Span Helpers ---- *)
+(* ---- Lwt Ambient Span Provider ---- *)
 
-let with_span_lwt ?parent ~data name f =
-  let sp =
-    Trace_core.enter_span ~__FILE__ ~__LINE__ ~flavor:`Async ?parent:(Option.map Option.some parent) ~data name
-  in
-  Lwt.catch
-    (fun () ->
-      let%lwt result = f sp in
-      Trace_core.exit_span sp;
-      Lwt.return result)
-    (fun exn ->
-      Trace_core.add_data_to_span sp [ "error", `Bool true; "error.message", `String (Printexc.to_string exn) ];
-      Trace_core.exit_span sp;
-      raise exn)
+let k_ambient_span : Trace_core.span Lwt.key = Lwt.new_key ()
+
+let () =
+  Trace_core.set_ambient_context_provider
+    (Trace_core.Ambient_span_provider.ASP_some
+       ( (),
+         {
+           get_current_span = (fun () -> Lwt.get k_ambient_span);
+           with_current_span_set_to =
+             (fun () span f -> Lwt.with_value k_ambient_span (Some span) (fun () -> f span));
+         } ))
+
+(* ---- Lwt Span Helper ---- *)
+
+let with_span ?parent ~__FILE__ ~__LINE__ ~data name (f : Trace_core.span -> 'a Lwt.t) : 'a Lwt.t =
+  if Trace_core.enabled () then begin
+    let span =
+      Trace_core.enter_span ~__FILE__ ~__LINE__ ?parent:(Option.map Option.some parent) ~data name
+    in
+    let fut = Trace_core.with_current_span_set_to span f in
+    Lwt.on_termination fut (fun () -> Trace_core.exit_span span);
+    fut
+  end
+  else f Trace_core.Collector.dummy_span
 
 (* ---- Optional Attribute Helpers ---- *)
 
@@ -193,9 +204,9 @@ let opt_float_attr key = opt_attr key (fun v -> `Float v)
 
 (* ---- Conditional Helpers ---- *)
 
-let maybe_span telemetry name ~data f =
+let maybe_span telemetry name ~__FILE__ ~__LINE__ ~data f =
   match telemetry with
-  | Some t when t.enabled -> with_span_lwt ~data name f
+  | Some t when t.enabled -> with_span ~__FILE__ ~__LINE__ ~data name f
   | _ -> f Trace_core.Collector.dummy_span
 
 let maybe_notify telemetry f =
@@ -328,7 +339,12 @@ let final_response_attrs ~text ~reasoning ~finish_reason ~(usage : Ai_provider.U
 
 let tool_call_span_data ~model_info:mi ~tool_name ~tool_call_id ~args t =
   assemble_operation_name ~operation_id:"ai.toolCall" t
-  @ [ "ai.toolCall.name", `String tool_name; "ai.toolCall.id", `String tool_call_id ]
+  @ [
+      "ai.model.provider", `String mi.provider;
+      "ai.model.id", `String mi.model_id;
+      "ai.toolCall.name", `String tool_name;
+      "ai.toolCall.id", `String tool_call_id;
+    ]
   @ select_attributes t [ "ai.toolCall.args", Output (fun () -> `String (Yojson.Basic.to_string args)) ]
 
 let tool_call_result_attrs ~result t =
