@@ -55,7 +55,14 @@
       (Anthropic already returns them in provider metadata), the span
       attributes can be extended without API changes.
     - [onStepStart] integration callback: upstream added this; we only
-      have [on_step_finish]. *)
+      have [on_step_finish].
+    - [gen_ai.response.finish_reasons]: upstream emits a string array
+      ([["stop"]]).  [Trace_core.user_data] has no array variant, so we
+      emit a plain string (["stop"]).
+    - [ai.prompt] on root spans: upstream serializes full message content
+      (gated by [record_inputs]).  We emit placeholder strings
+      (["<message>"]) to avoid serializing large payloads into span data.
+      The full messages are available via integration callbacks. *)
 
 (** {1 Types} *)
 
@@ -70,7 +77,8 @@ type model_info = {
     All callbacks are optional — implement only the ones you need.
     Errors in callbacks are caught and ignored (they must not break
     the generation pipeline). Callbacks are called in order:
-    per-call integrations first, then global integrations. *)
+    global integrations first, then per-call integrations
+    (matching upstream). *)
 and integration = {
   on_start : (on_start_event -> unit Lwt.t) option;
   on_step_finish : (on_step_finish_event -> unit Lwt.t) option;
@@ -246,6 +254,88 @@ val make_model_info : provider:string -> model_id:string -> model_info
 
 (** Serialize tool calls to a JSON string for telemetry attributes. *)
 val tool_calls_to_json_string : Generate_text_result.tool_call list -> string
+
+(** {1 Precompute Helpers}
+
+    One-shot telemetry setup shared by [generate_text] and [stream_text].
+    Extracts model info, settings, and base attributes. When telemetry
+    is [None] or disabled, returns zero-cost defaults. *)
+
+(** Precomputed telemetry values, extracted once per operation. *)
+type precomputed = {
+  model_info : model_info;
+  function_id_ : string option;
+  metadata_ : (string * Trace_core.user_data) list;
+  base_data : (string * Trace_core.user_data) list;
+}
+
+val precompute :
+  operation_id:string ->
+  model:(module Ai_provider.Language_model.S) ->
+  ?max_output_tokens:int ->
+  ?temperature:float ->
+  ?top_p:float ->
+  ?top_k:int ->
+  ?stop_sequences:string list ->
+  ?seed:int ->
+  ?max_retries:int ->
+  ?headers:(string * string) list ->
+  t option ->
+  precomputed
+
+(** {1 Step Span Attribute Builders}
+
+    Shared helpers that build span attributes for step spans
+    ([doGenerate] / [doStream]) and tool call spans. These prevent
+    attribute key drift between [generate_text] and [stream_text]. *)
+
+(** Build request-side attributes for a step span. *)
+val step_request_attrs :
+  operation_id:string ->
+  model_info:model_info ->
+  current_messages:Ai_provider.Prompt.message list ->
+  tools:(string * Core_tool.t) list ->
+  tool_choice:Ai_provider.Tool_choice.t option ->
+  ?max_output_tokens:int ->
+  ?temperature:float ->
+  ?top_p:float ->
+  ?top_k:int ->
+  ?stop_sequences:string list ->
+  t ->
+  (string * Trace_core.user_data) list
+
+(** Build response-side attributes for a step span. *)
+val step_response_attrs :
+  text:string ->
+  reasoning:string ->
+  tool_calls:Generate_text_result.tool_call list ->
+  finish_reason:Ai_provider.Finish_reason.t ->
+  usage:Ai_provider.Usage.t ->
+  ?response_id:string ->
+  ?response_model:string ->
+  t ->
+  (string * Trace_core.user_data) list
+
+(** Build final response attributes for the root span. *)
+val final_response_attrs :
+  text:string ->
+  reasoning:string ->
+  finish_reason:Ai_provider.Finish_reason.t ->
+  usage:Ai_provider.Usage.t ->
+  t ->
+  (string * Trace_core.user_data) list
+
+(** Build initial span data for a tool call span. *)
+val tool_call_span_data :
+  model_info:model_info ->
+  tool_name:string ->
+  tool_call_id:string ->
+  args:Yojson.Basic.t ->
+  t ->
+  (string * Trace_core.user_data) list
+
+(** Build result attributes to add to a tool call span after execution. *)
+val tool_call_result_attrs : result:Yojson.Basic.t -> t -> (string * Trace_core.user_data) list
 
 (** {1 Integration Values} *)
 

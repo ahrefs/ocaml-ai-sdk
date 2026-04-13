@@ -28,34 +28,16 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
   let tools = Option.value ~default:[] tools in
   let provider_tools = Prompt_builder.tools_to_provider tools in
   (* Telemetry — precompute once; all values are [] / None when disabled *)
-  let telem_model_info, telem_function_id, telem_metadata, telem_base_data =
-    match telemetry with
-    | Some t when Telemetry.enabled t ->
-      let mi =
-        Telemetry.make_model_info
-          ~provider:(Ai_provider.Language_model.provider model)
-          ~model_id:(Ai_provider.Language_model.model_id model)
-      in
-      let settings_attrs =
-        Telemetry.settings_attributes ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?max_retries
-          ()
-      in
-      let base =
-        Telemetry.assemble_operation_name ~operation_id:"ai.generateText" t
-        @ Telemetry.base_attributes ~provider:mi.Telemetry.provider ~model_id:mi.Telemetry.model_id ~settings_attrs
-            ~headers:(Option.value ~default:[] headers) t
-      in
-      mi, Telemetry.function_id t, Telemetry.metadata t, base
-    | _ ->
-      let mi = Telemetry.make_model_info ~provider:"" ~model_id:"" in
-      mi, None, [], []
+  let tp =
+    Telemetry.precompute ~operation_id:"ai.generateText" ~model ?max_output_tokens ?temperature ?top_p ?top_k
+      ?stop_sequences ?seed ?max_retries ?headers telemetry
   in
   (* Root span wrapping the entire operation *)
   Telemetry.maybe_span telemetry "ai.generateText"
     ~data:(fun () ->
       match telemetry with
       | Some t when Telemetry.enabled t ->
-        telem_base_data
+        tp.base_data
         @ Telemetry.select_attributes t
             [
               ( "ai.prompt",
@@ -82,11 +64,11 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         Telemetry.maybe_notify telemetry (fun t ->
           Telemetry.notify_on_start t
             {
-              model = telem_model_info;
+              model = tp.model_info;
               messages = initial_messages;
               tools;
-              function_id = telem_function_id;
-              metadata = telem_metadata;
+              function_id = tp.function_id_;
+              metadata = tp.metadata_;
             })
       in
       (* Step loop *)
@@ -132,59 +114,9 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
               ~data:(fun () ->
                 match telemetry with
                 | Some t when Telemetry.enabled t ->
-                  let operation_attrs =
-                    Telemetry.assemble_operation_name ~operation_id:"ai.generateText.doGenerate" t
-                  in
-                  let model_attrs =
-                    [
-                      "ai.model.provider", `String telem_model_info.Telemetry.provider;
-                      "ai.model.id", `String telem_model_info.Telemetry.model_id;
-                      "gen_ai.system", `String telem_model_info.Telemetry.provider;
-                      "gen_ai.request.model", `String telem_model_info.Telemetry.model_id;
-                    ]
-                  in
-                  let prompt_attrs =
-                    Telemetry.select_attributes t
-                      [
-                        ( "ai.prompt.messages",
-                          Telemetry.Input
-                            (fun () ->
-                              `String
-                                (Yojson.Basic.to_string
-                                   (`List (List.map (fun _ -> `String "<message>") current_messages)))) );
-                        ( "ai.prompt.tools",
-                          Telemetry.Input
-                            (fun () ->
-                              `String
-                                (Yojson.Basic.to_string
-                                   (`List
-                                      (List.map
-                                         (fun (t : Ai_provider.Tool.t) -> `Assoc [ "name", `String t.name ])
-                                         (Prompt_builder.tools_to_provider tools))))) );
-                        ( "ai.prompt.toolChoice",
-                          Telemetry.Input
-                            (fun () ->
-                              `String
-                                (match tool_choice with
-                                | Some Auto -> "auto"
-                                | Some Required -> "required"
-                                | Some None_ -> "none"
-                                | Some (Specific { tool_name }) ->
-                                  Printf.sprintf {|{"type":"tool","toolName":"%s"}|} tool_name
-                                | None -> "auto")) );
-                      ]
-                  in
-                  operation_attrs
-                  @ model_attrs
-                  @ prompt_attrs
-                  @ Telemetry.opt_int_attr "gen_ai.request.max_tokens" max_output_tokens
-                  @ Telemetry.opt_float_attr "gen_ai.request.temperature" temperature
-                  @ Telemetry.opt_float_attr "gen_ai.request.top_p" top_p
-                  @ Telemetry.opt_int_attr "gen_ai.request.top_k" top_k
-                  @
-                    (match stop_sequences with
-                    | Some s when s <> [] -> [ "gen_ai.request.stop_sequences", `String (String.concat "," s) ]
-                    | _ -> [])
+                  Telemetry.step_request_attrs ~operation_id:"ai.generateText.doGenerate" ~model_info:tp.model_info
+                    ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences
+                    t
                 | _ -> [])
               (fun step_span ->
                 let%lwt result =
@@ -194,30 +126,9 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                 (* Add response attributes to step span *)
                 (match telemetry with
                 | Some t when Telemetry.enabled t ->
-                  let response_attrs =
-                    Telemetry.select_attributes t
-                      [
-                        "ai.response.text", Telemetry.Output (fun () -> `String text);
-                        "ai.response.reasoning", Telemetry.Output (fun () -> `String reasoning);
-                        ( "ai.response.toolCalls",
-                          Telemetry.Output (fun () -> `String (Telemetry.tool_calls_to_json_string tool_calls)) );
-                      ]
-                    @ [
-                        "ai.response.finishReason", `String (Ai_provider.Finish_reason.to_string result.finish_reason);
-                        "ai.usage.inputTokens", `Int result.usage.input_tokens;
-                        "ai.usage.outputTokens", `Int result.usage.output_tokens;
-                        ( "gen_ai.response.finish_reasons",
-                          `String (Ai_provider.Finish_reason.to_string result.finish_reason) );
-                        "gen_ai.usage.input_tokens", `Int result.usage.input_tokens;
-                        "gen_ai.usage.output_tokens", `Int result.usage.output_tokens;
-                      ]
-                    @ Telemetry.opt_int_attr "ai.usage.totalTokens" result.usage.total_tokens
-                    @ Telemetry.opt_string_attr "ai.response.id" result.response.id
-                    @ Telemetry.opt_string_attr "ai.response.model" result.response.model
-                    @ Telemetry.opt_string_attr "gen_ai.response.id" result.response.id
-                    @ Telemetry.opt_string_attr "gen_ai.response.model" result.response.model
-                  in
-                  Trace_core.add_data_to_span step_span response_attrs
+                  Trace_core.add_data_to_span step_span
+                    (Telemetry.step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason:result.finish_reason
+                       ~usage:result.usage ?response_id:result.response.id ?response_model:result.response.model t)
                 | _ -> ());
                 Lwt.return (result, text, reasoning, tool_calls))
           in
@@ -245,12 +156,8 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                     ~data:(fun () ->
                       match telemetry with
                       | Some t when Telemetry.enabled t ->
-                        Telemetry.assemble_operation_name ~operation_id:"ai.toolCall" t
-                        @ [ "ai.toolCall.name", `String tc.tool_name; "ai.toolCall.id", `String tc.tool_call_id ]
-                        @ Telemetry.select_attributes t
-                            [
-                              "ai.toolCall.args", Telemetry.Output (fun () -> `String (Yojson.Basic.to_string tc.args));
-                            ]
+                        Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name
+                          ~tool_call_id:tc.tool_call_id ~args:tc.args t
                       | _ -> [])
                     (fun tool_span ->
                       let%lwt () =
@@ -258,12 +165,12 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                           Telemetry.notify_on_tool_call_start t
                             {
                               step_number = step_num;
-                              model = telem_model_info;
+                              model = tp.model_info;
                               tool_name = tc.tool_name;
                               tool_call_id = tc.tool_call_id;
                               args = tc.args;
-                              function_id = telem_function_id;
-                              metadata = telem_metadata;
+                              function_id = tp.function_id_;
+                              metadata = tp.metadata_;
                             })
                       in
                       let t0 = Unix.gettimeofday () in
@@ -281,24 +188,19 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                           Telemetry.notify_on_tool_call_finish t
                             {
                               step_number = step_num;
-                              model = telem_model_info;
+                              model = tp.model_info;
                               tool_name = tc.tool_name;
                               tool_call_id = tc.tool_call_id;
                               args = tc.args;
                               result = outcome;
                               duration_ms;
-                              function_id = telem_function_id;
-                              metadata = telem_metadata;
+                              function_id = tp.function_id_;
+                              metadata = tp.metadata_;
                             })
                       in
                       (match telemetry with
                       | Some t when Telemetry.enabled t ->
-                        Trace_core.add_data_to_span tool_span
-                          (Telemetry.select_attributes t
-                             [
-                               ( "ai.toolCall.result",
-                                 Telemetry.Output (fun () -> `String (Yojson.Basic.to_string tr.result)) );
-                             ])
+                        Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
                       | _ -> ());
                       Lwt.return tr))
                 executable_calls
@@ -310,7 +212,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
             let%lwt () =
               Telemetry.maybe_notify telemetry (fun t ->
                 Telemetry.notify_on_step_finish t
-                  { step_number = step_num; step; function_id = telem_function_id; metadata = telem_metadata })
+                  { step_number = step_num; step; function_id = tp.function_id_; metadata = tp.metadata_ })
             in
             match blocked_calls with
             | _ :: _ ->
@@ -383,7 +285,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
             let%lwt () =
               Telemetry.maybe_notify telemetry (fun t ->
                 Telemetry.notify_on_step_finish t
-                  { step_number = step_num; step; function_id = telem_function_id; metadata = telem_metadata })
+                  { step_number = step_num; step; function_id = tp.function_id_; metadata = tp.metadata_ })
             in
             let all_steps = List.rev (step :: steps) in
             let parsed_output = Output.parse_output output all_steps in
@@ -467,20 +369,9 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
       (* Add final attributes to root span *)
       (match telemetry with
       | Some t when Telemetry.enabled t ->
-        let final_attrs =
-          Telemetry.select_attributes t
-            [
-              "ai.response.text", Telemetry.Output (fun () -> `String final_result.text);
-              "ai.response.reasoning", Telemetry.Output (fun () -> `String final_result.reasoning);
-            ]
-          @ [
-              "ai.response.finishReason", `String (Ai_provider.Finish_reason.to_string final_result.finish_reason);
-              "ai.usage.inputTokens", `Int final_result.usage.input_tokens;
-              "ai.usage.outputTokens", `Int final_result.usage.output_tokens;
-            ]
-          @ Telemetry.opt_int_attr "ai.usage.totalTokens" final_result.usage.total_tokens
-        in
-        Trace_core.add_data_to_span root_span final_attrs
+        Trace_core.add_data_to_span root_span
+          (Telemetry.final_response_attrs ~text:final_result.text ~reasoning:final_result.reasoning
+             ~finish_reason:final_result.finish_reason ~usage:final_result.usage t)
       | _ -> ());
       let%lwt () =
         Telemetry.maybe_notify telemetry (fun t ->
@@ -489,8 +380,8 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
               steps = final_result.steps;
               total_usage = final_result.usage;
               finish_reason = final_result.finish_reason;
-              function_id = telem_function_id;
-              metadata = telem_metadata;
+              function_id = tp.function_id_;
+              metadata = tp.metadata_;
             })
       in
       Lwt.return final_result)

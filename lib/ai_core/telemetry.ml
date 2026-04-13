@@ -98,18 +98,22 @@ let select_attributes t attrs =
   match t.enabled with
   | false -> []
   | true ->
+    let should_record = function
+      | Always _ -> true
+      | Input _ -> t.record_inputs
+      | Output _ -> t.record_outputs
+    in
     List.filter_map
       (fun (key, attr) ->
-        match attr with
-        | Always v -> Some (key, v)
-        | Input f ->
-          (match t.record_inputs with
-          | true -> Some (key, f ())
-          | false -> None)
-        | Output f ->
-        match t.record_outputs with
-        | true -> Some (key, f ())
-        | false -> None)
+        match should_record attr with
+        | false -> None
+        | true ->
+          let v =
+            match attr with
+            | Always v -> v
+            | Input f | Output f -> f ()
+          in
+          Some (key, v))
       attrs
 
 (* ---- Operation Name Assembly ---- *)
@@ -210,6 +214,126 @@ let tool_calls_to_json_string (tool_calls : Generate_text_result.tool_call list)
   in
   Yojson.Basic.to_string (`List tc_json)
 
+(* ---- Precompute Helpers ---- *)
+
+type precomputed = {
+  model_info : model_info;
+  function_id_ : string option;
+  metadata_ : (string * Trace_core.user_data) list;
+  base_data : (string * Trace_core.user_data) list;
+}
+
+let disabled_precomputed =
+  { model_info = { provider = ""; model_id = "" }; function_id_ = None; metadata_ = []; base_data = [] }
+
+let precompute ~operation_id ~model ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?max_retries
+  ?headers telemetry =
+  match telemetry with
+  | Some t when enabled t ->
+    let mi =
+      make_model_info
+        ~provider:(Ai_provider.Language_model.provider model)
+        ~model_id:(Ai_provider.Language_model.model_id model)
+    in
+    let settings_attrs =
+      settings_attributes ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?max_retries ()
+    in
+    let base =
+      assemble_operation_name ~operation_id t
+      @ base_attributes ~provider:mi.provider ~model_id:mi.model_id ~settings_attrs
+          ~headers:(Option.value ~default:[] headers) t
+    in
+    { model_info = mi; function_id_ = function_id t; metadata_ = metadata t; base_data = base }
+  | _ -> disabled_precomputed
+
+(* ---- Step Span Attribute Builders ---- *)
+
+let step_request_attrs ~operation_id ~model_info:mi ~current_messages ~tools ~tool_choice ?max_output_tokens
+  ?temperature ?top_p ?top_k ?stop_sequences t =
+  assemble_operation_name ~operation_id t
+  @ [
+      "ai.model.provider", `String mi.provider;
+      "ai.model.id", `String mi.model_id;
+      "gen_ai.system", `String mi.provider;
+      "gen_ai.request.model", `String mi.model_id;
+    ]
+  @ select_attributes t
+      [
+        ( "ai.prompt.messages",
+          Input
+            (fun () ->
+              `String (Yojson.Basic.to_string (`List (List.map (fun _ -> `String "<message>") current_messages)))) );
+        ( "ai.prompt.tools",
+          Input
+            (fun () ->
+              `String
+                (Yojson.Basic.to_string
+                   (`List
+                      (List.map
+                         (fun (t : Ai_provider.Tool.t) -> `Assoc [ "name", `String t.name ])
+                         (Prompt_builder.tools_to_provider tools))))) );
+        ( "ai.prompt.toolChoice",
+          Input
+            (fun () ->
+              `String
+                (match tool_choice with
+                | Some Ai_provider.Tool_choice.Auto -> "auto"
+                | Some Required -> "required"
+                | Some None_ -> "none"
+                | Some (Specific { tool_name }) -> Printf.sprintf {|{"type":"tool","toolName":"%s"}|} tool_name
+                | None -> "auto")) );
+      ]
+  @ opt_int_attr "gen_ai.request.max_tokens" max_output_tokens
+  @ opt_float_attr "gen_ai.request.temperature" temperature
+  @ opt_float_attr "gen_ai.request.top_p" top_p
+  @ opt_int_attr "gen_ai.request.top_k" top_k
+  @
+  match stop_sequences with
+  | Some s when s <> [] -> [ "gen_ai.request.stop_sequences", `String (String.concat "," s) ]
+  | _ -> []
+
+let step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason ~(usage : Ai_provider.Usage.t) ?response_id
+  ?response_model t =
+  select_attributes t
+    [
+      "ai.response.text", Output (fun () -> `String text);
+      "ai.response.reasoning", Output (fun () -> `String reasoning);
+      "ai.response.toolCalls", Output (fun () -> `String (tool_calls_to_json_string tool_calls));
+    ]
+  @ [
+      "ai.response.finishReason", `String (Ai_provider.Finish_reason.to_string finish_reason);
+      "ai.usage.inputTokens", `Int usage.input_tokens;
+      "ai.usage.outputTokens", `Int usage.output_tokens;
+      "gen_ai.response.finish_reasons", `String (Ai_provider.Finish_reason.to_string finish_reason);
+      "gen_ai.usage.input_tokens", `Int usage.input_tokens;
+      "gen_ai.usage.output_tokens", `Int usage.output_tokens;
+    ]
+  @ opt_int_attr "ai.usage.totalTokens" usage.total_tokens
+  @ opt_string_attr "ai.response.id" response_id
+  @ opt_string_attr "ai.response.model" response_model
+  @ opt_string_attr "gen_ai.response.id" response_id
+  @ opt_string_attr "gen_ai.response.model" response_model
+
+let final_response_attrs ~text ~reasoning ~finish_reason ~(usage : Ai_provider.Usage.t) t =
+  select_attributes t
+    [
+      "ai.response.text", Output (fun () -> `String text); "ai.response.reasoning", Output (fun () -> `String reasoning);
+    ]
+  @ [
+      "ai.response.finishReason", `String (Ai_provider.Finish_reason.to_string finish_reason);
+      "ai.usage.inputTokens", `Int usage.input_tokens;
+      "ai.usage.outputTokens", `Int usage.output_tokens;
+    ]
+  @ opt_int_attr "ai.usage.totalTokens" usage.total_tokens
+
+let tool_call_span_data ~model_info:mi ~tool_name ~tool_call_id ~args t =
+  assemble_operation_name ~operation_id:"ai.toolCall" t
+  @ [ "ai.toolCall.name", `String tool_name; "ai.toolCall.id", `String tool_call_id ]
+  @ select_attributes t [ "ai.toolCall.args", Output (fun () -> `String (Yojson.Basic.to_string args)) ]
+
+let tool_call_result_attrs ~result t =
+  select_attributes t [ "ai.toolCall.result", Output (fun () -> `String (Yojson.Basic.to_string result)) ]
+
 (* ---- Global Integration Registry ---- *)
 
 let global_integrations : integration list ref = ref []
@@ -220,7 +344,7 @@ let clear_global_integrations () = global_integrations := []
 
 (* ---- Integration Notification ---- *)
 
-let all_integrations t = t.integrations @ List.rev !global_integrations
+let all_integrations t = List.rev !global_integrations @ t.integrations
 
 let notify_all t extract_callback event =
   match t.enabled with

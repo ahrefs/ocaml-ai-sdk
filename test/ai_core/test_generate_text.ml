@@ -897,6 +897,121 @@ let test_telemetry_step_response_attrs () =
     (check bool) "has gen_ai.system" true (List.mem_assoc "gen_ai.system" step_data);
     (check bool) "has gen_ai.request.model" true (List.mem_assoc "gen_ai.request.model" step_data))
 
+let test_telemetry_attribute_values () =
+  let collector, _get_span_names, get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_text_model "Hello!" in
+    let telemetry =
+      Ai_core.Telemetry.create ~enabled:true ~function_id:"my-fn" ~metadata:[ "env", `String "test" ] ()
+    in
+    let _result =
+      Lwt_main.run
+        (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ~max_output_tokens:100 ~temperature:0.5 ())
+    in
+    (* Root span: verify operation name includes function_id *)
+    let root_data = get_span_data "ai.generateText" in
+    (check string) "operation.name value" "ai.generateText my-fn"
+      (match List.assoc_opt "operation.name" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "ai.operationId value" "ai.generateText"
+      (match List.assoc_opt "ai.operationId" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "resource.name value" "my-fn"
+      (match List.assoc_opt "resource.name" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "ai.telemetry.functionId value" "my-fn"
+      (match List.assoc_opt "ai.telemetry.functionId" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (* Root span: final response attribute values *)
+    (check string) "root ai.response.text" "Hello!"
+      (match List.assoc_opt "ai.response.text" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "root ai.response.finishReason" "stop"
+      (match List.assoc_opt "ai.response.finishReason" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check int) "root ai.usage.inputTokens" 10
+      (match List.assoc_opt "ai.usage.inputTokens" root_data with
+      | Some (`Int n) -> n
+      | _ -> 0);
+    (check int) "root ai.usage.outputTokens" 5
+      (match List.assoc_opt "ai.usage.outputTokens" root_data with
+      | Some (`Int n) -> n
+      | _ -> 0);
+    (* Step span: verify concrete attribute values *)
+    let step_data = get_span_data "ai.generateText.doGenerate" in
+    (check string) "step ai.response.text" "Hello!"
+      (match List.assoc_opt "ai.response.text" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "step ai.response.finishReason" "stop"
+      (match List.assoc_opt "ai.response.finishReason" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check int) "step ai.usage.inputTokens" 10
+      (match List.assoc_opt "ai.usage.inputTokens" step_data with
+      | Some (`Int n) -> n
+      | _ -> 0);
+    (check int) "step ai.usage.outputTokens" 5
+      (match List.assoc_opt "ai.usage.outputTokens" step_data with
+      | Some (`Int n) -> n
+      | _ -> 0);
+    (check string) "step gen_ai.system" "mock"
+      (match List.assoc_opt "gen_ai.system" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "step gen_ai.request.model" "mock-v1"
+      (match List.assoc_opt "gen_ai.request.model" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "step gen_ai.response.finish_reasons" "stop"
+      (match List.assoc_opt "gen_ai.response.finish_reasons" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check int) "step gen_ai.usage.input_tokens" 10
+      (match List.assoc_opt "gen_ai.usage.input_tokens" step_data with
+      | Some (`Int n) -> n
+      | _ -> 0);
+    (check int) "step gen_ai.usage.output_tokens" 5
+      (match List.assoc_opt "gen_ai.usage.output_tokens" step_data with
+      | Some (`Int n) -> n
+      | _ -> 0);
+    (* Step span: response.id and response.model from mock *)
+    (check string) "step ai.response.id" "r1"
+      (match List.assoc_opt "ai.response.id" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "step ai.response.model" "mock-v1"
+      (match List.assoc_opt "ai.response.model" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "step gen_ai.response.id" "r1"
+      (match List.assoc_opt "gen_ai.response.id" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "step gen_ai.response.model" "mock-v1"
+      (match List.assoc_opt "gen_ai.response.model" step_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (* Base attributes: model info and metadata *)
+    (check string) "ai.model.provider" "mock"
+      (match List.assoc_opt "ai.model.provider" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "ai.model.id" "mock-v1"
+      (match List.assoc_opt "ai.model.id" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "metadata.env" "test"
+      (match List.assoc_opt "ai.telemetry.metadata.env" root_data with
+      | Some (`String s) -> s
+      | _ -> ""))
+
 let test_generate_no_retry_on_non_retryable () =
   let model =
     let module M : Ai_provider.Language_model.S = struct
@@ -978,5 +1093,6 @@ let () =
           test_case "no_outputs" `Quick test_telemetry_no_outputs;
           test_case "no_inputs" `Quick test_telemetry_no_inputs;
           test_case "step_response_attrs" `Quick test_telemetry_step_response_attrs;
+          test_case "attribute_values" `Quick test_telemetry_attribute_values;
         ] );
     ]
