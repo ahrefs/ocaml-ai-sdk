@@ -175,17 +175,14 @@ let () =
        ( (),
          {
            get_current_span = (fun () -> Lwt.get k_ambient_span);
-           with_current_span_set_to =
-             (fun () span f -> Lwt.with_value k_ambient_span (Some span) (fun () -> f span));
+           with_current_span_set_to = (fun () span f -> Lwt.with_value k_ambient_span (Some span) (fun () -> f span));
          } ))
 
 (* ---- Lwt Span Helper ---- *)
 
 let with_span ?parent ~__FILE__ ~__LINE__ ~data name (f : Trace_core.span -> 'a Lwt.t) : 'a Lwt.t =
   if Trace_core.enabled () then begin
-    let span =
-      Trace_core.enter_span ~__FILE__ ~__LINE__ ?parent:(Option.map Option.some parent) ~data name
-    in
+    let span = Trace_core.enter_span ~__FILE__ ~__LINE__ ?parent:(Option.map Option.some parent) ~data name in
     let fut = Trace_core.with_current_span_set_to span f in
     Lwt.on_termination fut (fun () -> Trace_core.exit_span span);
     fut

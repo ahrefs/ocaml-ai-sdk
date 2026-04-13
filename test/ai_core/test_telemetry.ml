@@ -193,8 +193,10 @@ let test_with_span_exception () =
     try
       ignore
         (Lwt_main.run
-           (Ai_core.Telemetry.with_span ~__FILE__ ~__LINE__ ~data:(fun () -> []) "test.span" (fun _sp ->
-              failwith "boom")));
+           (Ai_core.Telemetry.with_span ~__FILE__ ~__LINE__
+              ~data:(fun () -> [])
+              "test.span"
+              (fun _sp -> failwith "boom")));
       false
     with Failure msg -> String.equal msg "boom"
   in
@@ -339,8 +341,9 @@ let test_maybe_span_disabled_explicit () =
   let t = Ai_core.Telemetry.create ~enabled:false () in
   let result =
     Lwt_main.run
-      (Ai_core.Telemetry.maybe_span (Some t) "test.span" ~__FILE__ ~__LINE__ ~data:(fun () -> []) (fun _sp ->
-         Lwt.return 99))
+      (Ai_core.Telemetry.maybe_span (Some t) "test.span" ~__FILE__ ~__LINE__
+         ~data:(fun () -> [])
+         (fun _sp -> Lwt.return 99))
   in
   (check int) "returns value" 99 result
 
@@ -415,10 +418,7 @@ let () =
           test_case "some values" `Quick test_settings_attributes_some;
         ] );
       ( "with_span",
-        [
-          test_case "success" `Quick test_with_span_success;
-          test_case "exception" `Quick test_with_span_exception;
-        ] );
+        [ test_case "success" `Quick test_with_span_success; test_case "exception" `Quick test_with_span_exception ] );
       ( "integrations",
         [
           test_case "notify multiple" `Quick test_notify_integrations;
