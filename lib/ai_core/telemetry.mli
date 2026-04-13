@@ -138,6 +138,8 @@ and on_finish_event = {
 
 (** {1 Settings} *)
 
+(** Telemetry settings, enabling or disabling the logging of various pieces of information
+    such as inputs or outputs or metadata *)
 type t
 
 val create :
