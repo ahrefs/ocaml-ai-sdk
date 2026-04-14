@@ -1,5 +1,72 @@
 open Alcotest
 
+(* ---- Mock model for span tests ---- *)
+
+let make_mock_model response_text =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-v1"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = response_text } ];
+          finish_reason = Ai_provider.Finish_reason.Stop;
+          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r1"; model = Some "mock-v1"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+(* ---- Test collector for span assertions ---- *)
+
+type Trace_core.span += Test_span of int
+
+let make_test_collector () =
+  let spans : (int * string) list ref = ref [] in
+  let span_data : (int, (string * Trace_core.user_data) list ref) Hashtbl.t = Hashtbl.create 16 in
+  let next_id = ref 0 in
+  let callbacks : unit Trace_core.Collector.Callbacks.t =
+    Trace_core.Collector.Callbacks.make
+      ~enter_span:(fun () ~__FUNCTION__:_ ~__FILE__:_ ~__LINE__:_ ~level:_ ~params:_ ~data ~parent:_ name ->
+        let id = !next_id in
+        incr next_id;
+        spans := (id, name) :: !spans;
+        Hashtbl.replace span_data id (ref data);
+        Test_span id)
+      ~exit_span:(fun () _sp -> ())
+      ~add_data_to_span:(fun () sp data ->
+        match sp with
+        | Test_span id ->
+          (match Hashtbl.find_opt span_data id with
+          | Some data_ref -> data_ref := !data_ref @ data
+          | None -> ())
+        | _ -> ())
+      ~message:(fun () ~level:_ ~params:_ ~data:_ ~span:_ _msg -> ())
+      ~metric:(fun () ~level:_ ~params:_ ~data:_ _name _metric -> ())
+      ()
+  in
+  let collector = Trace_core.Collector.C_some ((), callbacks) in
+  let get_span_names () = List.rev_map snd !spans in
+  let get_span_data name =
+    match List.find_opt (fun (_, n) -> String.equal n name) !spans with
+    | Some (id, _) ->
+      (match Hashtbl.find_opt span_data id with
+      | Some data_ref -> !data_ref
+      | None -> [])
+    | None -> []
+  in
+  collector, get_span_names, get_span_data
+
 (* ---- Settings ---- *)
 
 let test_default_settings () =
@@ -387,6 +454,111 @@ let test_tool_calls_to_json_string () =
       | _ -> "")
   | _ -> Alcotest.fail "expected list with one element"
 
+(* ---- Traceparent Parsing ---- *)
+
+let test_parse_valid_traceparent () =
+  let tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" in
+  match Ai_core.Telemetry.parse_traceparent tp with
+  | Some tc ->
+    (check string) "trace_id" "4bf92f3577b34da6a3ce929d0e0e4736" tc.trace_id;
+    (check string) "parent_id" "00f067aa0ba902b7" tc.parent_id;
+    (check bool) "sampled" true tc.sampled
+  | None -> Alcotest.fail "expected Some"
+
+let test_parse_traceparent_not_sampled () =
+  let tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00" in
+  match Ai_core.Telemetry.parse_traceparent tp with
+  | Some tc -> (check bool) "not sampled" false tc.sampled
+  | None -> Alcotest.fail "expected Some"
+
+let test_parse_traceparent_wrong_length () =
+  (check bool) "too short" true (Option.is_none (Ai_core.Telemetry.parse_traceparent "00-abc-def-01"));
+  (check bool) "too long" true
+    (Option.is_none
+       (Ai_core.Telemetry.parse_traceparent "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra"))
+
+let test_parse_traceparent_wrong_version () =
+  (check bool) "version 01" true
+    (Option.is_none (Ai_core.Telemetry.parse_traceparent "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))
+
+let test_parse_traceparent_bad_hex () =
+  (check bool) "bad trace_id" true
+    (Option.is_none (Ai_core.Telemetry.parse_traceparent "00-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ-00f067aa0ba902b7-01"));
+  (check bool) "bad parent_id" true
+    (Option.is_none (Ai_core.Telemetry.parse_traceparent "00-4bf92f3577b34da6a3ce929d0e0e4736-ZZZZZZZZZZZZZZZZ-01"))
+
+let test_parse_traceparent_missing_dashes () =
+  (check bool) "no dashes" true
+    (Option.is_none (Ai_core.Telemetry.parse_traceparent "00X4bf92f3577b34da6a3ce929d0e0e4736X00f067aa0ba902b7X01"))
+
+let test_parse_traceparent_all_zeros_invalid () =
+  (* W3C spec: all-zero trace_id or parent_id is invalid *)
+  (check bool) "zero trace_id" true
+    (Option.is_none (Ai_core.Telemetry.parse_traceparent "00-00000000000000000000000000000000-00f067aa0ba902b7-01"));
+  (check bool) "zero parent_id" true
+    (Option.is_none (Ai_core.Telemetry.parse_traceparent "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01"))
+
+let test_parse_traceparent_uppercase_hex () =
+  (* W3C spec says lowercase, but be lenient *)
+  let tp = "00-4BF92F3577B34DA6A3CE929D0E0E4736-00F067AA0BA902B7-01" in
+  match Ai_core.Telemetry.parse_traceparent tp with
+  | Some tc ->
+    (check string) "trace_id lowercased" "4bf92f3577b34da6a3ce929d0e0e4736" tc.trace_id;
+    (check string) "parent_id lowercased" "00f067aa0ba902b7" tc.parent_id
+  | None -> Alcotest.fail "expected Some (uppercase accepted)"
+
+(* ---- Traceparent on Telemetry.create ---- *)
+
+let test_create_with_traceparent () =
+  let tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" in
+  let t = Ai_core.Telemetry.create ~enabled:true ~traceparent:tp () in
+  match Ai_core.Telemetry.trace_context t with
+  | Some tc ->
+    (check string) "trace_id" "4bf92f3577b34da6a3ce929d0e0e4736" tc.trace_id;
+    (check string) "parent_id" "00f067aa0ba902b7" tc.parent_id
+  | None -> Alcotest.fail "expected trace_context"
+
+let test_create_with_invalid_traceparent () =
+  let t = Ai_core.Telemetry.create ~enabled:true ~traceparent:"garbage" () in
+  (check bool) "invalid ignored" true (Option.is_none (Ai_core.Telemetry.trace_context t))
+
+let test_create_without_traceparent () =
+  let t = Ai_core.Telemetry.create ~enabled:true () in
+  (check bool) "no trace_context" true (Option.is_none (Ai_core.Telemetry.trace_context t))
+
+(* ---- Traceparent on Root Span ---- *)
+
+let test_traceparent_root_span_attributes () =
+  let collector, _get_span_names, get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_mock_model "Hello!" in
+    let tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true ~traceparent:tp () in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
+    let root_data = get_span_data "ai.generateText" in
+    (check string) "trace_id attr" "4bf92f3577b34da6a3ce929d0e0e4736"
+      (match List.assoc_opt "ai.trace_context.trace_id" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "parent_id attr" "00f067aa0ba902b7"
+      (match List.assoc_opt "ai.trace_context.parent_id" root_data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check bool) "sampled attr" true
+      (match List.assoc_opt "ai.trace_context.sampled" root_data with
+      | Some (`Bool b) -> b
+      | _ -> false))
+
+let test_no_traceparent_no_trace_context_attrs () =
+  let collector, _get_span_names, get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_mock_model "Hello!" in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true () in
+    let _result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Hi" ~telemetry ()) in
+    let root_data = get_span_data "ai.generateText" in
+    (check bool) "no trace_id" true (not (List.mem_assoc "ai.trace_context.trace_id" root_data));
+    (check bool) "no parent_id" true (not (List.mem_assoc "ai.trace_context.parent_id" root_data)))
+
 let () =
   run "Telemetry"
     [
@@ -434,5 +606,27 @@ let () =
           test_case "maybe_notify enabled" `Quick test_maybe_notify_enabled;
           test_case "make_model_info" `Quick test_make_model_info;
           test_case "tool_calls_to_json_string" `Quick test_tool_calls_to_json_string;
+        ] );
+      ( "parse_traceparent",
+        [
+          test_case "valid" `Quick test_parse_valid_traceparent;
+          test_case "not sampled" `Quick test_parse_traceparent_not_sampled;
+          test_case "wrong length" `Quick test_parse_traceparent_wrong_length;
+          test_case "wrong version" `Quick test_parse_traceparent_wrong_version;
+          test_case "bad hex" `Quick test_parse_traceparent_bad_hex;
+          test_case "missing dashes" `Quick test_parse_traceparent_missing_dashes;
+          test_case "all zeros invalid" `Quick test_parse_traceparent_all_zeros_invalid;
+          test_case "uppercase hex" `Quick test_parse_traceparent_uppercase_hex;
+        ] );
+      ( "traceparent on create",
+        [
+          test_case "with valid traceparent" `Quick test_create_with_traceparent;
+          test_case "with invalid traceparent" `Quick test_create_with_invalid_traceparent;
+          test_case "without traceparent" `Quick test_create_without_traceparent;
+        ] );
+      ( "traceparent on root span",
+        [
+          test_case "attributes present" `Quick test_traceparent_root_span_attributes;
+          test_case "no attributes when absent" `Quick test_no_traceparent_no_trace_context_attrs;
         ] );
     ]

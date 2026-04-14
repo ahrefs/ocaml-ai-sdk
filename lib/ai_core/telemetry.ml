@@ -65,6 +65,42 @@ and on_finish_event = {
 let no_integration =
   { on_start = None; on_step_finish = None; on_tool_call_start = None; on_tool_call_finish = None; on_finish = None }
 
+(* ---- W3C Trace Context ---- *)
+
+type trace_context = {
+  trace_id : string;
+  parent_id : string;
+  sampled : bool;
+}
+
+let is_hex_char = function
+  | '0' .. '9' | 'a' .. 'f' | 'A' .. 'F' -> true
+  | _ -> false
+
+let is_all_zeros s = String.for_all (fun c -> Char.equal c '0') s
+
+let parse_traceparent s =
+  if String.length s <> 55 then None
+  else (
+    match s.[2], s.[35], s.[52] with
+    | '-', '-', '-' ->
+      let trace_id = String.sub s 3 32 in
+      let parent_id = String.sub s 36 16 in
+      let flags = String.sub s 53 2 in
+      let is_W3C_v00 = String.equal (String.sub s 0 2) "00" in
+      let is_hex_chars = List.for_all (String.for_all is_hex_char) [ trace_id; parent_id; flags ] in
+      let is_all_zeros = is_all_zeros trace_id || is_all_zeros parent_id in
+      (match is_W3C_v00 && is_hex_chars && not is_all_zeros with
+      | false -> None
+      | true ->
+        let sampled =
+          match int_of_string_opt ("0x" ^ flags) with
+          | Some f -> f land 1 = 1
+          | None -> false
+        in
+        Some { trace_id = String.lowercase_ascii trace_id; parent_id = String.lowercase_ascii parent_id; sampled })
+    | _ -> None)
+
 (* ---- Settings ---- *)
 
 type t = {
@@ -74,11 +110,13 @@ type t = {
   function_id : string option;
   metadata : (string * Trace_core.user_data) list;
   integrations : integration list;
+  trace_context : trace_context option;
 }
 
 let create ?(enabled = false) ?(record_inputs = true) ?(record_outputs = true) ?function_id ?(metadata = [])
-  ?(integrations = []) () =
-  { enabled; record_inputs; record_outputs; function_id; metadata; integrations }
+  ?(integrations = []) ?traceparent () =
+  let trace_context = Option.bind traceparent parse_traceparent in
+  { enabled; record_inputs; record_outputs; function_id; metadata; integrations; trace_context }
 
 let enabled t = t.enabled
 let record_inputs t = t.record_inputs
@@ -86,6 +124,7 @@ let record_outputs t = t.record_outputs
 let function_id t = t.function_id
 let metadata t = t.metadata
 let integrations t = t.integrations
+let trace_context t = t.trace_context
 
 (* ---- Attribute Selection ---- *)
 
@@ -135,13 +174,23 @@ let assemble_operation_name ~operation_id t =
 
 (* ---- Base Telemetry Attributes ---- *)
 
+let trace_context_attributes t =
+  match t.trace_context with
+  | None -> []
+  | Some tc ->
+    [
+      "ai.trace_context.trace_id", `String tc.trace_id;
+      "ai.trace_context.parent_id", `String tc.parent_id;
+      "ai.trace_context.sampled", `Bool tc.sampled;
+    ]
+
 let base_attributes ~provider ~model_id ~settings_attrs ~headers t =
   let model_attrs = [ "ai.model.provider", `String provider; "ai.model.id", `String model_id ] in
   let metadata_attrs = List.map (fun (k, v) -> Printf.sprintf "ai.telemetry.metadata.%s" k, v) t.metadata in
   let header_attrs =
     List.map (fun (k, v) -> Printf.sprintf "ai.request.headers.%s" k, (`String v : Trace_core.user_data)) headers
   in
-  model_attrs @ settings_attrs @ metadata_attrs @ header_attrs
+  model_attrs @ settings_attrs @ metadata_attrs @ header_attrs @ trace_context_attributes t
 
 let settings_attributes ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?frequency_penalty
   ?presence_penalty ?max_retries () =
@@ -182,7 +231,9 @@ let () =
 
 let with_span ?parent ~__FILE__ ~__LINE__ ~data name (f : Trace_core.span -> 'a Lwt.t) : 'a Lwt.t =
   if Trace_core.enabled () then begin
-    let span = Trace_core.enter_span ~__FILE__ ~__LINE__ ?parent:(Option.map Option.some parent) ~data name in
+    let span =
+      Trace_core.enter_span ~__FILE__ ~__LINE__ ~flavor:`Async ?parent:(Option.map Option.some parent) ~data name
+    in
     let fut = Trace_core.with_current_span_set_to span f in
     Lwt.on_termination fut (fun () -> Trace_core.exit_span span);
     fut

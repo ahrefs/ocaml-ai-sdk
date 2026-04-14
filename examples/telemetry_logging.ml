@@ -1,6 +1,6 @@
-(** Telemetry logging example.
+(** Telemetry example — integration callbacks, trace spans, and trace propagation.
 
-    Demonstrates two ways to observe AI SDK operations:
+    Demonstrates three observability features working together:
 
     1. {b Integration callbacks} — structured lifecycle events
        ([on_start], [on_tool_call_start], [on_tool_call_finish],
@@ -13,6 +13,24 @@
        for example, [trace-tef] writes Chrome Trace Format JSON
        viewable in {{:https://ui.perfetto.dev} Perfetto UI}, or
        [opentelemetry.trace] exports to OTLP collectors.
+
+    3. {b W3C Trace Context propagation} — the [{traceparent}] header
+       from an incoming HTTP request is passed to [Telemetry.create],
+       linking backend spans to the frontend's distributed trace.
+
+    {v
+    [Frontend]                          [Backend (this example)]
+    ┌──────────────────┐
+    │ fetch /api/chat   │ ──traceparent──►  ┌─────────────────────────────────┐
+    │ span: client.chat │                   │ ai.generateText                 │
+    │                   │                   │ ├─ ai.generateText.doGenerate   │
+    │                   │                   │ │  (LLM calls tools)            │
+    │                   │                   │ ├─ ai.toolCall (get_weather x2) │
+    │                   │                   │ ├─ ai.generateText.doGenerate   │
+    │                   │                   │ │  (LLM produces final answer)  │
+    │                   │ ◄──SSE stream──── │ └─────────────────────────────────┘
+    └──────────────────┘
+    v}
 
     Set ANTHROPIC_API_KEY environment variable before running.
 
@@ -99,16 +117,31 @@ let () =
       begin
         let model = Ai_provider_anthropic.model Ai_provider_anthropic.Model_catalog.(to_model_id Claude_haiku_4_5) in
 
-        (* Create telemetry settings with our logging integration.
-         The trace-tef collector captures spans automatically;
-         the integration callbacks provide structured lifecycle events. *)
+        (* In a real app, the frontend's OTel SDK (or fetch instrumentation)
+          generates this header automatically.  Here we simulate it with
+          fixed IDs so the trace file is deterministic and easy to inspect.
+
+          The traceparent is framework-agnostic — you extract the raw header
+          from whatever HTTP server you use:
+          - Dream:   [Dream.header request "traceparent"]
+          - Cohttp:  [Cohttp.Header.get headers "traceparent"]
+          - Opium:   [Request.header "traceparent" request] *)
+        let frontend_trace_id = "a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5" in
+        let frontend_span_id = "1a2b3c4d5e6f7a8b" in
+        let traceparent = Printf.sprintf "00-%s-%s-01" frontend_trace_id frontend_span_id in
+
+        (* Create telemetry settings with:
+           - Integration callbacks for structured lifecycle logging
+           - traceparent for distributed trace linking
+           - The trace-tef collector captures spans automatically *)
         let telemetry =
-          Ai_core.Telemetry.create ~enabled:true ~function_id:"weather-chat"
+          Ai_core.Telemetry.create ~enabled:true ~function_id:"weather-chat" ~traceparent
             ~metadata:[ "example", `String "telemetry_logging"; "user_id", `String "demo-user" ]
             ~integrations:[ logging_integration ] ()
         in
 
-        Printf.printf "=== generate_text with telemetry ===\n\n%!";
+        Printf.printf "=== Telemetry Example ===\n\n%!";
+        Printf.printf "Frontend traceparent: %s\n\n%!" traceparent;
 
         let%lwt result =
           Ai_core.Generate_text.generate_text ~model
@@ -122,6 +155,7 @@ let () =
         Printf.printf "Total: %d input / %d output tokens, %d steps\n\n%!" result.usage.input_tokens
           result.usage.output_tokens (List.length result.steps);
         Printf.printf "Trace written to ai-trace.json — open in https://ui.perfetto.dev\n%!";
+        Printf.printf "Root span carries ai.trace_context.trace_id=%s\n%!" frontend_trace_id;
 
         Lwt.return_unit
       end)

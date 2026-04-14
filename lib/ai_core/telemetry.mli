@@ -64,6 +64,36 @@
       (["<message>"]) to avoid serializing large payloads into span data.
       The full messages are available via integration callbacks. *)
 
+(** {1 W3C Trace Context}
+
+    Parse the W3C Trace Context [{traceparent}] header to link backend
+    spans to an incoming frontend trace.  The header format (version 00)
+    is a stable W3C Recommendation:
+
+    {v 00-{32 hex trace_id}-{16 hex parent_id}-{2 hex flags} v}
+
+    When passed to {!create} via [~traceparent], the parsed IDs are
+    emitted as [ai.trace_context.trace_id], [ai.trace_context.parent_id],
+    and [ai.trace_context.sampled] attributes on every root span, so any
+    trace collector can reconstruct the parent link.
+
+    If the user also installs the [opentelemetry-trace] bridge with
+    ambient context, the parenting happens automatically at the
+    [Trace_core] level — the attributes are still present as a
+    belt-and-suspenders fallback. *)
+
+(** Parsed W3C traceparent fields. *)
+type trace_context = {
+  trace_id : string;  (** 32 lowercase hex chars *)
+  parent_id : string;  (** 16 lowercase hex chars *)
+  sampled : bool;
+}
+
+(** Parse a raw W3C [{traceparent}] header value.
+    Returns [None] if the value is malformed, the wrong version,
+    or contains all-zero trace/parent IDs (invalid per spec). *)
+val parse_traceparent : string -> trace_context option
+
 (** {1 Types} *)
 
 (** Model info for callback events. *)
@@ -149,6 +179,7 @@ val create :
   ?function_id:string ->
   ?metadata:(string * Trace_core.user_data) list ->
   ?integrations:integration list ->
+  ?traceparent:string ->
   unit ->
   t
 
@@ -158,6 +189,7 @@ val record_outputs : t -> bool
 val function_id : t -> string option
 val metadata : t -> (string * Trace_core.user_data) list
 val integrations : t -> integration list
+val trace_context : t -> trace_context option
 
 (** {1 Attribute Selection} *)
 
