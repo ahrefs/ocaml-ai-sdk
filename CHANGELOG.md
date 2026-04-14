@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 0.2 — 2026-04-14
 
 ### Core SDK (`ai_core`)
 

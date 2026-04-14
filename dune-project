@@ -6,7 +6,7 @@
 
 (name ocaml-ai-sdk)
 
-(version 0.1)
+(version 0.2)
 
 ; There's an issues with the ocamlformat-mlx formatter version priting, so we're using the formatter arguments
 ; directly to avoid reading the .ocamlformat file when formatting mlx files. To replace when the version issue
