@@ -33,6 +33,7 @@ val stream_text :
   ?on_chunk:(Text_stream_part.t -> unit) ->
   ?on_finish:(Generate_text_result.t -> unit) ->
   ?transform:(Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t) ->
+  ?telemetry:Telemetry.t ->
   ?pending_tool_approvals:Generate_text_result.pending_tool_approval list ->
   unit ->
   Stream_text_result.t

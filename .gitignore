@@ -7,3 +7,4 @@ node_modules/
 dist/
 .playwright/
 .playwright-cli/
+ai-trace.json

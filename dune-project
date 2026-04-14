@@ -90,6 +90,8 @@
    (>= 0.16))
   (uuseg
    (>= 17.0))
+  (trace
+   (>= 0.12))
   (alcotest :with-test)))
 
 (package

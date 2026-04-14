@@ -730,6 +730,166 @@ let test_stream_text_stream_reflects_transform () =
   (* text_stream should also reflect the smoothed output *)
   (check (list string)) "text_stream smoothed" [ "Hello "; "world" ] text_parts
 
+(* ---- Telemetry test helpers ---- *)
+
+type Trace_core.span += Test_span of int
+
+let make_test_collector () =
+  let spans : (int * string) list ref = ref [] in
+  let span_data : (int, (string * Trace_core.user_data) list ref) Hashtbl.t = Hashtbl.create 16 in
+  let next_id = ref 0 in
+  let callbacks : unit Trace_core.Collector.Callbacks.t =
+    Trace_core.Collector.Callbacks.make
+      ~enter_span:(fun () ~__FUNCTION__:_ ~__FILE__:_ ~__LINE__:_ ~level:_ ~params:_ ~data ~parent:_ name ->
+        let id = !next_id in
+        incr next_id;
+        spans := (id, name) :: !spans;
+        Hashtbl.replace span_data id (ref data);
+        Test_span id)
+      ~exit_span:(fun () _sp -> ())
+      ~add_data_to_span:(fun () sp data ->
+        match sp with
+        | Test_span id ->
+          (match Hashtbl.find_opt span_data id with
+          | Some data_ref -> data_ref := !data_ref @ data
+          | None -> ())
+        | _ -> ())
+      ~message:(fun () ~level:_ ~params:_ ~data:_ ~span:_ _msg -> ())
+      ~metric:(fun () ~level:_ ~params:_ ~data:_ _name _metric -> ())
+      ()
+  in
+  let collector = Trace_core.Collector.C_some ((), callbacks) in
+  let get_span_names () = List.rev_map snd !spans in
+  let get_span_data name =
+    match List.find_opt (fun (_, n) -> String.equal n name) !spans with
+    | Some (id, _) ->
+      (match Hashtbl.find_opt span_data id with
+      | Some data_ref -> !data_ref
+      | None -> [])
+    | None -> []
+  in
+  collector, get_span_names, get_span_data
+
+(* ---- Telemetry tests ---- *)
+
+let test_stream_telemetry_spans () =
+  let collector, get_span_names, _get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_text_stream_model "Hello!" in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true ~function_id:"test-fn" () in
+    let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hi" ~telemetry () in
+    Lwt_main.run
+      (let%lwt _ = Lwt_stream.to_list result.full_stream in
+       let%lwt _ = result.usage in
+       Lwt.return_unit);
+    let names = get_span_names () in
+    (check bool) "has root" true (List.mem "ai.streamText" names);
+    (check bool) "has step" true (List.mem "ai.streamText.doStream" names))
+
+let test_stream_telemetry_tool_spans () =
+  let collector, get_span_names, _get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_tool_stream_model () in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true () in
+    let result =
+      Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+        ~tools:[ "search", search_tool ]
+        ~max_steps:3 ~telemetry ()
+    in
+    Lwt_main.run
+      (let%lwt _ = Lwt_stream.to_list result.full_stream in
+       let%lwt _ = result.usage in
+       Lwt.return_unit);
+    let names = get_span_names () in
+    (check bool) "has root" true (List.mem "ai.streamText" names);
+    (check bool) "has tool call" true (List.mem "ai.toolCall" names);
+    let step_count = List.length (List.filter (String.equal "ai.streamText.doStream") names) in
+    (check int) "2 step spans" 2 step_count)
+
+let test_stream_telemetry_disabled () =
+  let collector, get_span_names, _get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_text_stream_model "Hello!" in
+    let telemetry = Ai_core.Telemetry.create ~enabled:false () in
+    let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hi" ~telemetry () in
+    Lwt_main.run
+      (let%lwt _ = Lwt_stream.to_list result.full_stream in
+       let%lwt _ = result.usage in
+       Lwt.return_unit);
+    let names = get_span_names () in
+    (check int) "no spans when disabled" 0 (List.length names))
+
+let test_stream_telemetry_integration_callbacks () =
+  let events = ref [] in
+  let integration : Ai_core.Telemetry.integration =
+    {
+      on_start =
+        Some
+          (fun e ->
+            events := Printf.sprintf "start:%s" e.model.provider :: !events;
+            Lwt.return_unit);
+      on_step_finish =
+        Some
+          (fun e ->
+            events := Printf.sprintf "step:%d" e.step_number :: !events;
+            Lwt.return_unit);
+      on_tool_call_start =
+        Some
+          (fun e ->
+            events := Printf.sprintf "tool_start:%s" e.tool_name :: !events;
+            Lwt.return_unit);
+      on_tool_call_finish =
+        Some
+          (fun e ->
+            events := Printf.sprintf "tool_finish:%s" e.tool_name :: !events;
+            Lwt.return_unit);
+      on_finish =
+        Some
+          (fun e ->
+            events := Printf.sprintf "finish:%d_steps" (List.length e.steps) :: !events;
+            Lwt.return_unit);
+    }
+  in
+  let model = make_tool_stream_model () in
+  let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ integration ] () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~tools:[ "search", search_tool ] ~max_steps:3 ~telemetry ()
+  in
+  Lwt_main.run
+    (let%lwt _ = Lwt_stream.to_list result.full_stream in
+     let%lwt _ = result.usage in
+     Lwt.return_unit);
+  let evts = List.rev !events in
+  (check bool) "has start" true (List.exists (fun s -> String.starts_with ~prefix:"start:" s) evts);
+  (check bool) "has tool_start" true (List.exists (fun s -> String.starts_with ~prefix:"tool_start:" s) evts);
+  (check bool) "has tool_finish" true (List.exists (fun s -> String.starts_with ~prefix:"tool_finish:" s) evts);
+  (check bool) "has step" true (List.exists (fun s -> String.starts_with ~prefix:"step:" s) evts);
+  (check bool) "has finish" true (List.exists (fun s -> String.starts_with ~prefix:"finish:" s) evts)
+
+let test_stream_telemetry_root_attributes () =
+  let collector, _get_span_names, get_span_data = make_test_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    let model = make_text_stream_model "Hello!" in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true ~function_id:"my-fn" () in
+    let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hi" ~telemetry () in
+    Lwt_main.run
+      (let%lwt _ = Lwt_stream.to_list result.full_stream in
+       let%lwt _ = result.usage in
+       Lwt.return_unit);
+    let data = get_span_data "ai.streamText" in
+    (check string) "operation.name" "ai.streamText my-fn"
+      (match List.assoc_opt "operation.name" data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "ai.model.provider" "mock"
+      (match List.assoc_opt "ai.model.provider" data with
+      | Some (`String s) -> s
+      | _ -> "");
+    (check string) "ai.model.id" "mock-stream"
+      (match List.assoc_opt "ai.model.id" data with
+      | Some (`String s) -> s
+      | _ -> ""))
+
 let () =
   run "Stream_text"
     [
@@ -766,4 +926,12 @@ let () =
           test_case "without_output" `Quick test_stream_without_output;
         ] );
       "retry", [ test_case "retries_on_retryable_error" `Quick (run_lwt test_stream_retries_on_retryable_error) ];
+      ( "telemetry",
+        [
+          test_case "spans" `Quick test_stream_telemetry_spans;
+          test_case "tool_spans" `Quick test_stream_telemetry_tool_spans;
+          test_case "disabled_no_spans" `Quick test_stream_telemetry_disabled;
+          test_case "integration_callbacks" `Quick test_stream_telemetry_integration_callbacks;
+          test_case "root_attributes" `Quick test_stream_telemetry_root_attributes;
+        ] );
     ]

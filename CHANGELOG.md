@@ -21,6 +21,15 @@ All notable changes to this project will be documented in this file.
   initial delay and backoff factor, and parameter validation. `?max_retries`
   threaded through `generate_text`, `stream_text`, and
   `server_handler.handle_chat`. Retries only on errors marked retryable.
+- **Telemetry / observability** — `Telemetry` module with OpenTelemetry-compatible
+  span instrumentation via the `trace` library (ocaml-trace). Configurable
+  `Telemetry.t` settings control enable/disable, input/output recording privacy,
+  function ID, custom metadata, and lifecycle integration callbacks (`on_start`,
+  `on_step_finish`, `on_tool_call_start`, `on_tool_call_finish`, `on_finish`).
+  Span hierarchy matches upstream AI SDK: `ai.generateText` /
+  `ai.streamText` root spans, `*.doGenerate` / `*.doStream` step spans, and
+  `ai.toolCall` tool execution spans. `?telemetry` parameter threaded through
+  `generate_text`, `stream_text`, and `server_handler.handle_chat`.
 
 ### Provider Abstraction Layer (`ai_provider`)
 
@@ -31,10 +40,12 @@ All notable changes to this project will be documented in this file.
 ### Examples
 
 - `smooth_streaming` — demonstrates all five chunking modes
+- `telemetry_logging` — demonstrates integration callbacks for lifecycle logging
 
 ### Dependencies
 
 - Added `re2` (>= 0.16) and `uuseg` (>= 17.0) to `ai_core`
+- Added `trace` (>= 0.12) to `ai_core`
 
 ## 0.1 — 2026-04-06
 
