@@ -31,6 +31,12 @@ type chunking =
     @param delay_ms Delay in milliseconds between emitted chunks.
       Default is [10]. Pass [0] to disable delays.
     @param chunking Controls how text is split into chunks.
-      Default is [Word]. *)
+      Default is [Word].
+    @param sleep Function called to sleep between chunks (default [Lwt_unix.sleep]). *)
 val create :
-  ?delay_ms:int -> ?chunking:chunking -> unit -> Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t
+  ?delay_ms:int ->
+  ?chunking:chunking ->
+  ?sleep:(float -> unit Lwt.t) ->
+  unit ->
+  Text_stream_part.t Lwt_stream.t ->
+  Text_stream_part.t Lwt_stream.t

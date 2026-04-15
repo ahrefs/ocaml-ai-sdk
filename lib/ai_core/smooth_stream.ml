@@ -40,14 +40,14 @@ let make_detector = function
   | Segmenter -> detect_chunk_segmenter
   | Custom f -> f
 
-let create ?(delay_ms = 10) ?(chunking = Word) () input_stream =
+let create ?(delay_ms = 10) ?(chunking = Word) ?(sleep = Lwt_unix.sleep) () input_stream =
   let detect_chunk = make_detector chunking in
   let delay =
     match delay_ms with
     | 0 -> fun () -> Lwt.return_unit
     | ms ->
       let secs = Float.of_int ms /. 1000.0 in
-      fun () -> Lwt_unix.sleep secs
+      fun () -> sleep secs
   in
   let output_stream, push = Lwt_stream.create () in
   let buffer = Buffer.create 256 in

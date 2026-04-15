@@ -25,5 +25,12 @@ val reason_to_string : retry_reason -> string
       (default 2, matching upstream). Total attempts = 1 + max_retries.
       Set to 0 to disable retries (only the initial call is made).
     @param initial_delay_ms Initial delay in milliseconds (default 2000).
-    @param backoff_factor Multiplier applied to delay after each retry (default 2). *)
-val with_retries : ?max_retries:int -> ?initial_delay_ms:int -> ?backoff_factor:int -> (unit -> 'a Lwt.t) -> 'a Lwt.t
+    @param backoff_factor Multiplier applied to delay after each retry (default 2).
+    @param sleep Function called to sleep between retries (default [Lwt_unix.sleep]). *)
+val with_retries :
+  ?max_retries:int ->
+  ?initial_delay_ms:int ->
+  ?backoff_factor:int ->
+  ?sleep:(float -> unit Lwt.t) ->
+  (unit -> 'a Lwt.t) ->
+  'a Lwt.t

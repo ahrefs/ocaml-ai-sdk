@@ -33,7 +33,7 @@ let is_retryable_error = function
   | Ai_provider.Provider_error.Provider_error { is_retryable; _ } -> is_retryable
   | exn -> is_transient_network_error exn
 
-let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor = 2) f =
+let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor = 2) ?(sleep = Lwt_unix.sleep) f =
   if max_retries < 0 then invalid_arg "Retry.with_retries: max_retries must be >= 0";
   if initial_delay_ms < 0 then invalid_arg "Retry.with_retries: initial_delay_ms must be >= 0";
   if backoff_factor < 1 then invalid_arg "Retry.with_retries: backoff_factor must be >= 1";
@@ -48,7 +48,7 @@ let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor 
       | () when max_retries = 0 -> Lwt.fail exn
       | () when i > max_retries -> Lwt.fail (make_retry_error ~reason:Max_retries_exceeded ~errors_rev exn)
       | () when is_retryable_error exn ->
-        let%lwt () = Lwt_unix.sleep (Float.of_int delay_ms /. 1000.0) in
+        let%lwt () = sleep (Float.of_int delay_ms /. 1000.0) in
         loop ~delay_ms:(backoff_factor * delay_ms) ~errors_rev ~i:(i + 1)
       | () when i = 1 -> Lwt.fail exn
       | () -> Lwt.fail (make_retry_error ~reason:Error_not_retryable ~errors_rev exn))

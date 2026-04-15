@@ -174,35 +174,20 @@ let test_network_error_exhausts_retries () =
 
 (* Test: backoff_factor multiplies delay between retries *)
 let test_backoff_factor_affects_delay () =
-  let timestamps = ref [] in
+  let delays = ref [] in
+  let sleep secs = delays := secs :: !delays; Lwt.return_unit in
   let call_count = ref 0 in
-  let result =
-    Lwt_main.run
-      (try%lwt
-         let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:50 ~backoff_factor:2 (fun () ->
-             timestamps := Unix.gettimeofday () :: !timestamps;
+  (try
+     ignore
+       (Lwt_main.run
+          (Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:50 ~backoff_factor:2 ~sleep (fun () ->
              incr call_count;
-             Lwt.fail (retryable_error "overloaded"))
-         in
-         Lwt.return_none
-       with Ai_core.Retry.Retry_error _ -> Lwt.return_some (List.rev !timestamps))
-  in
+             Lwt.fail (retryable_error "overloaded")))
+        : string)
+   with Ai_core.Retry.Retry_error _ -> ());
   (check int) "called 4 times" 4 !call_count;
-  match result with
-  | None -> fail "expected Retry_error"
-  | Some [ t0; t1; t2; t3 ] ->
-    let d1 = t1 -. t0 in
-    let d2 = t2 -. t1 in
-    let d3 = t3 -. t2 in
-    (* d1 ~50ms, d2 ~100ms, d3 ~200ms — each roughly 2x the previous.
-       Use generous bounds to avoid flaky tests on slow CI. *)
-    (check bool) "d1 >= 30ms" true (d1 >= 0.030);
-    (check bool) "d2 >= 60ms" true (d2 >= 0.060);
-    (check bool) "d3 >= 120ms" true (d3 >= 0.120);
-    (check bool) "d2 > d1" true (d2 > d1 *. 1.3);
-    (check bool) "d3 > d2" true (d3 > d2 *. 1.3)
-  | _ -> fail "expected 4 timestamps"
+  let delays = List.rev !delays in
+  (check (list (float 0.001))) "backoff delays" [ 0.050; 0.100; 0.200 ] delays
 
 (* Test: negative max_retries raises invalid_arg *)
 let test_negative_max_retries () =

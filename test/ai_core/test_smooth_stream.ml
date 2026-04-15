@@ -222,15 +222,15 @@ let test_id_switch_flushes () =
 (* --- Delay --- *)
 
 let test_delay_is_applied () =
+  let delays = ref [] in
+  let sleep secs = delays := secs :: !delays; Lwt.return_unit in
   let input_stream, push = Lwt_stream.create () in
   push (Some (Ai_core.Text_stream_part.Text_delta { id = "t1"; text = "a b c d " }));
   push None;
-  let output = Ai_core.Smooth_stream.create ~delay_ms:20 () input_stream in
-  let t0 = Unix.gettimeofday () in
+  let output = Ai_core.Smooth_stream.create ~delay_ms:20 ~sleep () input_stream in
   let _parts = Lwt_main.run (Lwt_stream.to_list output) in
-  let elapsed = Unix.gettimeofday () -. t0 in
-  (* 4 word chunks with 20ms delay each = ~80ms minimum *)
-  (check bool) "delay applied" true (elapsed >= 0.05)
+  (* 4 word chunks, each with 20ms delay *)
+  (check (list (float 0.001))) "delay values" [ 0.020; 0.020; 0.020; 0.020 ] (List.rev !delays)
 
 (* --- Text content preservation --- *)
 
