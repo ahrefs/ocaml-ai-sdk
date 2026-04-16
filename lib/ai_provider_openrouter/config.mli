@@ -16,6 +16,7 @@ type t = {
   app_url : string option;
   compatibility : compatibility;
   api_keys : (string * string) list;
+  extra_body : (string * Yojson.Basic.t) list;
 }
 
 (** Create config. [api_key] defaults to [OPENROUTER_API_KEY] env var.
@@ -33,6 +34,7 @@ val create :
   ?app_url:string ->
   ?compatibility:compatibility ->
   ?api_keys:(string * string) list ->
+  ?extra_body:(string * Yojson.Basic.t) list ->
   unit ->
   t
 

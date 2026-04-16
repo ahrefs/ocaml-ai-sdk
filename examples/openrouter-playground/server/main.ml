@@ -59,9 +59,7 @@ let default_config =
 let parse_config req =
   match Cohttp.Header.get (Cohttp.Request.headers req) "x-openrouter-config" with
   | None -> default_config
-  | Some json_str ->
-    (try parsed_config_of_json (Yojson.Basic.from_string json_str) with
-    | _ -> default_config)
+  | Some json_str -> try parsed_config_of_json (Yojson.Basic.from_string json_str) with _ -> default_config
 
 (* --- Build provider options --- *)
 
@@ -74,8 +72,7 @@ let reasoning_effort_of_string = function
   | "none" -> Some Ai_provider_openrouter.Openrouter_options.None_
   | _ -> None
 
-let build_provider_routing (p : parsed_provider_routing) :
-    Ai_provider_openrouter.Openrouter_options.provider_prefs =
+let build_provider_routing (p : parsed_provider_routing) : Ai_provider_openrouter.Openrouter_options.provider_prefs =
   {
     order = p.order;
     allow_fallbacks = p.allow_fallbacks;
@@ -87,6 +84,9 @@ let build_provider_routing (p : parsed_provider_routing) :
     sort = p.sort;
     max_price = None;
     zdr = None;
+    preferred_min_throughput = None;
+    preferred_max_latency = None;
+    enforce_distillable_text = None;
   }
 
 let build_reasoning_budget (r : parsed_reasoning) =
@@ -100,8 +100,7 @@ let build_reasoning_budget (r : parsed_reasoning) =
   | None, None -> No_budget
 
 let build_extra_body = function
-  | Some (`Assoc fields) ->
-    List.map (fun (k, v) -> (k, (v : Melange_json.t :> Yojson.Basic.t))) fields
+  | Some (`Assoc fields) -> List.map (fun (k, v) -> k, (v : Melange_json.t :> Yojson.Basic.t)) fields
   | Some _ | None -> []
 
 let build_provider_options (config : parsed_config) =
@@ -109,7 +108,10 @@ let build_provider_options (config : parsed_config) =
   let plugins =
     match config.web_search with
     | Some { enabled = true; max_results } ->
-      [ Web_search (Some { max_results; search_prompt = None; engine = None }) ]
+      [
+        Web_search
+          (Some { max_results; search_prompt = None; engine = None; include_domains = []; exclude_domains = [] });
+      ]
     | Some { enabled = false; _ } | None -> []
   in
   let provider = Option.map build_provider_routing config.provider_routing in
@@ -120,8 +122,7 @@ let build_provider_options (config : parsed_config) =
   in
   let reasoning =
     Option.map
-      (fun (r : parsed_reasoning) ->
-        { enabled = Some true; exclude = None; budget = build_reasoning_budget r })
+      (fun (r : parsed_reasoning) -> { enabled = Some true; exclude = None; budget = build_reasoning_budget r })
       config.reasoning
   in
   let include_reasoning =
@@ -164,19 +165,18 @@ let serve_static path =
   match Sys.file_exists file_path with
   | true ->
     let%lwt body = Lwt_io.with_file ~mode:Input file_path Lwt_io.read in
-    let headers = Cohttp.Header.of_list [ ("content-type", content_type_of path) ] in
+    let headers = Cohttp.Header.of_list [ "content-type", content_type_of path ] in
     Lwt.return (Cohttp.Response.make ~status:`OK ~headers (), Cohttp_lwt.Body.of_string body)
   | false ->
     let index_path = Filename.concat static_dir "index.html" in
     (match Sys.file_exists index_path with
     | true ->
       let%lwt body = Lwt_io.with_file ~mode:Input index_path Lwt_io.read in
-      let headers = Cohttp.Header.of_list [ ("content-type", "text/html") ] in
+      let headers = Cohttp.Header.of_list [ "content-type", "text/html" ] in
       Lwt.return (Cohttp.Response.make ~status:`OK ~headers (), Cohttp_lwt.Body.of_string body)
     | false ->
-      let headers = Cohttp.Header.of_list [ ("content-type", "text/plain") ] in
-      Lwt.return
-        (Cohttp.Response.make ~status:`Not_found ~headers (), Cohttp_lwt.Body.of_string "Not found"))
+      let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in
+      Lwt.return (Cohttp.Response.make ~status:`Not_found ~headers (), Cohttp_lwt.Body.of_string "Not found"))
 
 (* --- HTTP router --- *)
 
@@ -197,13 +197,11 @@ let handler conn req body =
     let config = parse_config req in
     let model = Ai_provider_openrouter.language_model ~model:config.model () in
     let provider_options = build_provider_options config in
-    Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~provider_options ~send_reasoning:true
-      conn req body
+    Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~provider_options ~send_reasoning:true conn req body
   | `GET, "/" -> serve_static "index.html"
-  | `GET, p when String.length p > 1 ->
-    serve_static (String.sub p 1 (String.length p - 1))
+  | `GET, p when String.length p > 1 -> serve_static (String.sub p 1 (String.length p - 1))
   | _ ->
-    let headers = Cohttp.Header.of_list [ ("content-type", "text/plain") ] in
+    let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in
     Lwt.return (Cohttp.Response.make ~status:`Not_found ~headers (), Cohttp_lwt.Body.of_string "Not found")
 
 let () =
@@ -212,7 +210,6 @@ let () =
   Printf.printf "Set OPENROUTER_API_KEY environment variable.\n%!";
   Printf.printf "Endpoint: POST /api/chat (config via X-OpenRouter-Config header)\n%!";
   let server =
-    Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port))
-      (Cohttp_lwt_unix.Server.make ~callback:handler ())
+    Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
   in
   Lwt_main.run server

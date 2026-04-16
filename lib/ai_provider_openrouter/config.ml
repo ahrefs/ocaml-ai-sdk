@@ -13,10 +13,11 @@ type t = {
   app_url : string option;
   compatibility : compatibility;
   api_keys : (string * string) list;
+  extra_body : (string * Yojson.Basic.t) list;
 }
 
 let create ?api_key ?base_url ?(headers = []) ?fetch ?app_title ?app_url ?(compatibility = Compatible) ?(api_keys = [])
-  () =
+  ?(extra_body = []) () =
   let api_key =
     match api_key with
     | Some _ -> api_key
@@ -27,7 +28,7 @@ let create ?api_key ?base_url ?(headers = []) ?fetch ?app_title ?app_url ?(compa
     | Some url -> url
     | None -> "https://openrouter.ai/api/v1"
   in
-  { api_key; base_url; default_headers = headers; fetch; app_title; app_url; compatibility; api_keys }
+  { api_key; base_url; default_headers = headers; fetch; app_title; app_url; compatibility; api_keys; extra_body }
 
 let api_key_exn t =
   match t.api_key with

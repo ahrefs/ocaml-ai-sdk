@@ -31,6 +31,7 @@ type web_search_options = {
   max_results : int option;
   search_prompt : string option;
   engine : string option;
+  search_context_size : string option;
 }
 
 type usage_config = { include_ : bool }
@@ -43,6 +44,24 @@ type max_price = {
   request : float option;
 }
 
+type throughput_percentile = {
+  percentile : float;
+  min_provider_count : int option;
+}
+
+type latency_percentile = {
+  percentile : float;
+  max_provider_count : int option;
+}
+
+type throughput_preference =
+  | Throughput_value of float
+  | Throughput_percentile of throughput_percentile
+
+type latency_preference =
+  | Latency_value of float
+  | Latency_percentile of latency_percentile
+
 type provider_prefs = {
   order : string list;
   allow_fallbacks : bool option;
@@ -54,6 +73,9 @@ type provider_prefs = {
   sort : string option;
   max_price : max_price option;
   zdr : bool option;
+  preferred_min_throughput : throughput_preference option;
+  preferred_max_latency : latency_preference option;
+  enforce_distillable_text : bool option;
 }
 
 type plugin =
@@ -67,6 +89,8 @@ and web_search_plugin_config = {
   max_results : int option;
   search_prompt : string option;
   engine : string option;
+  include_domains : string list;
+  exclude_domains : string list;
 }
 
 and file_parser_plugin_config = {
@@ -190,6 +214,11 @@ let web_search_options_to_json (wso : web_search_options) =
     | Some e -> ("engine", `String e) :: fields
     | None -> fields
   in
+  let fields =
+    match wso.search_context_size with
+    | Some s -> ("search_context_size", `String s) :: fields
+    | None -> fields
+  in
   `Assoc (List.rev fields)
 
 let usage_config_to_json (uc : usage_config) = `Assoc [ "include", `Bool uc.include_ ]
@@ -262,6 +291,37 @@ let provider_prefs_to_json (pp : provider_prefs) =
     | Some b -> ("zdr", `Bool b) :: fields
     | None -> fields
   in
+  let fields =
+    match pp.preferred_min_throughput with
+    | Some (Throughput_value v) -> ("preferred_min_throughput", `Float v) :: fields
+    | Some (Throughput_percentile { percentile; min_provider_count }) ->
+      let pf = [ "percentile", `Float percentile ] in
+      let pf =
+        match min_provider_count with
+        | Some n -> pf @ [ "min_provider_count", `Int n ]
+        | None -> pf
+      in
+      ("preferred_min_throughput", `Assoc pf) :: fields
+    | None -> fields
+  in
+  let fields =
+    match pp.preferred_max_latency with
+    | Some (Latency_value v) -> ("preferred_max_latency", `Float v) :: fields
+    | Some (Latency_percentile { percentile; max_provider_count }) ->
+      let pf = [ "percentile", `Float percentile ] in
+      let pf =
+        match max_provider_count with
+        | Some n -> pf @ [ "max_provider_count", `Int n ]
+        | None -> pf
+      in
+      ("preferred_max_latency", `Assoc pf) :: fields
+    | None -> fields
+  in
+  let fields =
+    match pp.enforce_distillable_text with
+    | Some b -> ("enforce_distillable_text", `Bool b) :: fields
+    | None -> fields
+  in
   `Assoc (List.rev fields)
 
 let plugin_to_json = function
@@ -282,6 +342,16 @@ let plugin_to_json = function
       match config.engine with
       | Some e -> fields @ [ "engine", `String e ]
       | None -> fields
+    in
+    let fields =
+      match config.include_domains with
+      | [] -> fields
+      | ds -> fields @ [ "include_domains", `List (List.map (fun s -> `String s) ds) ]
+    in
+    let fields =
+      match config.exclude_domains with
+      | [] -> fields
+      | ds -> fields @ [ "exclude_domains", `List (List.map (fun s -> `String s) ds) ]
     in
     `Assoc fields
   | File_parser None -> `Assoc [ "id", `String "file-parser" ]

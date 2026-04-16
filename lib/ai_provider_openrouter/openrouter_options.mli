@@ -32,6 +32,7 @@ type web_search_options = {
   max_results : int option;
   search_prompt : string option;
   engine : string option;
+  search_context_size : string option;
 }
 
 type usage_config = { include_ : bool }
@@ -44,6 +45,24 @@ type max_price = {
   request : float option;
 }
 
+type throughput_percentile = {
+  percentile : float;
+  min_provider_count : int option;
+}
+
+type latency_percentile = {
+  percentile : float;
+  max_provider_count : int option;
+}
+
+type throughput_preference =
+  | Throughput_value of float
+  | Throughput_percentile of throughput_percentile
+
+type latency_preference =
+  | Latency_value of float
+  | Latency_percentile of latency_percentile
+
 type provider_prefs = {
   order : string list;
   allow_fallbacks : bool option;
@@ -55,6 +74,9 @@ type provider_prefs = {
   sort : string option;
   max_price : max_price option;
   zdr : bool option;
+  preferred_min_throughput : throughput_preference option;
+  preferred_max_latency : latency_preference option;
+  enforce_distillable_text : bool option;
 }
 
 type plugin =
@@ -68,6 +90,8 @@ and web_search_plugin_config = {
   max_results : int option;
   search_prompt : string option;
   engine : string option;
+  include_domains : string list;
+  exclude_domains : string list;
 }
 
 and file_parser_plugin_config = {

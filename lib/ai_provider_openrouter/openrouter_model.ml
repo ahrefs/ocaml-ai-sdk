@@ -22,20 +22,16 @@ let build_tools_and_choice ~strict (opts : Ai_provider.Call_options.t) =
     let tool =
       { Ai_provider.Tool.name = tool_name; description = Some "Structured output tool"; parameters = schema }
     in
-    let tools =
-      List.map Convert_tools.openai_tool_to_json (Convert_tools.convert_tools ~strict [ tool ])
-    in
+    let tools = List.map Convert_tools.openai_tool_to_json (Convert_tools.convert_tools ~strict [ tool ]) in
     let tc = Convert_tools.convert_tool_choice (Specific { tool_name }) in
     Some tools, Some tc
   | Regular | Object_json _ ->
-    (match opts.tools with
-    | [] -> None, None
-    | tools ->
-      let tools_json =
-        List.map Convert_tools.openai_tool_to_json (Convert_tools.convert_tools ~strict tools)
-      in
-      let tc_json = Stdlib.Option.map Convert_tools.convert_tool_choice opts.tool_choice in
-      Some tools_json, tc_json)
+  match opts.tools with
+  | [] -> None, None
+  | tools ->
+    let tools_json = List.map Convert_tools.openai_tool_to_json (Convert_tools.convert_tools ~strict tools) in
+    let tc_json = Stdlib.Option.map Convert_tools.convert_tool_choice opts.tool_choice in
+    Some tools_json, tc_json
 
 (** OpenRouter-specific fields derived from provider options. *)
 type openrouter_fields = {
@@ -77,14 +73,24 @@ let build_openrouter_fields (or_opts : Openrouter_options.t) =
     | [] -> None
     | ps -> Some (Openrouter_options.plugins_to_json ps)
   in
-  let web_search_options =
-    Stdlib.Option.map Openrouter_options.web_search_options_to_json or_opts.web_search_options
-  in
+  let web_search_options = Stdlib.Option.map Openrouter_options.web_search_options_to_json or_opts.web_search_options in
   let provider = Stdlib.Option.map Openrouter_options.provider_prefs_to_json or_opts.provider in
   let debug = Stdlib.Option.map Openrouter_options.debug_config_to_json or_opts.debug in
   let cache_control = Stdlib.Option.map Openrouter_options.cache_control_to_json or_opts.cache_control in
   let usage = Stdlib.Option.map Openrouter_options.usage_config_to_json or_opts.usage in
-  { models; logit_bias; logprobs; top_logprobs; reasoning; plugins; web_search_options; provider; debug; cache_control; usage }
+  {
+    models;
+    logit_bias;
+    logprobs;
+    top_logprobs;
+    reasoning;
+    plugins;
+    web_search_options;
+    provider;
+    debug;
+    cache_control;
+    usage;
+  }
 
 (** Build response_format JSON from the mode. *)
 let build_response_format ~strict_json_schema (mode : Ai_provider.Mode.t) =
@@ -125,15 +131,16 @@ let prepare_request ~config ~model ~stream (opts : Ai_provider.Call_options.t) =
     Openrouter_api.make_request_body ~model ~messages:messages_json ?models:or_fields.models
       ?temperature:opts.temperature ?top_p:opts.top_p ?top_k:opts.top_k ?max_tokens
       ?frequency_penalty:opts.frequency_penalty ?presence_penalty:opts.presence_penalty ?stop ?seed:opts.seed
-      ?response_format ?tools:tools_json ?tool_choice:tool_choice_json
-      ?parallel_tool_calls:or_opts.parallel_tool_calls ?logit_bias:or_fields.logit_bias
-      ?logprobs:or_fields.logprobs ?top_logprobs:or_fields.top_logprobs ?user:or_opts.user
-      ?include_reasoning:or_opts.include_reasoning ?reasoning:or_fields.reasoning ?usage:or_fields.usage
-      ?plugins:or_fields.plugins ?web_search_options:or_fields.web_search_options ?provider:or_fields.provider
-      ?debug:or_fields.debug ?cache_control:or_fields.cache_control ~stream
+      ?response_format ?tools:tools_json ?tool_choice:tool_choice_json ?parallel_tool_calls:or_opts.parallel_tool_calls
+      ?logit_bias:or_fields.logit_bias ?logprobs:or_fields.logprobs ?top_logprobs:or_fields.top_logprobs
+      ?user:or_opts.user ?include_reasoning:or_opts.include_reasoning ?reasoning:or_fields.reasoning
+      ?usage:or_fields.usage ?plugins:or_fields.plugins ?web_search_options:or_fields.web_search_options
+      ?provider:or_fields.provider ?debug:or_fields.debug ?cache_control:or_fields.cache_control ~stream
       ~compatibility:config.Config.compatibility ()
   in
-  body, or_opts.extra_body, warnings
+  (* Merge extra_body: config-level first, then model-level (model takes precedence) *)
+  let extra_body = config.extra_body @ or_opts.extra_body in
+  body, extra_body, warnings
 
 let create ~config ~model =
   let module M = struct
