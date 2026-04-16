@@ -22,12 +22,25 @@ type reasoning_detail_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
+type annotation_json = {
+  type_ : string; [@json.key "type"] [@json.default ""]
+  url : string option; [@json.default None]
+  title : string option; [@json.default None]
+  start_index : int option; [@json.default None]
+  end_index : int option; [@json.default None]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
+
+type image_json = { url : string } [@@json.allow_extra_fields] [@@deriving of_json]
+
 type choice_message_json = {
   role : string option; [@json.default None]
   content : string option; [@json.default None]
   reasoning : string option; [@json.default None]
   reasoning_details : reasoning_detail_json list; [@json.default []]
   tool_calls : tool_call_json list; [@json.default []]
+  annotations : annotation_json list; [@json.default []]
+  images : image_json list; [@json.default []]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -49,6 +62,7 @@ type openrouter_response_json = {
 
 type _ Ai_provider.Provider_options.key +=
   | Openrouter_provider : string Ai_provider.Provider_options.key
+  | Openrouter_reasoning_details : reasoning_detail_json list Ai_provider.Provider_options.key
 
 let map_finish_reason = function
   | Some "stop" -> Ai_provider.Finish_reason.Stop
@@ -71,12 +85,10 @@ let convert_reasoning_detail (d : reasoning_detail_json) =
            { text; signature = d.signature; provider_options = Ai_provider.Provider_options.empty })
     | Some _ | None -> None)
   | "reasoning.encrypted" ->
-    (match d.data with
-    | Some data when String.length data > 0 ->
-      Some
-        (Ai_provider.Content.Reasoning
-           { text = "[REDACTED]"; signature = None; provider_options = Ai_provider.Provider_options.empty })
-    | Some _ | None -> None)
+    (* Encrypted reasoning is an opaque blob for multi-turn roundtripping.
+       It is preserved in response-level providerMetadata and does not
+       produce a visible reasoning content part (matches upstream). *)
+    None
   | "reasoning.summary" ->
     (match d.summary with
     | Some summary when String.length summary > 0 ->
@@ -85,6 +97,34 @@ let convert_reasoning_detail (d : reasoning_detail_json) =
            { text = summary; signature = None; provider_options = Ai_provider.Provider_options.empty })
     | Some _ | None -> None)
   | _ -> None
+
+let convert_annotation ~index (a : annotation_json) =
+  match a.type_ with
+  | "url_citation" ->
+    (match a.url with
+    | Some url ->
+      let id = Printf.sprintf "source-%d" index in
+      Some
+        (Ai_provider.Content.Source
+           { source_type = "url"; id; url; title = a.title; provider_options = Ai_provider.Provider_options.empty })
+    | None -> None)
+  | _ -> None
+
+let convert_image (img : image_json) =
+  let url = img.url in
+  if String.starts_with ~prefix:"data:" url then (
+    match String.index_opt url ',' with
+    | Some comma_pos ->
+      let header = String.sub url 5 (comma_pos - 5) in
+      let media_type =
+        match String.index_opt header ';' with
+        | Some semi -> String.sub header 0 semi
+        | None -> header
+      in
+      let b64_data = String.sub url (comma_pos + 1) (String.length url - comma_pos - 1) in
+      Some (Ai_provider.Content.File { data = Bytes.of_string b64_data; media_type })
+    | None -> None)
+  else Some (Ai_provider.Content.File { data = Bytes.of_string url; media_type = "image/png" })
 
 let has_encrypted_reasoning details =
   List.exists
@@ -111,12 +151,13 @@ let parse_response json =
         match message.reasoning_details with
         | _ :: _ as details -> List.filter_map convert_reasoning_detail details
         | [] ->
-          (match message.reasoning with
-          | Some text when String.length text > 0 ->
-            [ Ai_provider.Content.Reasoning
-                { text; signature = None; provider_options = Ai_provider.Provider_options.empty }
-            ]
-          | Some _ | None -> [])
+        match message.reasoning with
+        | Some text when String.length text > 0 ->
+          [
+            Ai_provider.Content.Reasoning
+              { text; signature = None; provider_options = Ai_provider.Provider_options.empty };
+          ]
+        | Some _ | None -> []
       in
       let text_content =
         match message.content with
@@ -135,7 +176,11 @@ let parse_response json =
               })
           message.tool_calls
       in
-      reasoning_content @ text_content @ tool_content
+      let source_content =
+        message.annotations |> List.mapi (fun i a -> convert_annotation ~index:i a) |> List.filter_map Fun.id
+      in
+      let image_content = List.filter_map convert_image message.images in
+      reasoning_content @ text_content @ tool_content @ source_content @ image_content
   in
   let has_tool_calls =
     match choice with
@@ -167,6 +212,13 @@ let parse_response json =
     match resp.provider with
     | Some p -> Ai_provider.Provider_options.set Openrouter_provider p provider_metadata
     | None -> provider_metadata
+  in
+  (* Preserve raw reasoning_details for multi-turn roundtripping (encrypted reasoning) *)
+  let provider_metadata =
+    match choice with
+    | Some { message = { reasoning_details = _ :: _ as details; _ }; _ } ->
+      Ai_provider.Provider_options.set Openrouter_reasoning_details details provider_metadata
+    | Some _ | None -> provider_metadata
   in
   {
     Ai_provider.Generate_result.content;

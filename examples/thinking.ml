@@ -55,7 +55,8 @@ let () =
         | Reasoning { text; _ } -> Printf.printf "[Thinking]\n%s\n[/Thinking]\n\n" text
         | Text { text } -> Printf.printf "%s\n" text
         | Tool_call _ -> Printf.printf "[Tool call]\n"
-        | File _ -> Printf.printf "[File]\n")
+        | File _ -> Printf.printf "[File]\n"
+        | Source { url; _ } -> Printf.printf "[Source: %s]\n" url)
       result.content;
 
     Printf.printf "\n--- Metadata ---\n";

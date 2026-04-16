@@ -42,7 +42,12 @@ let () =
         | Text { text } -> Printf.printf "%s\n" text
         | Tool_call { tool_name; args; _ } -> Printf.printf "[Tool call: %s(%s)]\n" tool_name args
         | Reasoning { text; _ } -> Printf.printf "[Thinking: %s]\n" text
-        | File _ -> Printf.printf "[File received]\n")
+        | File _ -> Printf.printf "[File received]\n"
+        | Source { url; title; _ } ->
+          Printf.printf "[Source: %s%s]\n" url
+            (match title with
+            | Some t -> " - " ^ t
+            | None -> ""))
       result.content;
 
     (* Print metadata *)

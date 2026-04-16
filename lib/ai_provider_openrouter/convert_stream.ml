@@ -23,6 +23,7 @@ type delta_json = {
   reasoning : string option; [@json.default None]
   reasoning_details : Convert_response.reasoning_detail_json list; [@json.default []]
   tool_calls : delta_tool_call_json list; [@json.default []]
+  annotations : Convert_response.annotation_json list; [@json.default []]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -41,6 +42,7 @@ type chunk_json = {
   provider : string option; [@json.default None]
   choices : choice_json list; [@json.default []]
   usage : Convert_usage.openrouter_usage option; [@json.default None]
+  images : Convert_response.image_json list; [@json.default []]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -62,10 +64,7 @@ let process_error_chunk ~push ~emit_finish fields =
        (Ai_provider.Stream_part.Error
           {
             error =
-              {
-                Ai_provider.Provider_error.provider = "openrouter";
-                kind = Api_error { status = 200; body = msg };
-              };
+              { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status = 200; body = msg } };
           }));
   emit_finish Ai_provider.Finish_reason.Error
 
@@ -77,14 +76,12 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
       (fun (d : Convert_response.reasoning_detail_json) ->
         match d.type_ with
         | "reasoning.text" ->
-          Stdlib.Option.iter
-            (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text })))
-            d.text
+          Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))) d.text
         | "reasoning.encrypted" ->
+          (* Encrypted reasoning is preserved for roundtripping only;
+             it does not produce a visible reasoning delta (matches upstream). *)
           (match d.data with
-          | Some data when String.length data > 0 ->
-            has_encrypted_reasoning := true;
-            push (Some (Ai_provider.Stream_part.Reasoning { text = "[REDACTED]" }))
+          | Some data when String.length data > 0 -> has_encrypted_reasoning := true
           | Some _ | None -> ())
         | "reasoning.summary" ->
           Stdlib.Option.iter
@@ -94,9 +91,7 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
       details
   | [] ->
     (* Fallback to legacy reasoning *)
-    Stdlib.Option.iter
-      (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text })))
-      delta.reasoning
+    Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))) delta.reasoning
 
 (** Process a single tool call delta: register new tool calls and emit argument deltas. *)
 let process_tool_call_delta ~push ~has_tool_calls ~tool_calls (tc : delta_tool_call_json) =
@@ -117,12 +112,7 @@ let process_tool_call_delta ~push ~has_tool_calls ~tool_calls (tc : delta_tool_c
       push
         (Some
            (Ai_provider.Stream_part.Tool_call_delta
-              {
-                tool_call_type = "function";
-                tool_call_id = id;
-                tool_name = name;
-                args_text_delta = args;
-              }))
+              { tool_call_type = "function"; tool_call_id = id; tool_name = name; args_text_delta = args }))
     | None -> ())
   | Some _ | None -> ()
 
@@ -134,6 +124,7 @@ let transform events ~warnings =
   let last_finish_reason = ref None in
   let has_tool_calls = ref false in
   let has_encrypted_reasoning = ref false in
+  let annotation_index = ref 0 in
   let stream, push = Lwt_stream.create () in
   let emit_start () =
     if !is_first then begin
@@ -180,47 +171,60 @@ let transform events ~warnings =
             in
             emit_finish reason
           | false ->
-          (try
-             let json = Yojson.Basic.from_string evt.data in
-             match json with
-             | `Assoc fields when List.mem_assoc "error" fields ->
-               process_error_chunk ~push ~emit_finish fields
-             | _ ->
-               let chunk = chunk_json_of_json json in
-               emit_start ();
-               Stdlib.Option.iter (fun u -> last_usage := Some u) chunk.usage;
-               (match List.nth_opt chunk.choices 0 with
-               | None -> ()
-               | Some choice ->
-                 let delta = choice.delta in
-                 process_reasoning_deltas ~push ~has_encrypted_reasoning delta;
-                 (* Text content *)
-                 Stdlib.Option.iter
-                   (fun text -> push (Some (Ai_provider.Stream_part.Text { text })))
-                   delta.content;
-                 (* Tool calls *)
-                 List.iter
-                   (process_tool_call_delta ~push ~has_tool_calls ~tool_calls)
-                   delta.tool_calls;
-                 (* Finish reason -- store and emit *)
-                 Stdlib.Option.iter
-                   (fun reason ->
-                     let mapped = Convert_response.map_finish_reason (Some reason) in
-                     last_finish_reason := Some mapped;
-                     finish_open_tool_calls ();
-                     emit_finish mapped)
-                   choice.finish_reason)
-           with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
-             push
-               (Some
-                  (Ai_provider.Stream_part.Error
-                     {
-                       error =
-                         {
-                           Ai_provider.Provider_error.provider = "openrouter";
-                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
-                         };
-                     }))))
+          try
+            let json = Yojson.Basic.from_string evt.data in
+            match json with
+            | `Assoc fields when List.mem_assoc "error" fields -> process_error_chunk ~push ~emit_finish fields
+            | _ ->
+              let chunk = chunk_json_of_json json in
+              emit_start ();
+              Stdlib.Option.iter (fun u -> last_usage := Some u) chunk.usage;
+              (* Images at chunk level *)
+              List.iter
+                (fun img ->
+                  match Convert_response.convert_image img with
+                  | Some (Ai_provider.Content.File { data; media_type }) ->
+                    push (Some (Ai_provider.Stream_part.File { data; media_type }))
+                  | Some _ | None -> ())
+                chunk.images;
+              (match List.nth_opt chunk.choices 0 with
+              | None -> ()
+              | Some choice ->
+                let delta = choice.delta in
+                process_reasoning_deltas ~push ~has_encrypted_reasoning delta;
+                (* Text content *)
+                Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Text { text }))) delta.content;
+                (* Tool calls *)
+                List.iter (process_tool_call_delta ~push ~has_tool_calls ~tool_calls) delta.tool_calls;
+                (* Annotations (url_citation -> Source parts) *)
+                List.iter
+                  (fun a ->
+                    let idx = !annotation_index in
+                    incr annotation_index;
+                    match Convert_response.convert_annotation ~index:idx a with
+                    | Some (Ai_provider.Content.Source { source_type; id; url; title; provider_options }) ->
+                      push (Some (Ai_provider.Stream_part.Source { source_type; id; url; title; provider_options }))
+                    | Some _ | None -> ())
+                  delta.annotations;
+                (* Finish reason -- store and emit *)
+                Stdlib.Option.iter
+                  (fun reason ->
+                    let mapped = Convert_response.map_finish_reason (Some reason) in
+                    last_finish_reason := Some mapped;
+                    finish_open_tool_calls ();
+                    emit_finish mapped)
+                  choice.finish_reason)
+          with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
+            push
+              (Some
+                 (Ai_provider.Stream_part.Error
+                    {
+                      error =
+                        {
+                          Ai_provider.Provider_error.provider = "openrouter";
+                          kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
+                        };
+                    })))
         events
     in
     push None;

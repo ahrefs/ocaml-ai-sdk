@@ -15,7 +15,7 @@ let parse_content (content : Ai_provider.Content.t list) =
       | Tool_call { tool_call_id; tool_name; args; _ } ->
         let args_json = Core_tool.safe_parse_json_args args in
         tool_calls := { Generate_text_result.tool_call_id; tool_name; args = args_json } :: !tool_calls
-      | File _ -> ())
+      | File _ | Source _ -> ())
     content;
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 

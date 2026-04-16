@@ -15,3 +15,10 @@ type t =
       data : bytes;
       media_type : string;
     }
+  | Source of {
+      source_type : string;
+      id : string;
+      url : string;
+      title : string option;
+      provider_options : Provider_options.t;
+    }

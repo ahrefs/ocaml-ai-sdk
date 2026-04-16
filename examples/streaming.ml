@@ -46,6 +46,7 @@ let () =
               flush stdout
             | Tool_call_finish _ -> print_newline ()
             | File _ -> Printf.printf "[file]\n"
+            | Source { url; _ } -> Printf.printf "[source: %s]\n" url
             | Finish { finish_reason; usage } ->
               Printf.printf "\n\n--- Done ---\n";
               Printf.printf "Finish: %s\n" (Ai_provider.Finish_reason.to_string finish_reason);
