@@ -1,9 +1,7 @@
 open Alcotest
 
 let test_basic_usage () =
-  let json =
-    Yojson.Basic.from_string {|{"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}|}
-  in
+  let json = Yojson.Basic.from_string {|{"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}|} in
   let usage = Ai_provider_openrouter.Convert_usage.openrouter_usage_of_json json in
   let sdk_usage = Ai_provider_openrouter.Convert_usage.to_usage usage in
   (check int) "input_tokens" 100 sdk_usage.input_tokens;
@@ -31,9 +29,7 @@ let test_usage_with_nested_details () =
   (check (option (float 0.))) "upstream_inference_cost" (Some 0.004) metadata.upstream_inference_cost
 
 let test_usage_missing_details () =
-  let json =
-    Yojson.Basic.from_string {|{"prompt_tokens": 10, "completion_tokens": 5}|}
-  in
+  let json = Yojson.Basic.from_string {|{"prompt_tokens": 10, "completion_tokens": 5}|} in
   let usage = Ai_provider_openrouter.Convert_usage.openrouter_usage_of_json json in
   let metadata = Ai_provider_openrouter.Convert_usage.to_metadata usage in
   (check int) "cache_read_tokens defaults" 0 metadata.cache_read_tokens;
@@ -42,9 +38,7 @@ let test_usage_missing_details () =
   (check (option (float 0.))) "upstream_inference_cost" None metadata.upstream_inference_cost
 
 let test_usage_total_tokens_computed () =
-  let json =
-    Yojson.Basic.from_string {|{"prompt_tokens": 10, "completion_tokens": 5}|}
-  in
+  let json = Yojson.Basic.from_string {|{"prompt_tokens": 10, "completion_tokens": 5}|} in
   let usage = Ai_provider_openrouter.Convert_usage.openrouter_usage_of_json json in
   let sdk_usage = Ai_provider_openrouter.Convert_usage.to_usage usage in
   (check (option int)) "total_tokens computed" (Some 15) sdk_usage.total_tokens

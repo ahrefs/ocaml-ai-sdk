@@ -1,12 +1,10 @@
 open Alcotest
 
 let test_convert_single_tool () =
-  let tool =
-    { Ai_provider.Tool.name = "get_weather"; description = Some "Get weather"; parameters = `Assoc [] }
-  in
+  let tool = { Ai_provider.Tool.name = "get_weather"; description = Some "Get weather"; parameters = `Assoc [] } in
   let converted = Ai_provider_openrouter.Convert_tools.convert_tools ~strict:true [ tool ] in
   (check int) "one tool" 1 (List.length converted);
-  (match converted with
+  match converted with
   | [ t ] ->
     let json = Ai_provider_openrouter.Convert_tools.openai_tool_to_json t in
     (match json with
@@ -21,7 +19,7 @@ let test_convert_single_tool () =
         | _ -> fail "expected function name")
       | _ -> fail "expected function field")
     | _ -> fail "expected JSON object")
-  | _ -> fail "expected exactly one tool")
+  | _ -> fail "expected exactly one tool"
 
 let test_convert_tool_choice_auto () =
   let json = Ai_provider_openrouter.Convert_tools.convert_tool_choice Auto in

@@ -42,8 +42,8 @@ let non_empty = function
 
 let make_request_body ~model ~messages ?models ?temperature ?top_p ?top_k ?max_tokens ?frequency_penalty
   ?presence_penalty ?stop ?seed ?response_format ?tools ?tool_choice ?parallel_tool_calls ?logit_bias ?logprobs
-  ?top_logprobs ?user ?include_reasoning ?reasoning ?usage ?plugins ?web_search_options ?provider ?debug
-  ?cache_control ~stream ~compatibility () =
+  ?top_logprobs ?user ?include_reasoning ?reasoning ?usage ?plugins ?web_search_options ?provider ?debug ?cache_control
+  ~stream ~compatibility () =
   let stop = non_empty stop in
   let tools = non_empty tools in
   let plugins = non_empty plugins in
@@ -56,10 +56,10 @@ let make_request_body ~model ~messages ?models ?temperature ?top_p ?top_k ?max_t
   let stream_val, stream_options =
     match stream with
     | true ->
-      Some true,
-      (match compatibility with
-      | Config.Strict -> Some { include_usage = true }
-      | Config.Compatible -> None)
+      ( Some true,
+        (match compatibility with
+        | Config.Strict -> Some { include_usage = true }
+        | Config.Compatible -> None) )
     | false -> None, None
   in
   {
@@ -98,9 +98,9 @@ let merge_extra_body body_json (extra_body : (string * Yojson.Basic.t) list) =
   match extra_body with
   | [] -> body_json
   | _ ->
-    (match body_json with
-    | `Assoc fields -> `Assoc (fields @ extra_body)
-    | other -> other)
+  match body_json with
+  | `Assoc fields -> `Assoc (fields @ extra_body)
+  | other -> other
 
 let make_headers ~(config : Config.t) ~extra_headers =
   let optional_headers =
@@ -112,13 +112,11 @@ let make_headers ~(config : Config.t) ~extra_headers =
         (match config.api_keys with
         | [] -> None
         | keys ->
-          let json =
-            Yojson.Basic.to_string (`Assoc (List.map (fun (k, v) -> k, `String v) keys))
-          in
+          let json = Yojson.Basic.to_string (`Assoc (List.map (fun (k, v) -> k, `String v) keys)) in
           Some ("X-Provider-API-Keys", json));
       ]
   in
-  ("content-type", "application/json") :: optional_headers @ config.default_headers @ extra_headers
+  (("content-type", "application/json") :: optional_headers) @ config.default_headers @ extra_headers
 
 let body_to_line_stream body =
   let raw_stream = Cohttp_lwt.Body.to_stream body in
@@ -162,9 +160,7 @@ let check_200_error json =
         | Some (`Int n) -> n
         | _ -> 200
       in
-      let err =
-        { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status; body = message } }
-      in
+      let err = { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status; body = message } } in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
     | _ -> Lwt.return json)
   | _ -> Lwt.return json

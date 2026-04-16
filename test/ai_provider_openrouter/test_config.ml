@@ -20,8 +20,7 @@ let test_api_key_exn_missing () =
   let config = { config with api_key = None } in
   (match Ai_provider_openrouter.Config.api_key_exn config with
   | _ -> fail "expected failure"
-  | exception Failure msg ->
-    (check bool) "mentions OPENROUTER_API_KEY" true (String.length msg > 0));
+  | exception Failure msg -> (check bool) "mentions OPENROUTER_API_KEY" true (String.length msg > 0));
   Stdlib.Option.iter (fun v -> Unix.putenv "OPENROUTER_API_KEY" v) saved
 
 let test_app_title () =

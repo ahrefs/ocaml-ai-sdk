@@ -94,11 +94,11 @@ let test_e2e_with_provider_options () =
   let metadata =
     Ai_provider.Provider_options.find Ai_provider_openrouter.Convert_usage.Openrouter_usage result.provider_metadata
   in
-  (match metadata with
+  match metadata with
   | Some m ->
     (check int) "cache_read_tokens" 5 m.cache_read_tokens;
     (check int) "reasoning_tokens" 1 m.reasoning_tokens
-  | None -> fail "expected openrouter usage metadata")
+  | None -> fail "expected openrouter usage metadata"
 
 let () =
   run "E2E"

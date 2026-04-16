@@ -13,7 +13,7 @@ let test_convert_system_message () =
   let msgs, warnings = messages in
   (check int) "one message" 1 (List.length msgs);
   (check int) "no warnings" 0 (List.length warnings);
-  (match msgs with
+  match msgs with
   | [ msg ] ->
     let json = Ai_provider_openrouter.Convert_prompt.openai_message_to_json msg in
     (match json_field "role" json with
@@ -22,7 +22,7 @@ let test_convert_system_message () =
     (match json_field "content" json with
     | Some (`String content) -> (check string) "content" "You are helpful" content
     | _ -> fail "expected content field")
-  | _ -> fail "expected exactly one message")
+  | _ -> fail "expected exactly one message"
 
 let test_convert_user_message () =
   let messages =
@@ -31,13 +31,13 @@ let test_convert_user_message () =
   in
   let msgs, _ = messages in
   (check int) "one message" 1 (List.length msgs);
-  (match msgs with
+  match msgs with
   | [ msg ] ->
     let json = Ai_provider_openrouter.Convert_prompt.openai_message_to_json msg in
     (match json_field "role" json with
     | Some (`String role) -> (check string) "role" "user" role
     | _ -> fail "expected role field")
-  | _ -> fail "expected exactly one message")
+  | _ -> fail "expected exactly one message"
 
 let () =
   run "Convert_prompt"

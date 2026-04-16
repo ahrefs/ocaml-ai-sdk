@@ -35,9 +35,9 @@ let test_generate_text () =
   in
   let result = Lwt_main.run (M.generate opts) in
   (check int) "content" 1 (List.length result.content);
-  (match result.content with
+  match result.content with
   | Text { text } :: _ -> (check string) "text" "Hello!" text
-  | _ -> fail "expected Text")
+  | _ -> fail "expected Text"
 
 let test_provider_and_model_id () =
   let config = make_mock_config basic_response in
@@ -60,11 +60,7 @@ let test_generate_with_reasoning () =
                   "index", `Int 0;
                   ( "message",
                     `Assoc
-                      [
-                        "role", `String "assistant";
-                        "content", `String "42";
-                        "reasoning", `String "Let me think...";
-                      ] );
+                      [ "role", `String "assistant"; "content", `String "42"; "reasoning", `String "Let me think..." ] );
                   "finish_reason", `String "stop";
                 ];
             ] );
@@ -76,14 +72,15 @@ let test_generate_with_reasoning () =
   let module M = (val model : Ai_provider.Language_model.S) in
   let opts =
     Ai_provider.Call_options.default
-      ~prompt:[ User { content = [ Text { text = "What is 6*7?"; provider_options = Ai_provider.Provider_options.empty } ] } ]
+      ~prompt:
+        [ User { content = [ Text { text = "What is 6*7?"; provider_options = Ai_provider.Provider_options.empty } ] } ]
   in
   let result = Lwt_main.run (M.generate opts) in
-  (match result.content with
+  match result.content with
   | [ Reasoning { text = r; _ }; Text { text = t } ] ->
     (check string) "reasoning" "Let me think..." r;
     (check string) "text" "42" t
-  | _ -> fail "expected [Reasoning; Text] content")
+  | _ -> fail "expected [Reasoning; Text] content"
 
 let test_openrouter_options_in_request () =
   let check_body body =
@@ -111,8 +108,7 @@ let test_openrouter_options_in_request () =
   let opts =
     {
       (Ai_provider.Call_options.default
-         ~prompt:
-           [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
       with
       provider_options = Ai_provider_openrouter.Openrouter_options.to_provider_options or_opts;
     }
@@ -165,12 +161,12 @@ let test_generate_tool_call () =
     }
   in
   let result = Lwt_main.run (M.generate opts) in
-  (match result.content with
+  match result.content with
   | Tool_call { tool_name; tool_call_id; args; _ } :: _ ->
     (check string) "tool_name" "get_weather" tool_name;
     (check string) "tool_call_id" "call_1" tool_call_id;
     (check string) "args" {|{"city":"NYC"}|} args
-  | _ -> fail "expected Tool_call")
+  | _ -> fail "expected Tool_call"
 
 let test_extra_body_merging () =
   let check_body body =
@@ -197,8 +193,7 @@ let test_extra_body_merging () =
   let opts =
     {
       (Ai_provider.Call_options.default
-         ~prompt:
-           [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
       with
       provider_options = Ai_provider_openrouter.Openrouter_options.to_provider_options or_opts;
     }
@@ -213,8 +208,9 @@ let test_headers () =
     Lwt.return basic_response
   in
   let config =
-    Ai_provider_openrouter.Config.create ~api_key:"sk-or-test" ~app_title:"Test App"
-      ~app_url:"https://test.com" ~api_keys:[ "anthropic", "sk-ant-123" ] ~fetch ()
+    Ai_provider_openrouter.Config.create ~api_key:"sk-or-test" ~app_title:"Test App" ~app_url:"https://test.com"
+      ~api_keys:[ "anthropic", "sk-ant-123" ]
+      ~fetch ()
   in
   let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
   let module M = (val model : Ai_provider.Language_model.S) in
@@ -232,22 +228,16 @@ let test_headers () =
   | Some url -> (check string) "referer header" "https://test.com" url
   | None -> fail "expected HTTP-Referer header");
   (* Check X-Provider-API-Keys header *)
-  (match List.assoc_opt "X-Provider-API-Keys" !captured_headers with
+  match List.assoc_opt "X-Provider-API-Keys" !captured_headers with
   | Some keys_json ->
     let json = Yojson.Basic.from_string keys_json in
     (match json with
     | `Assoc [ ("anthropic", `String key) ] -> (check string) "api key" "sk-ant-123" key
     | _ -> fail "unexpected api keys JSON")
-  | None -> fail "expected X-Provider-API-Keys header")
+  | None -> fail "expected X-Provider-API-Keys header"
 
 let test_http_200_error () =
-  let error_response =
-    `Assoc
-      [
-        ( "error",
-          `Assoc [ "message", `String "Model not found"; "code", `Int 404 ] );
-      ]
-  in
+  let error_response = `Assoc [ "error", `Assoc [ "message", `String "Model not found"; "code", `Int 404 ] ] in
   let config = make_mock_config error_response in
   let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"invalid/model" in
   let module M = (val model : Ai_provider.Language_model.S) in

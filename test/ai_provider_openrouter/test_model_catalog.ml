@@ -16,19 +16,15 @@ let system_message_mode_testable =
   testable pp equal
 
 let test_thinking_suffix_developer () =
-  (check system_message_mode_testable) "claude thinking"
-    Developer
+  (check system_message_mode_testable) "claude thinking" Developer
     (Ai_provider_openrouter.Model_catalog.infer_system_message_mode "anthropic/claude-3.7-sonnet:thinking");
-  (check system_message_mode_testable) "deepseek thinking"
-    Developer
+  (check system_message_mode_testable) "deepseek thinking" Developer
     (Ai_provider_openrouter.Model_catalog.infer_system_message_mode "deepseek/deepseek-r1:thinking")
 
 let test_standard_models_system () =
-  (check system_message_mode_testable) "gpt-4o"
-    System
+  (check system_message_mode_testable) "gpt-4o" System
     (Ai_provider_openrouter.Model_catalog.infer_system_message_mode "openai/gpt-4o");
-  (check system_message_mode_testable) "claude without thinking"
-    System
+  (check system_message_mode_testable) "claude without thinking" System
     (Ai_provider_openrouter.Model_catalog.infer_system_message_mode "anthropic/claude-3.5-sonnet")
 
 let () =

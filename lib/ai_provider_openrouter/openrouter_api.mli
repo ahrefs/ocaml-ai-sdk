@@ -40,8 +40,7 @@ val make_request_body :
   request_body
 
 (** Merge extra_body key-value pairs into the serialized request JSON. *)
-val merge_extra_body :
-  Yojson.Basic.t -> (string * Yojson.Basic.t) list -> Yojson.Basic.t
+val merge_extra_body : Yojson.Basic.t -> (string * Yojson.Basic.t) list -> Yojson.Basic.t
 
 (** Send a request to the Chat Completions API.
     Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines).
