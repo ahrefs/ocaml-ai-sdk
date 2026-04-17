@@ -1,6 +1,6 @@
 (library
  (name ai_provider)
  (public_name ocaml-ai-sdk.ai_provider)
- (libraries lwt yojson melange-json-native)
+ (libraries lwt lwt.unix cohttp-lwt-unix yojson melange-json-native)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))

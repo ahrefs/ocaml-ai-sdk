@@ -17,3 +17,4 @@ module Provider = Provider
 module Middleware = Middleware
 module Sse = Sse
 module Http_timeouts = Http_timeouts
+module Http_client = Http_client
