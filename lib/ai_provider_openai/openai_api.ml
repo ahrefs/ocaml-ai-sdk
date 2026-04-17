@@ -96,33 +96,6 @@ let make_headers ~(config : Config.t) ~extra_headers =
   in
   base_headers @ auth_headers @ org_headers @ project_headers @ config.default_headers @ extra_headers
 
-let body_to_line_stream body =
-  let raw_stream = Cohttp_lwt.Body.to_stream body in
-  let buf = Buffer.create 256 in
-  let line_stream, push = Lwt_stream.create () in
-  Lwt.async (fun () ->
-    let%lwt () =
-      Lwt_stream.iter
-        (fun chunk ->
-          let len = String.length chunk in
-          let i = ref 0 in
-          while !i < len do
-            let c = String.get chunk !i in
-            (match c with
-            | '\n' ->
-              push (Some (Buffer.contents buf));
-              Buffer.clear buf
-            | '\r' -> ()
-            | c -> Buffer.add_char buf c);
-            incr i
-          done)
-        raw_stream
-    in
-    if Buffer.length buf > 0 then push (Some (Buffer.contents buf));
-    push None;
-    Lwt.return_unit);
-  line_stream
-
 let chat_completions ~config ~body ~extra_headers ~stream =
   let body_json = request_body_to_json body in
   match config.Config.fetch with
@@ -138,14 +111,25 @@ let chat_completions ~config ~body ~extra_headers ~stream =
     let cohttp_headers = Cohttp.Header.of_list headers in
     let body_str = Yojson.Basic.to_string body_json in
     let cohttp_body = Cohttp_lwt.Body.of_string body_str in
-    let%lwt resp, resp_body = Cohttp_lwt_unix.Client.post ~headers:cohttp_headers ~body:cohttp_body uri in
+    let%lwt resp, resp_body =
+      Ai_provider.Http_client.post
+        ~timeouts:config.timeouts
+        ~provider:"openai"
+        ~headers:cohttp_headers
+        ~body:cohttp_body
+        uri
+    in
     let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
     (match status >= 400, stream with
     | true, _ ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let err = Openai_error.of_response ~status ~body:body_str in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
-    | false, true -> Lwt.return (`Stream (body_to_line_stream resp_body))
+    | false, true ->
+      Lwt.return
+        (`Stream
+          (Ai_provider.Http_client.wrap_body_with_idle_timeout
+             ~timeouts:config.timeouts ~provider:"openai" resp_body))
     | false, false ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let json = Yojson.Basic.from_string body_str in
