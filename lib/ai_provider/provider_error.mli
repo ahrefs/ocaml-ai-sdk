@@ -1,9 +1,8 @@
 (** Errors from provider API calls. *)
 
 type timeout_phase =
-  [ `Request_headers  (** Waiting for response headers. *)
-  | `Stream_idle      (** Silence between streaming body chunks. *)
-  ]
+  | Request_headers  (** Waiting for response headers. *)
+  | Stream_idle  (** Silence between streaming body chunks. *)
 
 type error_kind =
   | Api_error of {
@@ -43,8 +42,8 @@ val make_timeout :
   limit_s:float ->
   t
 (** Construct a timeout error. [is_retryable] is derived from [phase]:
-    [`Request_headers] is not retryable (server may already be processing
-    the request; retry risks double-billing); [`Stream_idle] is retryable
+    [Request_headers] is not retryable (server may already be processing
+    the request; retry risks double-billing); [Stream_idle] is retryable
     (stream is dead, safe to start over). *)
 
 val to_string : t -> string

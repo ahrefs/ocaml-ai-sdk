@@ -1,7 +1,6 @@
 type timeout_phase =
-  [ `Request_headers
-  | `Stream_idle
-  ]
+  | Request_headers
+  | Stream_idle
 
 type error_kind =
   | Api_error of {
@@ -28,8 +27,8 @@ type t = {
 exception Provider_error of t
 
 let phase_to_string = function
-  | `Request_headers -> "response headers"
-  | `Stream_idle -> "stream idle"
+  | Request_headers -> "response headers"
+  | Stream_idle -> "streaming body chunk"
 
 let to_string { provider; kind; _ } =
   match kind with
@@ -47,9 +46,10 @@ let make_api_error ~provider ~status ~body ?is_retryable () =
   let is_retryable = Option.value is_retryable ~default:(is_retryable_status status) in
   { provider; kind = Api_error { status; body }; is_retryable }
 
-let timeout_is_retryable = function
-  | `Request_headers -> false
-  | `Stream_idle -> true
+let timeout_is_retryable (phase : timeout_phase) =
+  match phase with
+  | Request_headers -> false
+  | Stream_idle -> true
 
 let make_timeout ~provider ~phase ~elapsed_s ~limit_s =
   {
