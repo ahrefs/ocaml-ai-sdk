@@ -29,15 +29,17 @@ let messages_of_string_messages ?system ~messages () =
 
 let append_assistant_and_tool_results ~messages ~assistant_content ~tool_results =
   let assistant_parts =
-    List.map
+    List.filter_map
       (fun (c : Ai_provider.Content.t) ->
         match c with
-        | Text { text } -> Ai_provider.Prompt.Text { text; provider_options = po }
+        | Text { text } -> Some (Ai_provider.Prompt.Text { text; provider_options = po })
         | Tool_call { tool_call_id; tool_name; args; _ } ->
-          Ai_provider.Prompt.Tool_call
-            { id = tool_call_id; name = tool_name; args = Yojson.Basic.from_string args; provider_options = po }
-        | Reasoning { text; _ } -> Ai_provider.Prompt.Reasoning { text; provider_options = po }
-        | File _ -> Ai_provider.Prompt.Text { text = "[file]"; provider_options = po })
+          Some
+            (Ai_provider.Prompt.Tool_call
+               { id = tool_call_id; name = tool_name; args = Yojson.Basic.from_string args; provider_options = po })
+        | Reasoning { text; _ } -> Some (Ai_provider.Prompt.Reasoning { text; provider_options = po })
+        | File _ -> Some (Ai_provider.Prompt.Text { text = "[file]"; provider_options = po })
+        | Source _ -> None)
       assistant_content
   in
   let tool_result_parts =

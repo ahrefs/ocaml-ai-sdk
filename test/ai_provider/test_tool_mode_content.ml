@@ -62,7 +62,8 @@ let test_content_tool_call () =
   | Ai_provider.Content.Tool_call { tool_call_id; tool_name; _ } ->
     (check string) "id" "tc_1" tool_call_id;
     (check string) "name" "search" tool_name
-  | Ai_provider.Content.Text _ | Ai_provider.Content.Reasoning _ | Ai_provider.Content.File _ ->
+  | Ai_provider.Content.Text _ | Ai_provider.Content.Reasoning _ | Ai_provider.Content.File _
+  | Ai_provider.Content.Source _ ->
     fail "expected Tool_call"
 
 let test_content_reasoning () =
@@ -74,7 +75,8 @@ let test_content_reasoning () =
   | Ai_provider.Content.Reasoning { text; signature; _ } ->
     (check string) "text" "Let me think..." text;
     (check (option string)) "sig" (Some "sig123") signature
-  | Ai_provider.Content.Text _ | Ai_provider.Content.Tool_call _ | Ai_provider.Content.File _ ->
+  | Ai_provider.Content.Text _ | Ai_provider.Content.Tool_call _ | Ai_provider.Content.File _
+  | Ai_provider.Content.Source _ ->
     fail "expected Reasoning"
 
 let () =

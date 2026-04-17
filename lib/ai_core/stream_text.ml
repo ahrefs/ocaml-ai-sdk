@@ -70,7 +70,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
           Buffer.add_string text_buf text;
           on_text_accumulated (Buffer.contents text_buf);
           emit (Text_stream_part.Text_delta { id; text })
-        | Reasoning { text } ->
+        | Reasoning { text; _ } ->
           let id =
             match !current_reasoning_id with
             | Some id -> id
@@ -111,7 +111,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
           finish_reason := fr;
           usage := u
         | Error { error } -> emit (Text_stream_part.Error { error = Ai_provider.Provider_error.to_string error })
-        | File _ | Provider_metadata _ -> ())
+        | File _ | Source _ | Provider_metadata _ -> ())
       provider_stream
   in
   Lwt.return

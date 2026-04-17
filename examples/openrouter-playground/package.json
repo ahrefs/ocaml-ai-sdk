@@ -1,0 +1,18 @@
+{
+  "name": "openrouter-playground",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "dune build @openrouter_playground && node build.js",
+    "server": "dune exec examples/openrouter-playground/server/main.exe"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^3.0.118",
+    "ai": "^6.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

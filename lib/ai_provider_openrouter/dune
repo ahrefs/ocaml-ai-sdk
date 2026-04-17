@@ -1,0 +1,15 @@
+(library
+ (name ai_provider_openrouter)
+ (public_name ocaml-ai-sdk.ai_provider_openrouter)
+ (libraries
+  ai_provider
+  ai_provider_openai
+  lwt
+  lwt.unix
+  cohttp-lwt-unix
+  yojson
+  melange-json-native
+  devkit
+  base64)
+ (preprocess
+  (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))

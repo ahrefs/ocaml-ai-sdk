@@ -1,0 +1,15 @@
+(melange.emit
+ (target output)
+ (alias openrouter_playground)
+ (libraries ai_sdk_react reason-react)
+ (preprocess
+  (pps melange.ppx reason-react-ppx))
+ (module_systems es6))
+
+(rule
+ (alias bundle)
+ (deps
+  (alias openrouter_playground))
+ (action
+  (bash
+   "cd \"$(git rev-parse --show-toplevel)/examples/openrouter-playground\" && node build.js")))

@@ -64,7 +64,8 @@ let () =
             Printf.printf "  2. Send the result back as a Tool message\n";
             Printf.printf "  3. Call generate again to get the final response\n"
           | Reasoning { text; _ } -> Printf.printf "[Thinking: %s]\n" text
-          | File _ -> Printf.printf "[File]\n")
+          | File _ -> Printf.printf "[File]\n"
+          | Source { url; _ } -> Printf.printf "[Source: %s]\n" url)
         result.content;
 
       Printf.printf "\nFinish reason: %s\n" (Ai_provider.Finish_reason.to_string result.finish_reason);
