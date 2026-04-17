@@ -208,7 +208,7 @@ let make_thinking_stream_model () =
     let stream _opts =
       let stream, push = Lwt_stream.create () in
       push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Reasoning { text = "Let me count the r's..." }));
+      push (Some (Ai_provider.Stream_part.Reasoning { text = "Let me count the r's..."; signature = None }));
       push (Some (Ai_provider.Stream_part.Text { text = "There are 3 r's in strawberry." }));
       push
         (Some

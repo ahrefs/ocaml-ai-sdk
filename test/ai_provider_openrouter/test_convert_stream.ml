@@ -99,7 +99,7 @@ let test_reasoning_details_stream () =
     Lwt_stream.of_list
       [
         make_sse_event
-          {|{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Thinking..."}]},"finish_reason":null}]}|};
+          {|{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","text":"Thinking...","signature":"sig_abc"}]},"finish_reason":null}]}|};
         make_sse_event
           {|{"choices":[{"index":0,"delta":{"content":"Answer."},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20}}|};
       ]
@@ -107,8 +107,9 @@ let test_reasoning_details_stream () =
   let stream = Ai_provider_openrouter.Convert_stream.transform events ~warnings:[] in
   let parts = collect_stream stream in
   match parts with
-  | [ Stream_start _; Reasoning { text = r }; Text { text = t }; Finish _ ] ->
+  | [ Stream_start _; Reasoning { text = r; signature }; Text { text = t }; Finish _ ] ->
     (check string) "reasoning" "Thinking..." r;
+    (check (option string)) "signature" (Some "sig_abc") signature;
     (check string) "text" "Answer." t
   | _ -> fail "expected [Stream_start; Reasoning; Text; Finish]"
 

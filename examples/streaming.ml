@@ -38,7 +38,7 @@ let () =
             | Text { text } ->
               print_string text;
               flush stdout
-            | Reasoning { text } ->
+            | Reasoning { text; _ } ->
               Printf.printf "[thinking: %s]" text;
               flush stdout
             | Tool_call_delta { args_text_delta; _ } ->

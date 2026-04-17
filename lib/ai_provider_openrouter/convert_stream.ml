@@ -76,7 +76,10 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
       (fun (d : Convert_response.reasoning_detail_json) ->
         match d.type_ with
         | "reasoning.text" ->
-          Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))) d.text
+          Stdlib.Option.iter
+            (fun text ->
+              push (Some (Ai_provider.Stream_part.Reasoning { text; signature = d.signature })))
+            d.text
         | "reasoning.encrypted" ->
           (* Encrypted reasoning is preserved for roundtripping only;
              it does not produce a visible reasoning delta (matches upstream). *)
@@ -85,13 +88,16 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
           | Some _ | None -> ())
         | "reasoning.summary" ->
           Stdlib.Option.iter
-            (fun summary -> push (Some (Ai_provider.Stream_part.Reasoning { text = summary })))
+            (fun summary ->
+              push (Some (Ai_provider.Stream_part.Reasoning { text = summary; signature = None })))
             d.summary
         | _ -> ())
       details
   | [] ->
     (* Fallback to legacy reasoning *)
-    Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))) delta.reasoning
+    Stdlib.Option.iter
+      (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text; signature = None })))
+      delta.reasoning
 
 (** Process a single tool call delta: register new tool calls and emit argument deltas. *)
 let process_tool_call_delta ~push ~has_tool_calls ~tool_calls (tc : delta_tool_call_json) =

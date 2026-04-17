@@ -155,6 +155,8 @@ let of_provider_options opts = Ai_provider.Provider_options.find Openrouter opts
 
 (* --- JSON serialization --- *)
 
+let json_strings ss = `List (List.map (fun s -> `String s) ss)
+
 let reasoning_effort_to_string = function
   | Xhigh -> "xhigh"
   | High -> "high"
@@ -244,7 +246,7 @@ let provider_prefs_to_json (pp : provider_prefs) =
   let fields =
     match pp.order with
     | [] -> fields
-    | order -> ("order", `List (List.map (fun s -> `String s) order)) :: fields
+    | order -> ("order", json_strings order) :: fields
   in
   let fields =
     match pp.allow_fallbacks with
@@ -264,17 +266,17 @@ let provider_prefs_to_json (pp : provider_prefs) =
   let fields =
     match pp.only with
     | [] -> fields
-    | only -> ("only", `List (List.map (fun s -> `String s) only)) :: fields
+    | only -> ("only", json_strings only) :: fields
   in
   let fields =
     match pp.ignore_ with
     | [] -> fields
-    | ignore_ -> ("ignore", `List (List.map (fun s -> `String s) ignore_)) :: fields
+    | ignore_ -> ("ignore", json_strings ignore_) :: fields
   in
   let fields =
     match pp.quantizations with
     | [] -> fields
-    | qs -> ("quantizations", `List (List.map (fun s -> `String s) qs)) :: fields
+    | qs -> ("quantizations", json_strings qs) :: fields
   in
   let fields =
     match pp.sort with
@@ -346,12 +348,12 @@ let plugin_to_json = function
     let fields =
       match config.include_domains with
       | [] -> fields
-      | ds -> fields @ [ "include_domains", `List (List.map (fun s -> `String s) ds) ]
+      | ds -> fields @ [ "include_domains", json_strings ds ]
     in
     let fields =
       match config.exclude_domains with
       | [] -> fields
-      | ds -> fields @ [ "exclude_domains", `List (List.map (fun s -> `String s) ds) ]
+      | ds -> fields @ [ "exclude_domains", json_strings ds ]
     in
     `Assoc fields
   | File_parser None -> `Assoc [ "id", `String "file-parser" ]
@@ -374,7 +376,7 @@ let plugin_to_json = function
     let fields =
       match config.allowed_models with
       | [] -> fields
-      | models -> fields @ [ "allowed_models", `List (List.map (fun s -> `String s) models) ]
+      | models -> fields @ [ "allowed_models", json_strings models ]
     in
     `Assoc fields
   | Moderation -> `Assoc [ "id", `String "moderation" ]

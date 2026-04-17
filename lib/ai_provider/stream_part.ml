@@ -1,7 +1,10 @@
 type t =
   | Stream_start of { warnings : Warning.t list }
   | Text of { text : string }
-  | Reasoning of { text : string }
+  | Reasoning of {
+      text : string;
+      signature : string option;
+    }
   | Tool_call_delta of {
       tool_call_type : string;
       tool_call_id : string;

@@ -108,7 +108,7 @@ let transform events ~warnings =
                 | None -> ())
               | "thinking_delta" ->
                 (match delta.thinking with
-                | Some text -> push (Some (Ai_provider.Stream_part.Reasoning { text }))
+                | Some text -> push (Some (Ai_provider.Stream_part.Reasoning { text; signature = None }))
                 | None -> ())
               | _ -> ())
             | "content_block_stop" ->

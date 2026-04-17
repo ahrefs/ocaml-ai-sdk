@@ -35,7 +35,7 @@ let make_reasoning_stream_model () =
     let stream _opts =
       let stream, push = Lwt_stream.create () in
       push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Reasoning { text = "thinking..." }));
+      push (Some (Ai_provider.Stream_part.Reasoning { text = "thinking..."; signature = None }));
       push (Some (Ai_provider.Stream_part.Text { text = "Answer" }));
       push
         (Some

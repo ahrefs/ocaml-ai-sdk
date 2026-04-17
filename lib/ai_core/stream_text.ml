@@ -70,7 +70,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
           Buffer.add_string text_buf text;
           on_text_accumulated (Buffer.contents text_buf);
           emit (Text_stream_part.Text_delta { id; text })
-        | Reasoning { text } ->
+        | Reasoning { text; _ } ->
           let id =
             match !current_reasoning_id with
             | Some id -> id
