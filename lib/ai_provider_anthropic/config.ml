@@ -5,9 +5,11 @@ type t = {
   base_url : string;
   default_headers : (string * string) list;
   fetch : fetch_fn option;
+  timeouts : Ai_provider.Http_timeouts.t;
 }
 
-let create ?api_key ?base_url ?(headers = []) ?fetch () =
+let create ?api_key ?base_url ?(headers = []) ?fetch
+  ?(timeouts = Ai_provider.Http_timeouts.default) () =
   let api_key =
     match api_key with
     | Some _ -> api_key
@@ -18,7 +20,7 @@ let create ?api_key ?base_url ?(headers = []) ?fetch () =
     | Some url -> url
     | None -> "https://api.anthropic.com/v1"
   in
-  { api_key; base_url; default_headers = headers; fetch }
+  { api_key; base_url; default_headers = headers; fetch; timeouts }
 
 let api_key_exn t =
   match t.api_key with
