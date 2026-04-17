@@ -51,4 +51,4 @@ let of_response ~status ~body =
       | _ -> body
     with Yojson.Json_error _ -> body
   in
-  { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status; body = message } }
+  Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body:message ()

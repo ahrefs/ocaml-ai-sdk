@@ -160,7 +160,7 @@ let check_200_error json =
         | Some (`Int n) -> n
         | _ -> 200
       in
-      let err = { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status; body = message } } in
+      let err = Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body:message () in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
     | _ -> Lwt.return json)
   | _ -> Lwt.return json

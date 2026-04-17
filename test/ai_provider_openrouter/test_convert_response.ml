@@ -115,7 +115,7 @@ let test_finish_reason_mapping () =
   (check string) "stop" "stop" (Ai_provider.Finish_reason.to_string (map_finish_reason (Some "stop")));
   (check string) "length" "length" (Ai_provider.Finish_reason.to_string (map_finish_reason (Some "length")));
   (check string) "tool_calls" "tool-calls" (Ai_provider.Finish_reason.to_string (map_finish_reason (Some "tool_calls")));
-  (check string) "none" "unknown" (Ai_provider.Finish_reason.to_string (map_finish_reason None))
+  (check string) "none" "other" (Ai_provider.Finish_reason.to_string (map_finish_reason None))
 
 let test_parse_response_with_reasoning_details () =
   let json =
