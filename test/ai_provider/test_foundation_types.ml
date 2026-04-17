@@ -91,6 +91,47 @@ let test_make_api_error_override () =
   let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:500 ~body:"error" ~is_retryable:false () in
   (check bool) "override to non-retryable" false e.is_retryable
 
+let test_timeout_request_headers_not_retryable () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"openai"
+      ~phase:`Request_headers
+      ~elapsed_s:600.0
+      ~limit_s:600.0
+  in
+  (check bool) "request_headers not retryable" false e.is_retryable
+
+let test_timeout_stream_idle_retryable () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"anthropic"
+      ~phase:`Stream_idle
+      ~elapsed_s:300.0
+      ~limit_s:300.0
+  in
+  (check bool) "stream_idle retryable" true e.is_retryable
+
+let test_timeout_to_string_mentions_phase () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"openai"
+      ~phase:`Request_headers
+      ~elapsed_s:600.0
+      ~limit_s:600.0
+  in
+  let s = Ai_provider.Provider_error.to_string e in
+  (check bool) "mentions provider" true
+    (match String.index_opt s 'o' with Some _ -> true | None -> false);
+  (check bool) "mentions 600" true
+    (let i = ref 0 in
+     let len = String.length s in
+     let found = ref false in
+     while !i + 3 <= len do
+       if String.equal (String.sub s !i 3) "600" then found := true;
+       incr i
+     done;
+     !found)
+
 let () =
   run "Foundation_types"
     [
@@ -117,5 +158,8 @@ let () =
           test_case "409_default_retryable" `Quick test_make_api_error_409_default_retryable;
           test_case "400_default_not_retryable" `Quick test_make_api_error_400_default_not_retryable;
           test_case "override" `Quick test_make_api_error_override;
+          test_case "timeout request_headers not retryable" `Quick test_timeout_request_headers_not_retryable;
+          test_case "timeout stream_idle retryable" `Quick test_timeout_stream_idle_retryable;
+          test_case "timeout to_string mentions phase" `Quick test_timeout_to_string_mentions_phase;
         ] );
     ]
