@@ -64,7 +64,7 @@ let process_error_chunk ~push ~emit_finish fields =
        (Ai_provider.Stream_part.Error
           {
             error =
-              { Ai_provider.Provider_error.provider = "openrouter"; kind = Api_error { status = 200; body = msg } };
+              Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status:200 ~body:msg ();
           }));
   emit_finish Ai_provider.Finish_reason.Error
 
@@ -229,6 +229,7 @@ let transform events ~warnings =
                         {
                           Ai_provider.Provider_error.provider = "openrouter";
                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
+                          is_retryable = false;
                         };
                     })))
         events
