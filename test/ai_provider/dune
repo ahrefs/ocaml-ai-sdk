@@ -5,6 +5,7 @@
   test_prompt
   test_tool_mode_content
   test_call_options
-  test_integration)
+  test_integration
+  test_http_timeouts)
  (package ocaml-ai-sdk)
  (libraries ai_provider alcotest lwt lwt.unix))
