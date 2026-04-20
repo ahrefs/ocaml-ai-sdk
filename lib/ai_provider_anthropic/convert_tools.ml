@@ -40,3 +40,13 @@ let anthropic_tool_choice_to_json = function
   | Tc_auto -> tool_choice_type_json_to_json { type_ = "auto" }
   | Tc_any -> tool_choice_type_json_to_json { type_ = "any" }
   | Tc_tool { name } -> tool_choice_specific_json_to_json { type_ = "tool"; name }
+
+let json_response_tool ~schema =
+  {
+    name = Ai_provider.Mode.fallback_json_tool_name;
+    description = Some "Respond with a JSON object using this tool.";
+    input_schema = schema;
+    cache_control = None;
+  }
+
+let forced_json_tool_choice = Tc_tool { name = Ai_provider.Mode.fallback_json_tool_name }

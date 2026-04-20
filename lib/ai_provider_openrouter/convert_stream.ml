@@ -62,10 +62,7 @@ let process_error_chunk ~push ~emit_finish fields =
   push
     (Some
        (Ai_provider.Stream_part.Error
-          {
-            error =
-              Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status:200 ~body:msg ();
-          }));
+          { error = Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status:200 ~body:msg () }));
   emit_finish Ai_provider.Finish_reason.Error
 
 (** Emit reasoning stream parts from structured reasoning_details with legacy fallback. *)
@@ -77,8 +74,7 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
         match d.type_ with
         | "reasoning.text" ->
           Stdlib.Option.iter
-            (fun text ->
-              push (Some (Ai_provider.Stream_part.Reasoning { text; signature = d.signature })))
+            (fun text -> push (Some (Ai_provider.Stream_part.Reasoning { text; signature = d.signature })))
             d.text
         | "reasoning.encrypted" ->
           (* Encrypted reasoning is preserved for roundtripping only;
@@ -88,8 +84,7 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
           | Some _ | None -> ())
         | "reasoning.summary" ->
           Stdlib.Option.iter
-            (fun summary ->
-              push (Some (Ai_provider.Stream_part.Reasoning { text = summary; signature = None })))
+            (fun summary -> push (Some (Ai_provider.Stream_part.Reasoning { text = summary; signature = None })))
             d.summary
         | _ -> ())
       details

@@ -223,7 +223,10 @@ let test_id_switch_flushes () =
 
 let test_delay_is_applied () =
   let delays = ref [] in
-  let sleep secs = delays := secs :: !delays; Lwt.return_unit in
+  let sleep secs =
+    delays := secs :: !delays;
+    Lwt.return_unit
+  in
   let input_stream, push = Lwt_stream.create () in
   push (Some (Ai_core.Text_stream_part.Text_delta { id = "t1"; text = "a b c d " }));
   push None;

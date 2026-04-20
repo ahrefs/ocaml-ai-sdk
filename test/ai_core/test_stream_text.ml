@@ -202,6 +202,69 @@ let test_stream_with_object_output () =
   | Some json -> (check string) "output json" json_text (Yojson.Basic.to_string json)
   | None -> fail "expected Some output"
 
+(* Simulate the Anthropic tool-fallback path: the provider emits a synthetic [json] tool
+   call whose args stream in as deltas. Stream_text must drive the partial-output parser
+   off those deltas so partial JSON appears progressively — same UX as the native path. *)
+let make_json_tool_fallback_stream_model ~chunks =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-json-tool-fallback"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      List.iter
+        (fun chunk ->
+          push
+            (Some
+               (Ai_provider.Stream_part.Tool_call_delta
+                  {
+                    tool_call_type = "function";
+                    tool_call_id = "tc_json_1";
+                    tool_name = "json";
+                    args_text_delta = chunk;
+                  })))
+        chunks;
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_json_1" }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_stream_with_json_tool_fallback () =
+  (* Chunk a full JSON object across several deltas. partial_output_stream should see
+     progressively more-complete objects as the deltas arrive. *)
+  let chunks = [ {|{"name":|}; {|"Alice"|}; {|,"age":|}; {|30}|} ] in
+  let model = make_json_tool_fallback_stream_model ~chunks in
+  let schema =
+    `Assoc
+      [
+        "type", `String "object";
+        ( "properties",
+          `Assoc [ "name", `Assoc [ "type", `String "string" ]; "age", `Assoc [ "type", `String "integer" ] ] );
+        "required", `List [ `String "name"; `String "age" ];
+        "additionalProperties", `Bool false;
+      ]
+  in
+  let output = Ai_core.Output.object_ ~name:"person" ~schema () in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Give me a person" ~output () in
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let partials = Lwt_main.run (Lwt_stream.to_list result.partial_output_stream) in
+  (check bool) "partial JSON arrived from json tool deltas" true (List.length partials > 0);
+  let final_output = Lwt_main.run result.output in
+  match final_output with
+  | Some (`Assoc pairs) ->
+    (check bool) "final has name" true (List.mem_assoc "name" pairs);
+    (check bool) "final has age" true (List.mem_assoc "age" pairs)
+  | Some json -> fail (Printf.sprintf "expected object, got %s" (Yojson.Basic.to_string json))
+  | None -> fail "expected Some output from json tool fallback"
+
 let test_stream_without_output () =
   let model = make_text_stream_model "Hello world" in
   let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Say hello" () in
@@ -923,6 +986,7 @@ let () =
       ( "output",
         [
           test_case "with_object_output" `Quick test_stream_with_object_output;
+          test_case "with_json_tool_fallback" `Quick test_stream_with_json_tool_fallback;
           test_case "without_output" `Quick test_stream_without_output;
         ] );
       "retry", [ test_case "retries_on_retryable_error" `Quick (run_lwt test_stream_retries_on_retryable_error) ];

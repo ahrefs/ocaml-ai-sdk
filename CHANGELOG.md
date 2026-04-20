@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Anthropic provider (`ai_provider_anthropic`)
+
+- **Native Structured Outputs** — `Object_json` mode now uses Anthropic's
+  native `output_config.format = { type: "json_schema", schema }` field on
+  capable models (Haiku 4.5, Sonnet 4.5/4.6, Opus 4.5/4.6/4.7), matching
+  upstream `@ai-sdk/anthropic`. Schema enforcement is handled by the provider,
+  not by appending instructions to the system prompt.
+- **Tool-use fallback** — on older models (Sonnet 4.0, Opus 4.0/4.1) and
+  unknown `Custom` model ids, the provider synthesises a tool named `json`
+  carrying the schema as `input_schema` and forces `tool_choice = { type:
+  "tool", name: "json" }`. The caller's system prompt is left untouched.
+- **Prompt injection removed** — the previous best-effort "Respond ONLY with
+  JSON matching this schema…" system-prompt append has been deleted. Callers
+  using `Object_json None` (no schema) now receive an `Unsupported_feature`
+  warning because Anthropic cannot enforce JSON without a schema.
+- **Model catalog** — added `Claude_opus_4_7`. The
+  `supports_structured_output` capability flag is now accurate per model
+  (previously defaulted to `true` for all known models).
+
+### Core SDK (`ai_core`)
+
+- **`Output.parse_output`** — when a step has no assistant text, falls back to
+  decoding the `json` tool call's `args`. Enables end-to-end structured
+  output on the Anthropic fallback path and on any future provider that
+  adopts the same convention.
+- **`Stream_text`** — `Tool_call_delta` events for the `json` tool drive the
+  partial-output parser, so streaming callers see incremental JSON on the
+  fallback path with the same UX as the native path.
+
+### Provider abstraction (`ai_provider`)
+
+- **`Mode.fallback_json_tool_name`** — exported constant (`"json"`) naming the
+  synthetic tool used by the structured-output tool-use fallback convention.
+  Shared between `ai_core` and providers so the convention has a single
+  source of truth.
+
+### Examples
+
+- `structured_output` — live-API smoke test exercising both the native and
+  tool-fallback paths with `ppx_deriving_jsonschema` for schema derivation
+  and `melange-json-native`'s `of_json` deriver for typed response decoding.
+
 ## 0.2 — 2026-04-14
 
 ### Core SDK (`ai_core`)

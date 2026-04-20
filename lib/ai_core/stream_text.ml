@@ -95,6 +95,10 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
               buf
           in
           Buffer.add_string buf args_text_delta;
+          (* Drive partial-output parsing off the synthetic [json] tool's args so streaming
+             callers see incremental JSON on the structured-output fallback path. *)
+          if String.equal tool_name Ai_provider.Mode.fallback_json_tool_name then
+            on_text_accumulated (Buffer.contents buf);
           emit (Text_stream_part.Tool_call_delta { tool_call_id; tool_name; args_text_delta })
         | Tool_call_finish { tool_call_id } ->
           (match Hashtbl.find_opt tool_calls tool_call_id with

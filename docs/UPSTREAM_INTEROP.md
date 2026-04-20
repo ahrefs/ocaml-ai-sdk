@@ -40,6 +40,24 @@ The docs describe the API; the source describes the architecture. Before impleme
 2. Trace the full path: frontend action → HTTP request → server parsing → LLM call → SSE response → frontend processing
 3. Every boundary between these is a potential mismatch
 
+## Structured Outputs
+
+`Mode.Object_json (Some schema)` from the `Output` API must map to each provider's
+**native** structured-output API — never to prompt injection. The wire format is
+different for every provider; never assume.
+
+| Provider | Field | Shape |
+|----------|-------|-------|
+| OpenAI / OpenRouter | `response_format` | `{ type: "json_schema", json_schema: { name, schema, strict } }` |
+| Anthropic (Haiku 4.5+, Sonnet 4.5+, Opus 4.5+) | `output_config` | `{ format: { type: "json_schema", schema } }` |
+| Anthropic (older models) | `tools` + `tool_choice` | Synthetic `json` tool with schema as `input_schema`, forced `tool_choice = { type: "tool", name: "json" }` |
+
+Anthropic's native field is GA as of 2025-11-13; no beta header is required.
+When falling back to the synthetic tool, `Output.parse_output` reads the JSON
+from the `"json"` tool call's `args`; `stream_text` feeds its
+`tool-input-delta` stream into `Output.parse_partial`, giving streaming
+callers identical behaviour to the native path. Keep these two paths in sync.
+
 ## Upstream Dependency Management
 
 The root `package.json` pins `ai` and `@ai-sdk/react` for upstream reference. All reference file reads use the **repo-root** `node_modules/`, not the example directories.

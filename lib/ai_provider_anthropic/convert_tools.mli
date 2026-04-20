@@ -21,3 +21,13 @@ val convert_tools :
 
 val anthropic_tool_to_json : anthropic_tool -> Yojson.Basic.t
 val anthropic_tool_choice_to_json : anthropic_tool_choice -> Yojson.Basic.t
+
+(** Build the synthetic [json] tool used as a fallback for structured outputs on
+    models that don't support Anthropic's native [output_config.format]. The tool is
+    always named [json] — matching upstream [@ai-sdk/anthropic] — and carries the
+    user-supplied schema as its [input_schema]. The caller is responsible for forcing
+    [tool_choice] to this tool (see [forced_json_tool_choice]). *)
+val json_response_tool : schema:Yojson.Basic.t -> anthropic_tool
+
+(** Tool choice forcing the model to emit only the synthetic [json] tool. *)
+val forced_json_tool_choice : anthropic_tool_choice

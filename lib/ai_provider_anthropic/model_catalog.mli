@@ -11,6 +11,7 @@ type model_capabilities = {
 }
 
 type known_model =
+  | Claude_opus_4_7
   | Claude_opus_4_6
   | Claude_sonnet_4_6
   | Claude_haiku_4_5

@@ -209,6 +209,81 @@ let test_enum_alias () =
   | Ok (`String "red") -> ()
   | _ -> fail "enum alias should work like choice"
 
+(* --- parse_output tests (covers both native text path and tool-fallback path) --- *)
+
+let empty_usage : Ai_provider.Usage.t = { input_tokens = 0; output_tokens = 0; total_tokens = None }
+
+let make_step ?(text = "") ?(tool_calls = []) () : Ai_core.Generate_text_result.step =
+  {
+    text;
+    reasoning = "";
+    tool_calls;
+    tool_results = [];
+    finish_reason = Ai_provider.Finish_reason.Stop;
+    usage = empty_usage;
+  }
+
+(* Native path: provider returns the JSON as assistant text — parse_output joins text
+   across steps and passes it through parse_complete. *)
+let test_parse_output_from_text () =
+  let output = Ai_core.Output.object_ ~name:"recipe" ~schema:recipe_schema () in
+  let step = make_step ~text:{|{"name":"Pasta","steps":["boil","drain"]}|} () in
+  match Ai_core.Output.parse_output (Some output) [ step ] with
+  | Some (`Assoc pairs) ->
+    (match List.assoc_opt "name" pairs with
+    | Some (`String "Pasta") -> ()
+    | _ -> fail "expected name=Pasta")
+  | Some json -> fail (Printf.sprintf "expected object, got %s" (Yojson.Basic.to_string json))
+  | None -> fail "parse_output returned None for valid JSON in text"
+
+(* Tool-fallback path: provider emitted a [json] tool_call (e.g. Anthropic fallback for
+   older models). No text at all. parse_output must read the args from the tool call. *)
+let test_parse_output_from_json_tool_call () =
+  let output = Ai_core.Output.object_ ~name:"recipe" ~schema:recipe_schema () in
+  let tc : Ai_core.Generate_text_result.tool_call =
+    {
+      tool_call_id = "tc_json_1";
+      tool_name = "json";
+      args = `Assoc [ "name", `String "Soup"; "steps", `List [ `String "simmer" ] ];
+    }
+  in
+  let step = make_step ~tool_calls:[ tc ] () in
+  match Ai_core.Output.parse_output (Some output) [ step ] with
+  | Some (`Assoc pairs) ->
+    (match List.assoc_opt "name" pairs with
+    | Some (`String "Soup") -> ()
+    | _ -> fail "expected name=Soup")
+  | Some json -> fail (Printf.sprintf "expected object, got %s" (Yojson.Basic.to_string json))
+  | None -> fail "parse_output returned None for json tool call"
+
+(* Other tools (not named "json") must be ignored — otherwise any tool-using assistant
+   step would accidentally feed random args into parse_complete. *)
+let test_parse_output_ignores_non_json_tool_calls () =
+  let output = Ai_core.Output.object_ ~name:"recipe" ~schema:recipe_schema () in
+  let tc : Ai_core.Generate_text_result.tool_call =
+    { tool_call_id = "tc_search_1"; tool_name = "search"; args = `Assoc [ "query", `String "foo" ] }
+  in
+  let step = make_step ~tool_calls:[ tc ] () in
+  match Ai_core.Output.parse_output (Some output) [ step ] with
+  | None -> ()
+  | Some json -> fail (Printf.sprintf "expected None, got %s" (Yojson.Basic.to_string json))
+
+(* Text takes precedence: if both text and a [json] tool call are present the text wins
+   (matches native-path semantics — no one should see both at once, but deterministic
+   ordering prevents surprises). *)
+let test_parse_output_prefers_text_over_tool_call () =
+  let output = Ai_core.Output.object_ ~name:"recipe" ~schema:recipe_schema () in
+  let tc : Ai_core.Generate_text_result.tool_call =
+    { tool_call_id = "tc_json_1"; tool_name = "json"; args = `Assoc [ "name", `String "FromTool"; "steps", `List [] ] }
+  in
+  let step = make_step ~text:{|{"name":"FromText","steps":["go"]}|} ~tool_calls:[ tc ] () in
+  match Ai_core.Output.parse_output (Some output) [ step ] with
+  | Some (`Assoc pairs) ->
+    (match List.assoc_opt "name" pairs with
+    | Some (`String "FromText") -> ()
+    | _ -> fail "expected text to win")
+  | _ -> fail "expected object"
+
 let () =
   run "Output"
     [
@@ -251,5 +326,12 @@ let () =
           test_case "partial ambiguous prefix" `Quick test_choice_parse_partial_ambiguous_prefix;
           test_case "partial no match" `Quick test_choice_parse_partial_no_match;
           test_case "enum alias" `Quick test_enum_alias;
+        ] );
+      ( "parse_output",
+        [
+          test_case "from text" `Quick test_parse_output_from_text;
+          test_case "from json tool call" `Quick test_parse_output_from_json_tool_call;
+          test_case "ignores non-json tool calls" `Quick test_parse_output_ignores_non_json_tool_calls;
+          test_case "prefers text over tool call" `Quick test_parse_output_prefers_text_over_tool_call;
         ] );
     ]

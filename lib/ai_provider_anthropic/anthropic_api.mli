@@ -1,5 +1,12 @@
 (** HTTP client for the Anthropic Messages API. *)
 
+type output_format = {
+  type_ : string;
+  schema : Melange_json.t;
+}
+
+type output_config = { format : output_format }
+
 type request_body
 
 val request_body_to_json : request_body -> Melange_json.t
@@ -17,6 +24,7 @@ val make_request_body :
   ?top_k:int ->
   ?stop_sequences:string list ->
   ?thinking:Thinking.t ->
+  ?output_config:output_config ->
   ?stream:bool ->
   unit ->
   request_body

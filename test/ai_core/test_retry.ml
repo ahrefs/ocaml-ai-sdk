@@ -175,7 +175,10 @@ let test_network_error_exhausts_retries () =
 (* Test: backoff_factor multiplies delay between retries *)
 let test_backoff_factor_affects_delay () =
   let delays = ref [] in
-  let sleep secs = delays := secs :: !delays; Lwt.return_unit in
+  let sleep secs =
+    delays := secs :: !delays;
+    Lwt.return_unit
+  in
   let call_count = ref 0 in
   (try
      ignore
@@ -183,7 +186,7 @@ let test_backoff_factor_affects_delay () =
           (Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:50 ~backoff_factor:2 ~sleep (fun () ->
              incr call_count;
              Lwt.fail (retryable_error "overloaded")))
-        : string)
+         : string)
    with Ai_core.Retry.Retry_error _ -> ());
   (check int) "called 4 times" 4 !call_count;
   let delays = List.rev !delays in

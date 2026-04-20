@@ -33,28 +33,40 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let warnings = check_unsupported ~anthropic_opts opts in
   let system, remaining = Convert_prompt.extract_system opts.prompt in
   let messages = Convert_prompt.convert_messages remaining in
-  (* Handle structured output mode by injecting JSON instructions into system prompt *)
-  let system =
-    let append_instruction instruction =
-      match system with
-      | Some s -> Some (s ^ "\n\n" ^ instruction)
-      | None -> Some instruction
-    in
-    match opts.mode with
-    | Object_json (Some { name; schema }) ->
-      Printf.sprintf
-        "Respond ONLY with a JSON object matching this schema (name: %s):\n\
-         %s\n\n\
-         Do not include any other text, markdown formatting, or code blocks. Output raw JSON only."
-        name (Yojson.Basic.pretty_to_string schema)
-      |> append_instruction
-    | Object_json None ->
-      append_instruction
-        "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw \
-         JSON only."
-    | Regular | Object_tool _ -> system
+  (* Route Object_json per-model: native output_config where supported, synthetic [json]
+     tool with forced tool_choice otherwise — matches upstream @ai-sdk/anthropic. *)
+  let supports_native_structured_output =
+    (Model_catalog.capabilities (Model_catalog.of_model_id model)).supports_structured_output
   in
-  let tools, tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in
+  let output_config, fallback_tool, forced_tool_choice, extra_warnings =
+    match opts.mode with
+    | Regular | Object_tool _ -> None, None, None, []
+    | Object_json (Some { name = _; schema }) when supports_native_structured_output ->
+      Some Anthropic_api.{ format = { type_ = "json_schema"; schema } }, None, None, []
+    | Object_json (Some { name = _; schema }) ->
+      let tool = Convert_tools.json_response_tool ~schema in
+      None, Some tool, Some Convert_tools.forced_json_tool_choice, []
+    | Object_json None ->
+      ( None,
+        None,
+        None,
+        [
+          Ai_provider.Warning.Unsupported_feature
+            {
+              feature = "response_format without schema";
+              details = Some "Anthropic structured outputs require a JSON schema; sending request without enforcement";
+            };
+        ] )
+  in
+  let warnings = warnings @ extra_warnings in
+  let base_tools, base_tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in
+  let tools = Option.fold ~none:base_tools ~some:(fun t -> base_tools @ [ t ]) fallback_tool in
+  (* When structured-output fallback is active, override the caller's tool_choice. *)
+  let tool_choice =
+    match forced_tool_choice with
+    | Some _ -> forced_tool_choice
+    | None -> base_tool_choice
+  in
   (* Use model-aware default for max_tokens *)
   let max_tokens =
     Some
@@ -70,7 +82,7 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let body =
     Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens
       ?temperature:opts.temperature ?top_p:opts.top_p ?top_k:opts.top_k ~stop_sequences:opts.stop_sequences
-      ?thinking:anthropic_opts.thinking ~stream ()
+      ?thinking:anthropic_opts.thinking ?output_config ~stream ()
   in
   (* Merge user headers with required beta headers — the result includes all of opts.headers
      plus a merged anthropic-beta header, so it replaces opts.headers entirely *)

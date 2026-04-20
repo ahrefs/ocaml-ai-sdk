@@ -55,7 +55,10 @@ The create function builds a first-class module implementing:
 2. Check for unsupported features (frequency_penalty, presence_penalty, seed, temperature+thinking)
 3. Extract system messages from prompt
 4. Convert SDK messages to Anthropic format
-5. Handle structured output mode (Object_json -> JSON instructions in system prompt)
+5. Handle structured output mode: on models that support it (Haiku 4.5+, Sonnet 4.5+,
+   Opus 4.5+), send native [output_config.format = json_schema]; otherwise synthesize a
+   [json] tool with the schema as [input_schema] and force [tool_choice] to it. Gated on
+   `Model_catalog.supports_structured_output`.
 6. Convert tools to Anthropic format
 7. Apply model-aware defaults for max_tokens
 8. Extract thinking configuration

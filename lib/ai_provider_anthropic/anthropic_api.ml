@@ -6,6 +6,14 @@ type thinking_config = {
 }
 [@@deriving to_json]
 
+type output_format = {
+  type_ : string; [@json.key "type"]
+  schema : Melange_json.t;
+}
+[@@deriving to_json]
+
+type output_config = { format : output_format } [@@deriving to_json]
+
 type request_body = {
   model : string;
   messages : Melange_json.t list;
@@ -18,12 +26,13 @@ type request_body = {
   top_k : int option; [@json.option] [@json.drop_default]
   stop_sequences : string list option; [@json.option] [@json.drop_default]
   thinking : thinking_config option; [@json.option] [@json.drop_default]
+  output_config : output_config option; [@json.option] [@json.drop_default]
   stream : bool option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
 let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?temperature ?top_p ?top_k
-  ?stop_sequences ?thinking ?stream () =
+  ?stop_sequences ?thinking ?output_config ?stream () =
   let messages_json = List.map Convert_prompt.anthropic_message_to_json messages in
   let tools_json =
     match tools with
@@ -64,6 +73,7 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
     top_k;
     stop_sequences;
     thinking = thinking_json;
+    output_config;
     stream;
   }
 

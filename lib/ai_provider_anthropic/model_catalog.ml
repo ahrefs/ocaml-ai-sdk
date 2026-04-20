@@ -9,6 +9,7 @@ type model_capabilities = {
 }
 
 type known_model =
+  | Claude_opus_4_7
   | Claude_opus_4_6
   | Claude_sonnet_4_6
   | Claude_haiku_4_5
@@ -20,6 +21,7 @@ type known_model =
   | Custom of string
 
 let to_model_id = function
+  | Claude_opus_4_7 -> "claude-opus-4-7"
   | Claude_opus_4_6 -> "claude-opus-4-6"
   | Claude_sonnet_4_6 -> "claude-sonnet-4-6"
   | Claude_haiku_4_5 -> "claude-haiku-4-5-20251001"
@@ -33,6 +35,7 @@ let to_model_id = function
 let of_model_id s =
   match s with
   (* Current generation *)
+  | "claude-opus-4-7" -> Claude_opus_4_7
   | "claude-opus-4-6" -> Claude_opus_4_6
   | "claude-sonnet-4-6" -> Claude_sonnet_4_6
   | "claude-haiku-4-5-20251001" | "claude-haiku-4-5" -> Claude_haiku_4_5
@@ -45,11 +48,13 @@ let of_model_id s =
   (* Unknown *)
   | s -> Custom s
 
+(* Structured outputs (output_config.format = json_schema) is GA on Haiku 4.5+, Sonnet 4.5+,
+   Opus 4.5+. Not supported on Sonnet 4.0, Opus 4.0, Opus 4.1, or unknown models. *)
 let base_capabilities =
   {
     max_output_tokens = 64_000;
     supports_thinking = true;
-    supports_structured_output = true;
+    supports_structured_output = false;
     supports_prompt_caching = true;
     min_cache_tokens = 1024;
     supports_vision = true;
@@ -57,9 +62,12 @@ let base_capabilities =
   }
 
 let capabilities = function
-  | Claude_opus_4_6 -> { base_capabilities with max_output_tokens = 128_000 }
-  | Claude_sonnet_4_6 | Claude_sonnet_4_5 | Claude_sonnet_4 -> base_capabilities
-  | Claude_haiku_4_5 | Claude_opus_4_5 -> { base_capabilities with min_cache_tokens = 4096 }
+  | Claude_opus_4_7 -> { base_capabilities with max_output_tokens = 128_000; supports_structured_output = true }
+  | Claude_opus_4_6 -> { base_capabilities with max_output_tokens = 128_000; supports_structured_output = true }
+  | Claude_sonnet_4_6 | Claude_sonnet_4_5 -> { base_capabilities with supports_structured_output = true }
+  | Claude_sonnet_4 -> base_capabilities
+  | Claude_haiku_4_5 | Claude_opus_4_5 ->
+    { base_capabilities with min_cache_tokens = 4096; supports_structured_output = true }
   | Claude_opus_4_1 | Claude_opus_4 -> { base_capabilities with max_output_tokens = 32_000 }
   | Custom _ ->
     {

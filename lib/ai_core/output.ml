@@ -22,13 +22,26 @@ let mode_of_output = function
     | None -> Ai_provider.Mode.Regular)
   | None -> Ai_provider.Mode.Regular
 
+let fallback_tool_args_text steps =
+  let pick (step : Generate_text_result.step) =
+    List.find_opt
+      (fun (tc : Generate_text_result.tool_call) -> String.equal tc.tool_name Ai_provider.Mode.fallback_json_tool_name)
+      step.tool_calls
+  in
+  List.find_map pick steps |> Option.map (fun (tc : Generate_text_result.tool_call) -> Yojson.Basic.to_string tc.args)
+
 let parse_output output steps =
   match output with
   | Some o ->
     (match o.response_format with
     | Some _ ->
       let final_text = Generate_text_result.join_text steps in
-      (match o.parse_complete final_text with
+      let text =
+        match final_text with
+        | "" -> Option.value (fallback_tool_args_text steps) ~default:""
+        | s -> s
+      in
+      (match o.parse_complete text with
       | Ok json -> Some json
       | Error _ -> None)
     | None -> None)
