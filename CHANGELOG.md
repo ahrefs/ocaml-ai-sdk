@@ -35,10 +35,33 @@ All notable changes to this project will be documented in this file.
 
 ### Provider abstraction (`ai_provider`)
 
+- **HTTP timeouts.** New `Ai_provider.Http_timeouts` module and
+  `Ai_provider.Http_client` wrapper. Defaults: 600s for response headers
+  (`request_timeout`) and 300s for silence between streaming chunks
+  (`stream_idle_timeout`). Override per-provider via `Config.create
+  ?timeouts`. Conservative values chosen to catch stuck connections and
+  bugs, not bound legitimate workloads — a 20-minute streaming response
+  completes fine as long as chunks keep flowing.
+- **New `Provider_error.Timeout` kind** with `phase`
+  (`Request_headers` | `Stream_idle`), `elapsed_s`, and `limit_s`.
+  `is_retryable` is derived: `Stream_idle` is retryable (connection is
+  dead); `Request_headers` is not (server may already be processing the
+  request).
+- **Fix: `Sse.parse_events` no longer hangs consumers on upstream errors.**
+  Previously, an exception from the upstream line stream left the output
+  stream pending forever. It now closes cleanly (via `push None`) and
+  re-raises to `Lwt.async_exception_hook` so the underlying bug stays
+  visible.
 - **`Mode.fallback_json_tool_name`** — exported constant (`"json"`) naming the
   synthetic tool used by the structured-output tool-use fallback convention.
   Shared between `ai_core` and providers so the convention has a single
   source of truth.
+
+### Providers (`ai_provider_openai`, `ai_provider_anthropic`, `ai_provider_openrouter`)
+
+- Each `Config.t` gains a `timeouts : Http_timeouts.t` field. All HTTP
+  traffic now routes through `Http_client`, removing three copies of the
+  unguarded `body_to_line_stream` helper.
 
 ### Examples
 
