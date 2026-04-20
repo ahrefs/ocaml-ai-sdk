@@ -102,12 +102,8 @@ let messages ~config ~body ~extra_headers ~stream =
     let body_str = Yojson.Basic.to_string body_json in
     let cohttp_body = Cohttp_lwt.Body.of_string body_str in
     let%lwt resp, resp_body =
-      Ai_provider.Http_client.post
-        ~timeouts:config.timeouts
-        ~provider:"anthropic"
-        ~headers:cohttp_headers
-        ~body:cohttp_body
-        uri
+      Ai_provider.Http_client.post ~timeouts:config.timeouts ~provider:"anthropic" ~headers:cohttp_headers
+        ~body:cohttp_body uri
     in
     let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
     (match status >= 400, stream with
@@ -118,8 +114,8 @@ let messages ~config ~body ~extra_headers ~stream =
     | false, true ->
       Lwt.return
         (`Stream
-          (Ai_provider.Http_client.wrap_body_with_idle_timeout
-             ~timeouts:config.timeouts ~provider:"anthropic" resp_body))
+           (Ai_provider.Http_client.wrap_body_with_idle_timeout ~timeouts:config.timeouts ~provider:"anthropic"
+              resp_body))
     | false, false ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
       let json = Yojson.Basic.from_string body_str in

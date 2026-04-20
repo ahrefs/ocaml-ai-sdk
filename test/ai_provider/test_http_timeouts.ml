@@ -17,15 +17,13 @@ let test_create_override_idle () =
 
 let test_create_rejects_zero () =
   check_raises "zero rejected"
-    (Invalid_argument
-       "Http_timeouts.create: request_timeout must be positive (got 0.000000)")
-    (fun () -> ignore (Ai_provider.Http_timeouts.create ~request_timeout:0.0 () : Ai_provider.Http_timeouts.t))
+    (Invalid_argument "Http_timeouts.create: request_timeout must be positive (got 0.000000)") (fun () ->
+    ignore (Ai_provider.Http_timeouts.create ~request_timeout:0.0 () : Ai_provider.Http_timeouts.t))
 
 let test_create_rejects_negative () =
   check_raises "negative rejected"
-    (Invalid_argument
-       "Http_timeouts.create: stream_idle_timeout must be positive (got -1.000000)")
-    (fun () -> ignore (Ai_provider.Http_timeouts.create ~stream_idle_timeout:(-1.0) () : Ai_provider.Http_timeouts.t))
+    (Invalid_argument "Http_timeouts.create: stream_idle_timeout must be positive (got -1.000000)") (fun () ->
+    ignore (Ai_provider.Http_timeouts.create ~stream_idle_timeout:(-1.0) () : Ai_provider.Http_timeouts.t))
 
 let () =
   run "Http_timeouts"

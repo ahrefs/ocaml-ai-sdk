@@ -8,8 +8,7 @@ type t = {
   timeouts : Ai_provider.Http_timeouts.t;
 }
 
-let create ?api_key ?base_url ?(headers = []) ?fetch
-  ?(timeouts = Ai_provider.Http_timeouts.default) () =
+let create ?api_key ?base_url ?(headers = []) ?fetch ?(timeouts = Ai_provider.Http_timeouts.default) () =
   let api_key =
     match api_key with
     | Some _ -> api_key

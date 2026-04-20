@@ -22,10 +22,10 @@ let start_server ~handler =
     try%lwt
       let rec accept_loop () =
         if !stopped then Lwt.return_unit
-        else
+        else (
           let%lwt sock, _ = Lwt_unix.accept listen_sock in
           Lwt.async (fun () -> try%lwt handler sock with _ -> Lwt.return_unit);
-          accept_loop ()
+          accept_loop ())
       in
       accept_loop ()
     with _ -> Lwt.return_unit);
@@ -48,8 +48,7 @@ let consume_request sock =
       Buffer.add_subbytes accum read_buf 0 n;
       let contents = Buffer.contents accum in
       let rec scan i =
-        i + 4 <= String.length contents
-        && (String.equal (String.sub contents i 4) "\r\n\r\n" || scan (i + 1))
+        i + 4 <= String.length contents && (String.equal (String.sub contents i 4) "\r\n\r\n" || scan (i + 1))
       in
       if scan 0 then Lwt.return_unit else loop ()
     end
@@ -61,9 +60,9 @@ let write_all sock s =
   let len = Bytes.length b in
   let rec loop ofs =
     if ofs >= len then Lwt.return_unit
-    else
+    else (
       let%lwt n = Lwt_unix.write sock b ofs (len - ofs) in
-      loop (ofs + n)
+      loop (ofs + n))
   in
   loop 0
 
@@ -97,8 +96,7 @@ let test_request_timeout_fires () =
   (match result with
   | `Got_timeout -> ()
   | `No_raise -> fail "expected timeout, got success"
-  | `Other e ->
-    fail (Printf.sprintf "expected Request_headers timeout, got: %s" (Printexc.to_string e)));
+  | `Other e -> fail (Printf.sprintf "expected Request_headers timeout, got: %s" (Printexc.to_string e)));
   Lwt.return_unit
 
 (* T3 — request_timeout does NOT fire on a fast response. *)
@@ -139,9 +137,7 @@ let test_stream_idle_fires () =
       let%lwt () = Lwt_unix.sleep 30.0 in
       Lwt_unix.close sock)
   in
-  let timeouts =
-    Ai_provider.Http_timeouts.create ~request_timeout:5.0 ~stream_idle_timeout:0.2 ()
-  in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:5.0 ~stream_idle_timeout:0.2 () in
   let%lwt _resp, body = post_empty ~timeouts ~provider:"test" ~port ~path:"/" in
   let lines = Ai_provider.Http_client.wrap_body_with_idle_timeout ~timeouts ~provider:"test" body in
   let%lwt first = Lwt_stream.get lines in
@@ -175,9 +171,7 @@ let test_stream_idle_resets () =
       in
       loop 5)
   in
-  let timeouts =
-    Ai_provider.Http_timeouts.create ~request_timeout:5.0 ~stream_idle_timeout:0.3 ()
-  in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:5.0 ~stream_idle_timeout:0.3 () in
   let%lwt _resp, body = post_empty ~timeouts ~provider:"test" ~port ~path:"/" in
   let lines = Ai_provider.Http_client.wrap_body_with_idle_timeout ~timeouts ~provider:"test" body in
   let%lwt all = Lwt_stream.to_list lines in
@@ -190,7 +184,7 @@ let () =
      Lwt.async_exception_hook (which would otherwise exit the process). This
      binary runs only these tests, so a global override is fine — no restore
      needed. In a shared test library this would need save/restore. *)
-  Lwt.async_exception_hook := (fun _ -> ());
+  (Lwt.async_exception_hook := fun _ -> ());
   run "Http_client"
     [
       ( "timeouts",

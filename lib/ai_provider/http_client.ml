@@ -4,8 +4,7 @@ let post ~(timeouts : Http_timeouts.t) ~provider ~headers ~body uri =
   with Lwt_unix.Timeout ->
     let elapsed = Unix.gettimeofday () -. started in
     let err =
-      Provider_error.make_timeout ~provider ~phase:Request_headers ~elapsed_s:elapsed
-        ~limit_s:timeouts.request_timeout
+      Provider_error.make_timeout ~provider ~phase:Request_headers ~elapsed_s:elapsed ~limit_s:timeouts.request_timeout
     in
     Lwt.fail (Provider_error.Provider_error err)
 

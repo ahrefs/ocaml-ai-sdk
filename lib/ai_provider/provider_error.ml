@@ -37,8 +37,8 @@ let to_string { provider; kind; _ } =
   | Deserialization_error { message; raw } ->
     Printf.sprintf "[%s] Deserialization error: %s (raw: %s)" provider message raw
   | Timeout { phase; elapsed_s; limit_s } ->
-    Printf.sprintf "[%s] HTTP timeout waiting for %s after %.1fs (limit: %.1fs)"
-      provider (phase_to_string phase) elapsed_s limit_s
+    Printf.sprintf "[%s] HTTP timeout waiting for %s after %.1fs (limit: %.1fs)" provider (phase_to_string phase)
+      elapsed_s limit_s
 
 let is_retryable_status status = status = 408 || status = 409 || status = 429 || status >= 500
 
@@ -52,11 +52,7 @@ let timeout_is_retryable (phase : timeout_phase) =
   | Stream_idle -> true
 
 let make_timeout ~provider ~phase ~elapsed_s ~limit_s =
-  {
-    provider;
-    kind = Timeout { phase; elapsed_s; limit_s };
-    is_retryable = timeout_is_retryable phase;
-  }
+  { provider; kind = Timeout { phase; elapsed_s; limit_s }; is_retryable = timeout_is_retryable phase }
 
 let () =
   Printexc.register_printer (function

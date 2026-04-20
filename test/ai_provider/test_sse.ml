@@ -33,6 +33,5 @@ let () =
   run "Sse"
     [
       ( "exception safety",
-        [ test_case "closes on upstream exn" `Quick (run_lwt test_parse_events_closes_on_upstream_exn) ]
-      );
+        [ test_case "closes on upstream exn" `Quick (run_lwt test_parse_events_closes_on_upstream_exn) ] );
     ]

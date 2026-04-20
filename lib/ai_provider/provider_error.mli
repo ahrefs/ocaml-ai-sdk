@@ -35,15 +35,10 @@ exception Provider_error of t
     override this when they can parse the error type from the response body. *)
 val make_api_error : provider:string -> status:int -> body:string -> ?is_retryable:bool -> unit -> t
 
-val make_timeout :
-  provider:string ->
-  phase:timeout_phase ->
-  elapsed_s:float ->
-  limit_s:float ->
-  t
 (** Construct a timeout error. [is_retryable] is derived from [phase]:
     [Request_headers] is not retryable (server may already be processing
     the request; retry risks double-billing); [Stream_idle] is retryable
     (stream is dead, safe to start over). *)
+val make_timeout : provider:string -> phase:timeout_phase -> elapsed_s:float -> limit_s:float -> t
 
 val to_string : t -> string

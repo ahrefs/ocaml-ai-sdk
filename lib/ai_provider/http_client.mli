@@ -4,6 +4,10 @@
     and the response body stream. All provider implementations should use
     these instead of raw cohttp calls. *)
 
+(** Wraps [Cohttp_lwt_unix.Client.post] in [Lwt_unix.with_timeout] using
+    [timeouts.request_timeout]. On expiry, fails with
+    [Provider_error.Provider_error (Timeout { phase = Request_headers; ... })]
+    tagged with the given [provider] string. *)
 val post :
   timeouts:Http_timeouts.t ->
   provider:string ->
@@ -11,16 +15,7 @@ val post :
   body:Cohttp_lwt.Body.t ->
   Uri.t ->
   (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
-(** Wraps [Cohttp_lwt_unix.Client.post] in [Lwt_unix.with_timeout] using
-    [timeouts.request_timeout]. On expiry, fails with
-    [Provider_error.Provider_error (Timeout { phase = Request_headers; ... })]
-    tagged with the given [provider] string. *)
 
-val wrap_body_with_idle_timeout :
-  timeouts:Http_timeouts.t ->
-  provider:string ->
-  Cohttp_lwt.Body.t ->
-  string Lwt_stream.t
 (** Converts a cohttp body into a line stream (splits on LF, strips CR),
     with an inter-chunk idle timer from [timeouts.stream_idle_timeout].
     The returned stream:
@@ -33,3 +28,5 @@ val wrap_body_with_idle_timeout :
       visible in logs.
     - On abnormal termination (idle timeout or body-stream exception), the
       upstream cohttp body is drained so its socket is released. *)
+val wrap_body_with_idle_timeout :
+  timeouts:Http_timeouts.t -> provider:string -> Cohttp_lwt.Body.t -> string Lwt_stream.t
