@@ -19,23 +19,19 @@ let start_server ~handler =
   in
   let stopped = ref false in
   Lwt.async (fun () ->
-    Lwt.catch
-      (fun () ->
-        let rec accept_loop () =
-          if !stopped then Lwt.return_unit
-          else
-            let%lwt sock, _ = Lwt_unix.accept listen_sock in
-            Lwt.async (fun () ->
-              Lwt.catch
-                (fun () -> handler sock)
-                (fun _ -> Lwt.return_unit));
-            accept_loop ()
-        in
-        accept_loop ())
-      (fun _ -> Lwt.return_unit));
+    try%lwt
+      let rec accept_loop () =
+        if !stopped then Lwt.return_unit
+        else
+          let%lwt sock, _ = Lwt_unix.accept listen_sock in
+          Lwt.async (fun () -> try%lwt handler sock with _ -> Lwt.return_unit);
+          accept_loop ()
+      in
+      accept_loop ()
+    with _ -> Lwt.return_unit);
   let stop () =
     stopped := true;
-    Lwt.catch (fun () -> Lwt_unix.close listen_sock) (fun _ -> Lwt.return_unit)
+    try%lwt Lwt_unix.close listen_sock with _ -> Lwt.return_unit
   in
   Lwt.return (port, stop)
 
@@ -89,15 +85,13 @@ let test_request_timeout_fires () =
   in
   let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:0.2 () in
   let%lwt result =
-    Lwt.catch
-      (fun () ->
-        let%lwt _ = post_empty ~timeouts ~provider:"test" ~port ~path:"/" in
-        Lwt.return `No_raise)
-      (function
-        | Ai_provider.Provider_error.Provider_error
-            { kind = Timeout { phase = Request_headers; _ }; _ } ->
-          Lwt.return `Got_timeout
-        | e -> Lwt.return (`Other e))
+    try%lwt
+      let%lwt _ = post_empty ~timeouts ~provider:"test" ~port ~path:"/" in
+      Lwt.return `No_raise
+    with
+    | Ai_provider.Provider_error.Provider_error { kind = Timeout { phase = Request_headers; _ }; _ } ->
+      Lwt.return `Got_timeout
+    | e -> Lwt.return (`Other e)
   in
   let%lwt () = stop () in
   (match result with
