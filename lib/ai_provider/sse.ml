@@ -16,28 +16,33 @@ let parse_events lines =
     end
   in
   Lwt.async (fun () ->
-    let%lwt () =
-      Lwt_stream.iter
-        (fun line ->
-          match line with
-          | "" -> emit ()
-          | line when String.starts_with ~prefix:":" line -> ()
-          | line when String.starts_with ~prefix:"event:" line ->
-            let value = String.trim (String.sub line 6 (String.length line - 6)) in
-            current_event := value
-          | line when String.starts_with ~prefix:"data:" line ->
-            let value = String.sub line 5 (String.length line - 5) in
-            let value =
-              if String.length value > 0 && Char.equal (String.get value 0) ' ' then
-                String.sub value 1 (String.length value - 1)
-              else value
-            in
-            if Buffer.length current_data > 0 then Buffer.add_char current_data '\n';
-            Buffer.add_string current_data value
-          | _ -> ())
-        lines
-    in
-    emit ();
-    push None;
-    Lwt.return_unit);
+    Lwt.catch
+      (fun () ->
+        let%lwt () =
+          Lwt_stream.iter
+            (fun line ->
+              match line with
+              | "" -> emit ()
+              | line when String.starts_with ~prefix:":" line -> ()
+              | line when String.starts_with ~prefix:"event:" line ->
+                let value = String.trim (String.sub line 6 (String.length line - 6)) in
+                current_event := value
+              | line when String.starts_with ~prefix:"data:" line ->
+                let value = String.sub line 5 (String.length line - 5) in
+                let value =
+                  if String.length value > 0 && Char.equal (String.get value 0) ' ' then
+                    String.sub value 1 (String.length value - 1)
+                  else value
+                in
+                if Buffer.length current_data > 0 then Buffer.add_char current_data '\n';
+                Buffer.add_string current_data value
+              | _ -> ())
+            lines
+        in
+        emit ();
+        push None;
+        Lwt.return_unit)
+      (fun exn ->
+        push None;
+        Lwt.fail exn));
   stream
