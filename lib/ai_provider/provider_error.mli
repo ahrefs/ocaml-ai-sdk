@@ -1,8 +1,8 @@
 (** Errors from provider API calls. *)
 
 type timeout_phase =
-  | Request_headers  (** Waiting for response headers. *)
-  | Stream_idle  (** Silence between streaming body chunks. *)
+  | Request_headers  (** Not retryable: the server may already be processing the request. *)
+  | Stream_idle  (** Retryable: the connection has gone silent and is treated as dead. *)
 
 type error_kind =
   | Api_error of {

@@ -39,21 +39,26 @@ let start_server ~handler =
   in
   Lwt.return (port, stop)
 
-(* Read the HTTP request from [sock] until blank line then discard. *)
+(* Read the HTTP request from [sock] until the headers terminator (blank line)
+   then discard. Accumulates across reads so the terminator can straddle a
+   read boundary. *)
 let consume_request sock =
-  let buf = Bytes.create 4096 in
-  let rec loop seen_blank =
-    if seen_blank then Lwt.return_unit
-    else
-      let%lwt n = Lwt_unix.read sock buf 0 (Bytes.length buf) in
-      if n = 0 then Lwt.return_unit
-      else
-        let s = Bytes.sub_string buf 0 n in
-        let seen = seen_blank || String.length s >= 4
-          && (String.equal (String.sub s (String.length s - 4) 4) "\r\n\r\n") in
-        if seen then Lwt.return_unit else loop false
+  let read_buf = Bytes.create 4096 in
+  let accum = Buffer.create 512 in
+  let rec loop () =
+    let%lwt n = Lwt_unix.read sock read_buf 0 (Bytes.length read_buf) in
+    if n = 0 then Lwt.return_unit
+    else begin
+      Buffer.add_subbytes accum read_buf 0 n;
+      let contents = Buffer.contents accum in
+      let rec scan i =
+        i + 4 <= String.length contents
+        && (String.equal (String.sub contents i 4) "\r\n\r\n" || scan (i + 1))
+      in
+      if scan 0 then Lwt.return_unit else loop ()
+    end
   in
-  loop false
+  loop ()
 
 let write_all sock s =
   let b = Bytes.of_string s in
@@ -187,9 +192,10 @@ let test_stream_idle_resets () =
   Lwt.return_unit
 
 let () =
-  (* Swallow async exceptions from the library's Lwt.async — in production
-     they reach Lwt.async_exception_hook which by default exits the process.
-     For tests we just want to observe consumer-visible behaviour. *)
+  (* Install-and-forget: the library re-raises timeout errors to
+     Lwt.async_exception_hook (which would otherwise exit the process). This
+     binary runs only these tests, so a global override is fine — no restore
+     needed. In a shared test library this would need save/restore. *)
   Lwt.async_exception_hook := (fun _ -> ());
   run "Http_client"
     [

@@ -31,6 +31,5 @@ val wrap_body_with_idle_timeout :
     - On exception, the original exception is re-raised to
       [Lwt.async_exception_hook] after the stream is closed, so bugs stay
       visible in logs.
-
-    Safe because the internal [Lwt_stream.feed] uses [Lwt.protected],
-    which prevents [Lwt.pick]'s cancellation from corrupting stream state. *)
+    - On abnormal termination (idle timeout or body-stream exception), the
+      upstream cohttp body is drained so its socket is released. *)

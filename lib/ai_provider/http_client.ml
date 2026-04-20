@@ -1,5 +1,4 @@
-let post ~timeouts ~provider ~headers ~body uri =
-  let timeouts : Http_timeouts.t = timeouts in
+let post ~(timeouts : Http_timeouts.t) ~provider ~headers ~body uri =
   let started = Unix.gettimeofday () in
   Lwt.catch
     (fun () ->
@@ -18,30 +17,29 @@ let post ~timeouts ~provider ~headers ~body uri =
         Lwt.fail (Provider_error.Provider_error err)
       | exn -> Lwt.fail exn)
 
-(* Split [chunk] on LF, appending to [buf] and pushing completed lines
-   to [push]. CR is stripped. *)
 let split_on_newlines buf chunk push =
-  let len = String.length chunk in
-  let i = ref 0 in
-  while !i < len do
-    let c = String.get chunk !i in
-    (match c with
-    | '\n' ->
-      push (Some (Buffer.contents buf));
-      Buffer.clear buf
-    | '\r' -> ()
-    | c -> Buffer.add_char buf c);
-    incr i
-  done
+  String.iter
+    (function
+      | '\n' ->
+        push (Some (Buffer.contents buf));
+        Buffer.clear buf
+      | '\r' -> ()
+      | c -> Buffer.add_char buf c)
+    chunk
 
-let wrap_body_with_idle_timeout ~timeouts ~provider body =
-  let timeouts : Http_timeouts.t = timeouts in
+let wrap_body_with_idle_timeout ~(timeouts : Http_timeouts.t) ~provider body =
   let raw = Cohttp_lwt.Body.to_stream body in
   let buf = Buffer.create 256 in
   let out, push = Lwt_stream.create () in
+  let drain_upstream () =
+    Lwt.catch (fun () -> Cohttp_lwt.Body.drain_body body) (fun _ -> Lwt.return_unit)
+  in
   Lwt.async (fun () ->
     Lwt.catch
       (fun () ->
+        (* Safe to race Lwt_stream.get against a timeout: cohttp's body feed
+           uses Lwt.protected, so Lwt.pick's cancellation can't corrupt the
+           stream state. *)
         let rec loop () =
           match%lwt
             Lwt.pick
@@ -71,8 +69,7 @@ let wrap_body_with_idle_timeout ~timeouts ~provider body =
         push None;
         Lwt.return_unit)
       (fun exn ->
-        (* Always close the consumer stream so no one hangs, then re-raise
-           to Lwt.async_exception_hook so the failure remains visible. *)
         push None;
+        let%lwt () = drain_upstream () in
         Lwt.fail exn));
   out
