@@ -7,9 +7,11 @@ type t = {
   fetch : fetch_fn option;
   organization : string option;
   project : string option;
+  timeouts : Ai_provider.Http_timeouts.t;
 }
 
-let create ?api_key ?base_url ?(headers = []) ?fetch ?organization ?project () =
+let create ?api_key ?base_url ?(headers = []) ?fetch ?organization ?project
+  ?(timeouts = Ai_provider.Http_timeouts.default) () =
   let api_key =
     match api_key with
     | Some _ -> api_key
@@ -20,7 +22,7 @@ let create ?api_key ?base_url ?(headers = []) ?fetch ?organization ?project () =
     | Some url -> url
     | None -> "https://api.openai.com/v1"
   in
-  { api_key; base_url; default_headers = headers; fetch; organization; project }
+  { api_key; base_url; default_headers = headers; fetch; organization; project; timeouts }
 
 let api_key_exn t =
   match t.api_key with

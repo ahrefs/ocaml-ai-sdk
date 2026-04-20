@@ -10,6 +10,7 @@ type t = {
   fetch : fetch_fn option;
   organization : string option;
   project : string option;
+  timeouts : Ai_provider.Http_timeouts.t;
 }
 
 (** Create config. [api_key] defaults to [OPENAI_API_KEY] env var.
@@ -21,6 +22,7 @@ val create :
   ?fetch:fetch_fn ->
   ?organization:string ->
   ?project:string ->
+  ?timeouts:Ai_provider.Http_timeouts.t ->
   unit ->
   t
 

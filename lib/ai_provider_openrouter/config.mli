@@ -17,6 +17,7 @@ type t = {
   compatibility : compatibility;
   api_keys : (string * string) list;
   extra_body : (string * Yojson.Basic.t) list;
+  timeouts : Ai_provider.Http_timeouts.t;
 }
 
 (** Create config. [api_key] defaults to [OPENROUTER_API_KEY] env var.
@@ -35,6 +36,7 @@ val create :
   ?compatibility:compatibility ->
   ?api_keys:(string * string) list ->
   ?extra_body:(string * Yojson.Basic.t) list ->
+  ?timeouts:Ai_provider.Http_timeouts.t ->
   unit ->
   t
 

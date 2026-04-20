@@ -8,11 +8,12 @@ type t = {
   base_url : string;
   default_headers : (string * string) list;
   fetch : fetch_fn option;
+  timeouts : Ai_provider.Http_timeouts.t;
 }
 
 (** Create config. [api_key] defaults to [ANTHROPIC_API_KEY] env var.
     [base_url] defaults to ["https://api.anthropic.com/v1"]. *)
-val create : ?api_key:string -> ?base_url:string -> ?headers:(string * string) list -> ?fetch:fetch_fn -> unit -> t
+val create : ?api_key:string -> ?base_url:string -> ?headers:(string * string) list -> ?fetch:fetch_fn -> ?timeouts:Ai_provider.Http_timeouts.t -> unit -> t
 
 (** Returns the API key or raises [Failure] if none configured. *)
 val api_key_exn : t -> string

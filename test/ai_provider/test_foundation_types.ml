@@ -91,6 +91,62 @@ let test_make_api_error_override () =
   let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:500 ~body:"error" ~is_retryable:false () in
   (check bool) "override to non-retryable" false e.is_retryable
 
+let test_timeout_request_headers_not_retryable () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"openai"
+      ~phase:Request_headers
+      ~elapsed_s:600.0
+      ~limit_s:600.0
+  in
+  (check bool) "request_headers not retryable" false e.is_retryable
+
+let test_timeout_stream_idle_retryable () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"anthropic"
+      ~phase:Stream_idle
+      ~elapsed_s:300.0
+      ~limit_s:300.0
+  in
+  (check bool) "stream_idle retryable" true e.is_retryable
+
+(* String-contains helper; used to assert phase/elapsed/limit appear in
+   the formatted message. *)
+let contains ~sub s =
+  let sub_len = String.length sub in
+  let s_len = String.length s in
+  let rec loop i =
+    i + sub_len <= s_len
+    && (String.equal (String.sub s i sub_len) sub || loop (i + 1))
+  in
+  loop 0
+
+let test_timeout_to_string_formats_all_fields () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"openai"
+      ~phase:Request_headers
+      ~elapsed_s:600.0
+      ~limit_s:600.0
+  in
+  let s = Ai_provider.Provider_error.to_string e in
+  (check bool) "mentions provider" true (contains ~sub:"openai" s);
+  (check bool) "mentions phase label" true (contains ~sub:"response headers" s);
+  (check bool) "mentions elapsed" true (contains ~sub:"600.0s" s);
+  (check bool) "mentions limit prefix" true (contains ~sub:"limit: 600.0" s)
+
+let test_timeout_to_string_uses_stream_phase_label () =
+  let e =
+    Ai_provider.Provider_error.make_timeout
+      ~provider:"anthropic"
+      ~phase:Stream_idle
+      ~elapsed_s:300.0
+      ~limit_s:300.0
+  in
+  let s = Ai_provider.Provider_error.to_string e in
+  (check bool) "uses streaming body chunk label" true (contains ~sub:"streaming body chunk" s)
+
 let () =
   run "Foundation_types"
     [
@@ -117,5 +173,9 @@ let () =
           test_case "409_default_retryable" `Quick test_make_api_error_409_default_retryable;
           test_case "400_default_not_retryable" `Quick test_make_api_error_400_default_not_retryable;
           test_case "override" `Quick test_make_api_error_override;
+          test_case "timeout request_headers not retryable" `Quick test_timeout_request_headers_not_retryable;
+          test_case "timeout stream_idle retryable" `Quick test_timeout_stream_idle_retryable;
+          test_case "timeout to_string formats all fields" `Quick test_timeout_to_string_formats_all_fields;
+          test_case "timeout to_string uses stream phase label" `Quick test_timeout_to_string_uses_stream_phase_label;
         ] );
     ]
