@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## 0.3 — 2026-04-20
 
 ### Anthropic provider (`ai_provider_anthropic`)
 
