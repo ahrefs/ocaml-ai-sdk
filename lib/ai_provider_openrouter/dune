@@ -9,7 +9,6 @@
   cohttp-lwt-unix
   yojson
   melange-json-native
-  devkit
   base64)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
