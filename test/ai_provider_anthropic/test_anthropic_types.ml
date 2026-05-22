@@ -36,7 +36,8 @@ let test_ephemeral () =
 let test_ttl_1h_serializes () =
   let json = Ai_provider_anthropic.Cache_control.to_json Ai_provider_anthropic.Cache_control.ephemeral_1h in
   match json with
-  | `Assoc fields -> (check (option string)) "ttl" (Some "1h") (List.assoc_opt "ttl" fields |> Option.map Yojson.Basic.Util.to_string)
+  | `Assoc fields ->
+    (check (option string)) "ttl" (Some "1h") (List.assoc_opt "ttl" fields |> Option.map Yojson.Basic.Util.to_string)
   | _ -> fail "expected JSON object"
 
 let test_validator_caps_at_four () =

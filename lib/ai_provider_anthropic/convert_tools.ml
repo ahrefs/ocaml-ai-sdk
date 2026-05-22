@@ -30,7 +30,8 @@ let convert_single_tool ~validator (tool : Ai_provider.Tool.t) : anthropic_tool 
     name = tool.name;
     description = tool.description;
     input_schema = tool.parameters;
-    cache_control = Cache_control_validator.take validator (Cache_control_options.get_cache_control tool.provider_options);
+    cache_control =
+      Cache_control_validator.take validator (Cache_control_options.get_cache_control tool.provider_options);
   }
 
 let convert_tools ?validator ~tools ~tool_choice () =

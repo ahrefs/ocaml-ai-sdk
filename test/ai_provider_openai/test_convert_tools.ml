@@ -20,12 +20,7 @@ let test_single_tool () =
 
 let test_strict_false () =
   let tool : Ai_provider.Tool.t =
-    {
-      name = "test";
-      description = None;
-      parameters = `Assoc [];
-      provider_options = Ai_provider.Provider_options.empty;
-    }
+    { name = "test"; description = None; parameters = `Assoc []; provider_options = Ai_provider.Provider_options.empty }
   in
   let result = Ai_provider_openai.Convert_tools.convert_tools ~strict:false [ tool ] in
   match result with
