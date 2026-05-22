@@ -1,10 +1,12 @@
 (** Prompt caching demo.
 
-    Sends two sequential generate_text calls with the same large system
-    prompt. The first call writes the system prompt to Anthropic's
-    ephemeral cache; the second call reads it back. We print the
-    [usage] for each call so the cache_creation / cache_read columns are
-    visible side by side.
+    Three sequential calls with the same large system prompt:
+    - Call 1: [generate_text] writes the system prompt to Anthropic's
+      ephemeral cache.
+    - Call 2: [generate_text] reads it back.
+    - Call 3: [stream_text] also reads it back — proving the streaming
+      result surfaces the same cache metrics as the non-streaming path
+      via [Stream_text_result.provider_metadata].
 
     The system prompt has to clear the model's minimum cacheable token
     threshold (4,096 tokens for Sonnet 4.6 / Opus, 1,024 for older
@@ -37,11 +39,15 @@ let cached_system_prompt =
       "Answer concisely. One sentence per response.";
     ]
 
-let print_usage ~label (result : Ai_provider.Generate_result.t) =
+let cache_provider_options =
+  Ai_provider_anthropic.Cache_control_options.with_cache_control
+    ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
+
+let print_metrics ~label ~input_tokens ~output_tokens ~provider_metadata =
   Printf.printf "\n=== %s ===\n" label;
-  Printf.printf "input_tokens:           %d\n" result.usage.input_tokens;
-  Printf.printf "output_tokens:          %d\n" result.usage.output_tokens;
-  (match Ai_provider_anthropic.Convert_usage.of_provider_metadata result.provider_metadata with
+  Printf.printf "input_tokens:           %d\n" input_tokens;
+  Printf.printf "output_tokens:          %d\n" output_tokens;
+  match Option.bind provider_metadata Ai_provider_anthropic.Convert_usage.of_provider_metadata with
   | None -> Printf.printf "(no anthropic cache metrics on this response)\n"
   | Some u ->
     let opt label v =
@@ -50,36 +56,50 @@ let print_usage ~label (result : Ai_provider.Generate_result.t) =
       | Some n -> Printf.printf "%-24s%d\n" (label ^ ":") n
     in
     opt "cache_creation_input" u.cache_creation_input_tokens;
-    opt "cache_read_input" u.cache_read_input_tokens)
-
-let user_message text =
-  Ai_provider.Prompt.User
-    { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] }
-
-let system_message_with_cache content =
-  let provider_options =
-    Ai_provider_anthropic.Cache_control_options.with_cache_control
-      ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
-  in
-  Ai_provider.Prompt.System { content; provider_options }
-
-let run ~model ~question =
-  let opts =
-    Ai_provider.Call_options.default ~prompt:[ system_message_with_cache cached_system_prompt; user_message question ]
-  in
-  Ai_provider.Language_model.generate model opts
+    opt "cache_read_input" u.cache_read_input_tokens
 
 let () =
   Lwt_main.run
     begin
       let open Ai_provider_anthropic.Model_catalog in
       let model = Ai_provider_anthropic.model (to_model_id Claude_sonnet_4_6) in
-      Printf.printf "Sending request 1 (cold cache)...\n%!";
-      let%lwt r1 = run ~model ~question:"In one sentence, what should I do first?" in
-      print_usage ~label:"Request 1 (cache write expected)" r1;
-      Printf.printf "\nSending request 2 (warm cache)...\n%!";
-      let%lwt r2 = run ~model ~question:"In one sentence, what should I do second?" in
-      print_usage ~label:"Request 2 (cache read expected)" r2;
+
+      Printf.printf "Sending request 1 via generate_text (cold cache)...\n%!";
+      let%lwt r1 =
+        Ai_core.Generate_text.generate_text ~model ~system:cached_system_prompt
+          ~system_provider_options:cache_provider_options ~prompt:"In one sentence, what should I do first?" ()
+      in
+      let last_step1 = List.nth r1.steps (List.length r1.steps - 1) in
+      print_metrics ~label:"Request 1 (cache write expected)" ~input_tokens:r1.usage.input_tokens
+        ~output_tokens:r1.usage.output_tokens ~provider_metadata:last_step1.provider_metadata;
+
+      Printf.printf "\nSending request 2 via generate_text (warm cache)...\n%!";
+      let%lwt r2 =
+        Ai_core.Generate_text.generate_text ~model ~system:cached_system_prompt
+          ~system_provider_options:cache_provider_options ~prompt:"In one sentence, what should I do second?" ()
+      in
+      let last_step2 = List.nth r2.steps (List.length r2.steps - 1) in
+      print_metrics ~label:"Request 2 (cache read expected)" ~input_tokens:r2.usage.input_tokens
+        ~output_tokens:r2.usage.output_tokens ~provider_metadata:last_step2.provider_metadata;
+
+      Printf.printf "\nSending request 3 via stream_text (warm cache, streaming)...\n%!";
+      let stream_result =
+        Ai_core.Stream_text.stream_text ~model ~system:cached_system_prompt
+          ~system_provider_options:cache_provider_options ~prompt:"In one sentence, what should I do third?" ()
+      in
+      let%lwt () =
+        Lwt_stream.iter
+          (fun s ->
+            print_string s;
+            flush stdout)
+          stream_result.text_stream
+      in
+      Printf.printf "\n%!";
+      let%lwt usage = stream_result.usage in
+      let%lwt provider_metadata = stream_result.provider_metadata in
+      print_metrics ~label:"Request 3 (streaming, cache read expected)" ~input_tokens:usage.input_tokens
+        ~output_tokens:usage.output_tokens ~provider_metadata;
+
       Printf.printf "\n%!";
       Lwt.return_unit
     end
