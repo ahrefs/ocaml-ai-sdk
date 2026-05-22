@@ -145,7 +145,7 @@ let test_generate_with_system () =
     Ai_provider.Call_options.default
       ~prompt:
         [
-          Ai_provider.Prompt.System { content = "Be helpful" };
+          Ai_provider.Prompt.System { content = "Be helpful"; provider_options = Ai_provider.Provider_options.empty };
           Ai_provider.Prompt.User
             { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] };
         ]
@@ -258,7 +258,7 @@ let test_object_json_preserves_existing_system () =
       (Ai_provider.Call_options.default
          ~prompt:
            [
-             Ai_provider.Prompt.System { content = "Be helpful" };
+             Ai_provider.Prompt.System { content = "Be helpful"; provider_options = Ai_provider.Provider_options.empty };
              Ai_provider.Prompt.User
                { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] };
            ])

@@ -3,7 +3,7 @@ let po = Ai_provider.Provider_options.empty
 let messages_of_prompt ?system ~prompt () =
   let system_msgs =
     match system with
-    | Some s -> [ Ai_provider.Prompt.System { content = s } ]
+    | Some s -> [ Ai_provider.Prompt.System { content = s; provider_options = Ai_provider.Provider_options.empty } ]
     | None -> []
   in
   system_msgs @ [ Ai_provider.Prompt.User { content = [ Text { text = prompt; provider_options = po } ] } ]
@@ -11,14 +11,14 @@ let messages_of_prompt ?system ~prompt () =
 let messages_of_string_messages ?system ~messages () =
   let system_msgs =
     match system with
-    | Some s -> [ Ai_provider.Prompt.System { content = s } ]
+    | Some s -> [ Ai_provider.Prompt.System { content = s; provider_options = Ai_provider.Provider_options.empty } ]
     | None -> []
   in
   let converted =
     List.filter_map
       (fun (role, content) ->
         match role with
-        | "system" -> Some (Ai_provider.Prompt.System { content })
+        | "system" -> Some (Ai_provider.Prompt.System { content; provider_options = po })
         | "user" -> Some (Ai_provider.Prompt.User { content = [ Text { text = content; provider_options = po } ] })
         | "assistant" ->
           Some (Ai_provider.Prompt.Assistant { content = [ Text { text = content; provider_options = po } ] })
@@ -71,7 +71,7 @@ let resolve_messages ?system ?prompt ?messages () =
     | None, None -> failwith "Must provide either ~prompt or ~messages"
   in
   match system with
-  | Some s -> Ai_provider.Prompt.System { content = s } :: base
+  | Some s -> Ai_provider.Prompt.System { content = s; provider_options = Ai_provider.Provider_options.empty } :: base
   | None -> base
 
 let make_call_options ~messages ~tools ?tool_choice ?(mode = Ai_provider.Mode.Regular) ?max_output_tokens ?temperature

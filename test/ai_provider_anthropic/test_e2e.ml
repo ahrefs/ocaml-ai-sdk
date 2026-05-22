@@ -72,7 +72,7 @@ let make_opts ?(system = "You are a helpful assistant") text =
   Ai_provider.Call_options.default
     ~prompt:
       [
-        Ai_provider.Prompt.System { content = system };
+        Ai_provider.Prompt.System { content = system; provider_options = Ai_provider.Provider_options.empty };
         Ai_provider.Prompt.User { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] };
       ]
 

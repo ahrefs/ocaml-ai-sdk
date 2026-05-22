@@ -7,7 +7,7 @@ let first_exn = function
   | [] -> failwith "expected non-empty list"
 
 let test_system_message () =
-  let msgs = [ Ai_provider.Prompt.System { content = "You are helpful" } ] in
+  let msgs = [ Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty } ] in
   let result, warnings = Ai_provider_openai.Convert_prompt.convert_messages ~system_message_mode:System msgs in
   (check int) "warnings" 0 (List.length warnings);
   (check int) "messages" 1 (List.length result);
@@ -20,7 +20,7 @@ let test_system_message () =
           | _ -> [])))
 
 let test_developer_message () =
-  let msgs = [ Ai_provider.Prompt.System { content = "Instructions" } ] in
+  let msgs = [ Ai_provider.Prompt.System { content = "Instructions"; provider_options = Ai_provider.Provider_options.empty } ] in
   let result, _warnings = Ai_provider_openai.Convert_prompt.convert_messages ~system_message_mode:Developer msgs in
   let json = Ai_provider_openai.Convert_prompt.openai_message_to_json (first_exn result) in
   (check string) "role" {|"developer"|}
@@ -31,7 +31,7 @@ let test_developer_message () =
           | _ -> [])))
 
 let test_remove_system_message () =
-  let msgs = [ Ai_provider.Prompt.System { content = "Ignored" } ] in
+  let msgs = [ Ai_provider.Prompt.System { content = "Ignored"; provider_options = Ai_provider.Provider_options.empty } ] in
   let result, warnings = Ai_provider_openai.Convert_prompt.convert_messages ~system_message_mode:Remove msgs in
   (check int) "messages" 0 (List.length result);
   (check int) "warnings" 1 (List.length warnings)

@@ -1,7 +1,7 @@
 open Alcotest
 
 let test_default_options () =
-  let prompt = [ Ai_provider.Prompt.System { content = "You are helpful" } ] in
+  let prompt = [ Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty } ] in
   let opts = Ai_provider.Call_options.default ~prompt in
   (check int) "no tools" 0 (List.length opts.tools);
   (check bool) "no tool_choice" true (Option.is_none opts.tool_choice);

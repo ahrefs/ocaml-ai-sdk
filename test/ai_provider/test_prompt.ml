@@ -1,7 +1,7 @@
 open Alcotest
 
 let test_system_message () =
-  let msg = Ai_provider.Prompt.System { content = "You are helpful" } in
+  let msg = Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty } in
   match msg with
   | Ai_provider.Prompt.System { content } -> (check string) "content" "You are helpful" content
   | _ -> fail "expected System"

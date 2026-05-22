@@ -17,30 +17,31 @@ let po = Ai_provider.Provider_options.empty
 let test_extract_system_single () =
   let msgs =
     [
-      Ai_provider.Prompt.System { content = "You are helpful" };
+      Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty };
       Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] };
     ]
   in
-  let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  (check (option string)) "system" (Some "You are helpful") system;
+  let parts, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
+  (check int) "1 system part" 1 (List.length parts);
+  (check string) "system text" "You are helpful" (fst (List.hd parts));
   (check int) "rest count" 1 (List.length rest)
 
 let test_extract_system_multiple () =
   let msgs =
     [
-      Ai_provider.Prompt.System { content = "Part 1" };
-      Ai_provider.Prompt.System { content = "Part 2" };
+      Ai_provider.Prompt.System { content = "Part 1"; provider_options = Ai_provider.Provider_options.empty };
+      Ai_provider.Prompt.System { content = "Part 2"; provider_options = Ai_provider.Provider_options.empty };
       Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] };
     ]
   in
-  let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  (check (option string)) "system" (Some "Part 1\nPart 2") system;
+  let parts, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
+  (check int) "2 parts" 2 (List.length parts);
   (check int) "rest count" 1 (List.length rest)
 
 let test_extract_system_none () =
   let msgs = [ Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] } ] in
-  let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  (check (option string)) "no system" None system;
+  let parts, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
+  (check int) "0 parts" 0 (List.length parts);
   (check int) "rest count" 1 (List.length rest)
 
 (* convert_messages tests *)
@@ -174,6 +175,17 @@ let test_tool_result_cache_control_propagates () =
   | [ { content = [ A_tool_result { cache_control = Some _; _ } ]; _ } ] -> ()
   | _ -> fail "expected A_tool_result with cache_control set"
 
+let test_system_to_json_switches_to_array_with_cache_control () =
+  let po =
+    Ai_provider_anthropic.Cache_control_options.with_cache_control
+      ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
+  in
+  match Ai_provider_anthropic.Convert_prompt.system_to_json [ "S", po ] with
+  | Some (`List [ `Assoc fields ]) ->
+    (check bool) "has cache_control" true (List.mem_assoc "cache_control" fields);
+    (check bool) "has text" true (List.mem_assoc "text" fields)
+  | _ -> fail "expected array-of-blocks form when cache_control is set"
+
 let test_text_with_cache_control () =
   let cc = Ai_provider_anthropic.Cache_control.ephemeral in
   let content = Ai_provider_anthropic.Convert_prompt.A_text { text = "cached"; cache_control = Some cc } in
@@ -191,6 +203,7 @@ let () =
           test_case "single" `Quick test_extract_system_single;
           test_case "multiple" `Quick test_extract_system_multiple;
           test_case "none" `Quick test_extract_system_none;
+          test_case "to_json_array_when_cache_control" `Quick test_system_to_json_switches_to_array_with_cache_control;
         ] );
       ( "convert_messages",
         [

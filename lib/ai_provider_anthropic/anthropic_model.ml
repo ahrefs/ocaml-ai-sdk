@@ -31,7 +31,8 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     |> Stdlib.Option.value ~default:Anthropic_options.default
   in
   let warnings = check_unsupported ~anthropic_opts opts in
-  let system, remaining = Convert_prompt.extract_system opts.prompt in
+  let system_parts, remaining = Convert_prompt.extract_system opts.prompt in
+  let system = Convert_prompt.system_to_json system_parts in
   let messages = Convert_prompt.convert_messages remaining in
   (* Route Object_json per-model: native output_config where supported, synthetic [json]
      tool with forced tool_choice otherwise — matches upstream @ai-sdk/anthropic. *)

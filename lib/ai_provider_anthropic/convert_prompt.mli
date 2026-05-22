@@ -53,8 +53,17 @@ type anthropic_message = {
   content : anthropic_content list;
 }
 
-(** Extract system messages (concatenated) and return remaining messages. *)
-val extract_system : Ai_provider.Prompt.message list -> string option * Ai_provider.Prompt.message list
+(** Extract system messages with their per-message provider_options and return
+    remaining messages. The order matches the input. *)
+val extract_system :
+  Ai_provider.Prompt.message list ->
+  (string * Ai_provider.Provider_options.t) list * Ai_provider.Prompt.message list
+
+(** Build the wire JSON for the [system] field on the Anthropic request.
+    Returns [None] when no system messages are present. Keeps the string form
+    when no message has [cache_control]; switches to the array-of-blocks form
+    otherwise (Anthropic requires array form for [cache_control] on system). *)
+val system_to_json : (string * Ai_provider.Provider_options.t) list -> Yojson.Basic.t option
 
 (** Convert SDK messages to Anthropic format with message grouping
     for alternating user/assistant roles. *)

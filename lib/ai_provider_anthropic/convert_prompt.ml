@@ -51,22 +51,18 @@ type anthropic_message = {
   content : anthropic_content list;
 }
 
-(* Extract system messages and return the rest *)
+(* Extract system messages with per-message provider_options and return the rest.
+   Each entry is (content, provider_options); the order matches the input. *)
 let extract_system messages =
   let system_parts, rest =
     List.partition_map
       (fun (msg : Ai_provider.Prompt.message) ->
         match msg with
-        | System { content } -> Left content
+        | System { content; provider_options } -> Left (content, provider_options)
         | User _ | Assistant _ | Tool _ -> Right msg)
       messages
   in
-  let system =
-    match system_parts with
-    | [] -> None
-    | parts -> Some (String.concat "\n" parts)
-  in
-  system, rest
+  system_parts, rest
 
 (* Get cache control from provider options. Exposed for tests. *)
 let get_cc po = Cache_control_options.get_cache_control po
@@ -195,6 +191,24 @@ type text_content_json = {
   cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
+
+(* Build the wire JSON for the system field. When no block has cache_control,
+   keep the legacy string form ("system": "...joined..."); otherwise emit the
+   array-of-blocks form that Anthropic requires for cache_control on system. *)
+let system_to_json parts =
+  match parts with
+  | [] -> None
+  | _ :: _ ->
+    let any_cc = List.exists (fun (_, po) -> Option.is_some (get_cc po)) parts in
+    (match any_cc with
+    | false -> Some (`String (String.concat "\n" (List.map fst parts)))
+    | true ->
+      let blocks =
+        List.map
+          (fun (text, po) -> text_content_json_to_json { type_ = "text"; text; cache_control = get_cc po })
+          parts
+      in
+      Some (`List blocks))
 
 type source_content_json = {
   type_ : string; [@json.key "type"]

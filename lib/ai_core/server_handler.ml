@@ -221,7 +221,7 @@ let parse_messages_from_body body_json =
               | _ -> None)
             |> String.concat ""
           in
-          [ Ai_provider.Prompt.System { content = text } ]
+          [ Ai_provider.Prompt.System { content = text; provider_options = Ai_provider.Provider_options.empty } ]
         | Some User ->
           let content = List.filter_map parse_user_part msg.parts in
           (match content with
@@ -330,7 +330,7 @@ let handle_chat ~model ?tools ?max_steps ?max_retries ?stop_when ?system ?output
     let messages = parse_messages_from_body body_json in
     let messages =
       match system with
-      | Some s -> Ai_provider.Prompt.System { content = s } :: messages
+      | Some s -> Ai_provider.Prompt.System { content = s; provider_options = Ai_provider.Provider_options.empty } :: messages
       | None -> messages
     in
     let pending_tool_approvals = collect_pending_tool_approvals body_json in

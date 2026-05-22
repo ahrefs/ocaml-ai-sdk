@@ -67,8 +67,8 @@ let test_body_omits_none_fields () =
 
 let test_body_with_system () =
   let body =
-    Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~system:"Be helpful"
-      ()
+    Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[]
+      ~system:(`String "Be helpful") ()
   in
   let r = request_fields_of_json (Ai_provider_anthropic.Anthropic_api.request_body_to_json body) in
   (check (option string)) "system" (Some "Be helpful") r.system

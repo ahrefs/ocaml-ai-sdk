@@ -8,7 +8,7 @@ let json_field key json =
 let test_convert_system_message () =
   let messages =
     Ai_provider_openrouter.Convert_prompt.convert_messages ~system_message_mode:System
-      [ Ai_provider.Prompt.System { content = "You are helpful" } ]
+      [ Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty } ]
   in
   let msgs, warnings = messages in
   (check int) "one message" 1 (List.length msgs);
