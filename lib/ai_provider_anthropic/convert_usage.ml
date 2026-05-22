@@ -27,3 +27,4 @@ let to_usage u =
 type _ Ai_provider.Provider_options.key += Cache_metrics : anthropic_usage Ai_provider.Provider_options.key
 
 let to_provider_metadata u = Ai_provider.Provider_options.set Cache_metrics u Ai_provider.Provider_options.empty
+let of_provider_metadata opts = Ai_provider.Provider_options.find Cache_metrics opts
