@@ -18,9 +18,6 @@ val ephemeral : t
 (** Ephemeral cache control with explicit 1-hour TTL. *)
 val ephemeral_1h : t
 
-val breakpoint_to_json : breakpoint -> Yojson.Basic.t
-val breakpoint_of_json : Yojson.Basic.t -> breakpoint
-
 val to_json : t -> Yojson.Basic.t
 val of_json : Yojson.Basic.t -> t
 
