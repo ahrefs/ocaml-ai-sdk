@@ -200,10 +200,12 @@ type text_content_json = {
 }
 [@@deriving to_json]
 
-(* Build the wire JSON for the system field. When no block has cache_control,
-   keep the legacy string form ("system": "...joined..."); otherwise emit the
-   array-of-blocks form that Anthropic requires for cache_control on system.
-   The validator is consulted to enforce the 4-breakpoint limit. *)
+(* Build the wire JSON for the system field. Always emit the array-of-blocks
+   form, mirroring upstream @ai-sdk/anthropic's [convertToAnthropicPrompt]
+   which unconditionally maps each system message to its own text block. The
+   array form keeps the wire shape consistent regardless of cache_control,
+   and avoids divergence between the cached and uncached paths. The validator
+   is consulted to enforce the 4-breakpoint limit. *)
 let system_to_json ?validator parts =
   let validator =
     match validator with
@@ -213,18 +215,14 @@ let system_to_json ?validator parts =
   match parts with
   | [] -> None
   | _ :: _ ->
-    let any_cc = List.exists (fun (_, po) -> Option.is_some (get_cc po)) parts in
-    (match any_cc with
-    | false -> Some (`String (String.concat "\n" (List.map fst parts)))
-    | true ->
-      let blocks =
-        List.map
-          (fun (text, po) ->
-            let cache_control = Cache_control_validator.take validator (get_cc po) in
-            text_content_json_to_json { type_ = "text"; text; cache_control })
-          parts
-      in
-      Some (`List blocks))
+    let blocks =
+      List.map
+        (fun (text, po) ->
+          let cache_control = Cache_control_validator.take validator (get_cc po) in
+          text_content_json_to_json { type_ = "text"; text; cache_control })
+        parts
+    in
+    Some (`List blocks)
 
 type source_content_json = {
   type_ : string; [@json.key "type"]

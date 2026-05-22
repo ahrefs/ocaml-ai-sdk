@@ -175,7 +175,21 @@ let test_tool_result_cache_control_propagates () =
   | [ { content = [ A_tool_result { cache_control = Some _; _ } ]; _ } ] -> ()
   | _ -> fail "expected A_tool_result with cache_control set"
 
-let test_system_to_json_switches_to_array_with_cache_control () =
+(* Upstream @ai-sdk/anthropic always emits the system field as an array of text
+   blocks (one per system message). The OCaml provider matches that wire shape
+   so the cached and uncached paths stay identical. *)
+let test_system_to_json_always_array () =
+  match
+    Ai_provider_anthropic.Convert_prompt.system_to_json
+      [ "A", Ai_provider.Provider_options.empty; "B", Ai_provider.Provider_options.empty ]
+  with
+  | Some (`List [ `Assoc a; `Assoc b ]) ->
+    (check string) "first text" "A" (Yojson.Basic.Util.to_string (List.assoc "text" a));
+    (check string) "second text" "B" (Yojson.Basic.Util.to_string (List.assoc "text" b));
+    (check bool) "no cache_control without po" true (not (List.mem_assoc "cache_control" a))
+  | _ -> fail "expected array-of-blocks form unconditionally"
+
+let test_system_to_json_carries_cache_control () =
   let po =
     Ai_provider_anthropic.Cache_control_options.with_cache_control
       ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
@@ -203,7 +217,8 @@ let () =
           test_case "single" `Quick test_extract_system_single;
           test_case "multiple" `Quick test_extract_system_multiple;
           test_case "none" `Quick test_extract_system_none;
-          test_case "to_json_array_when_cache_control" `Quick test_system_to_json_switches_to_array_with_cache_control;
+          test_case "to_json_always_array" `Quick test_system_to_json_always_array;
+          test_case "to_json_carries_cache_control" `Quick test_system_to_json_carries_cache_control;
         ] );
       ( "convert_messages",
         [

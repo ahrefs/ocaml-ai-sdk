@@ -21,13 +21,22 @@ type tool_choice_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
+type system_block_json = {
+  type_ : string; [@json.key "type"]
+  text : string;
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
+
 type request_body_json = {
-  system : string option; [@json.default None]
+  system : system_block_json list option; [@json.default None]
   output_config : output_config_json option; [@json.default None]
   tools : tool_json list option; [@json.default None]
   tool_choice : tool_choice_json option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
+
+(* Helper for tests: concatenate text from system blocks like Anthropic does. *)
+let system_text_of_blocks blocks = List.map (fun (b : system_block_json) -> b.text) blocks |> String.concat ""
 
 let mock_text_response =
   Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
@@ -135,8 +144,8 @@ let test_generate_with_system () =
     fetch_called := true;
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    (* Verify system was included in request *)
-    (check (option string)) "system in body" (Some "Be helpful") r.system;
+    (* Verify system was included in request — upstream array-of-blocks form. *)
+    (check (option string)) "system in body" (Some "Be helpful") (Option.map system_text_of_blocks r.system);
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
@@ -159,7 +168,7 @@ let test_object_json_no_schema () =
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    (check (option string)) "no system injected" None r.system;
+    (check (option string)) "no system injected" None (Option.map system_text_of_blocks r.system);
     (check bool) "no output_config" true (Option.is_none r.output_config);
     (check bool) "no synthetic tool" true (Option.is_none r.tools);
     Lwt.return mock_text_response
@@ -180,7 +189,7 @@ let test_object_json_with_schema_native () =
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    (check (option string)) "no system injected" None r.system;
+    (check (option string)) "no system injected" None (Option.map system_text_of_blocks r.system);
     let oc =
       match r.output_config with
       | Some oc -> oc
@@ -211,7 +220,7 @@ let assert_fallback_path model_id () =
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    (check (option string)) "no system injected" None r.system;
+    (check (option string)) "no system injected" None (Option.map system_text_of_blocks r.system);
     (check bool) "no output_config" true (Option.is_none r.output_config);
     let tools =
       match r.tools with
@@ -248,7 +257,7 @@ let test_object_json_preserves_existing_system () =
   let fetch ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
-    (check (option string)) "system unchanged" (Some "Be helpful") r.system;
+    (check (option string)) "system unchanged" (Some "Be helpful") (Option.map system_text_of_blocks r.system);
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
