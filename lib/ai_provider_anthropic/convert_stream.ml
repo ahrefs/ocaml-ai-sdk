@@ -120,15 +120,28 @@ let transform events ~warnings =
               Hashtbl.remove blocks index
             | "message_delta" ->
               let { delta; usage } = message_delta_event_of_json json in
-              let usage =
+              let usage_ai, anthropic_usage =
                 match usage with
-                | Some u -> Convert_usage.to_usage u
-                | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
+                | Some u -> Convert_usage.to_usage u, Some u
+                | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }, None
               in
+              (* Surface Anthropic cache token metrics to streaming consumers, matching
+                 the non-streaming path. Only emit when cache fields are present, so
+                 plain-non-cached streams keep their existing chunk sequence. *)
+              let has_cache_signal (u : Convert_usage.anthropic_usage) =
+                Option.is_some u.cache_read_input_tokens
+                || Option.is_some u.cache_creation_input_tokens
+                || Option.is_some u.cache_creation
+              in
+              (match anthropic_usage with
+              | Some u when has_cache_signal u ->
+                push
+                  (Some (Ai_provider.Stream_part.Provider_metadata { metadata = Convert_usage.to_provider_metadata u }))
+              | _ -> ());
               push
                 (Some
                    (Ai_provider.Stream_part.Finish
-                      { finish_reason = Convert_response.map_stop_reason delta.stop_reason; usage }))
+                      { finish_reason = Convert_response.map_stop_reason delta.stop_reason; usage = usage_ai }))
             | "message_stop" | "ping" -> ()
             | "error" ->
               let error_type, message =

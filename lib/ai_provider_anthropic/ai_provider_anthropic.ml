@@ -2,6 +2,7 @@ module Config = Config
 module Model_catalog = Model_catalog
 module Thinking = Thinking
 module Cache_control = Cache_control
+module Cache_control_validator = Cache_control_validator
 module Anthropic_options = Anthropic_options
 module Cache_control_options = Cache_control_options
 module Convert_prompt = Convert_prompt

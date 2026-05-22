@@ -5,12 +5,11 @@ type structured_output_mode =
 
 type t = {
   thinking : Thinking.t option;
-  cache_control : Cache_control.t option;
   tool_streaming : bool;
   structured_output_mode : structured_output_mode;
 }
 
-let default = { thinking = None; cache_control = None; tool_streaming = true; structured_output_mode = Auto }
+let default = { thinking = None; tool_streaming = true; structured_output_mode = Auto }
 
 type _ Ai_provider.Provider_options.key += Anthropic : t Ai_provider.Provider_options.key
 

@@ -33,12 +33,32 @@ let test_ephemeral () =
   match cc.cache_type with
   | Ai_provider_anthropic.Cache_control.Ephemeral -> ()
 
+let test_ttl_1h_serializes () =
+  let json = Ai_provider_anthropic.Cache_control.to_json Ai_provider_anthropic.Cache_control.ephemeral_1h in
+  match json with
+  | `Assoc fields -> (check (option string)) "ttl" (Some "1h") (List.assoc_opt "ttl" fields |> Option.map Yojson.Basic.Util.to_string)
+  | _ -> fail "expected JSON object"
+
+let test_validator_caps_at_four () =
+  let v = Ai_provider_anthropic.Cache_control_validator.create () in
+  let cc = Some Ai_provider_anthropic.Cache_control.ephemeral in
+  let r1 = Ai_provider_anthropic.Cache_control_validator.take v cc in
+  let r2 = Ai_provider_anthropic.Cache_control_validator.take v cc in
+  let r3 = Ai_provider_anthropic.Cache_control_validator.take v cc in
+  let r4 = Ai_provider_anthropic.Cache_control_validator.take v cc in
+  let r5 = Ai_provider_anthropic.Cache_control_validator.take v cc in
+  (check bool) "1st kept" true (Option.is_some r1);
+  (check bool) "4th kept" true (Option.is_some r4);
+  (check bool) "5th dropped" true (Option.is_none r5);
+  (check int) "1 warning" 1 (List.length (Ai_provider_anthropic.Cache_control_validator.warnings v));
+  ignore r2;
+  ignore r3
+
 (* Anthropic_options tests *)
 
 let test_default_options () =
   let opts = Ai_provider_anthropic.Anthropic_options.default in
   (check bool) "no thinking" true (Option.is_none opts.thinking);
-  (check bool) "no cache" true (Option.is_none opts.cache_control);
   (check bool) "tool streaming" true opts.tool_streaming;
   match opts.structured_output_mode with
   | Ai_provider_anthropic.Anthropic_options.Auto -> ()
@@ -91,7 +111,12 @@ let () =
           test_case "zero" `Quick test_budget_zero;
           test_case "exn_raises" `Quick test_budget_exn_raises;
         ] );
-      "cache_control", [ test_case "ephemeral" `Quick test_ephemeral ];
+      ( "cache_control",
+        [
+          test_case "ephemeral" `Quick test_ephemeral;
+          test_case "ttl_1h_serializes" `Quick test_ttl_1h_serializes;
+          test_case "validator_caps_at_four" `Quick test_validator_caps_at_four;
+        ] );
       ( "anthropic_options",
         [
           test_case "default" `Quick test_default_options;

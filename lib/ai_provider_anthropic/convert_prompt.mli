@@ -63,11 +63,16 @@ val extract_system :
     Returns [None] when no system messages are present. Keeps the string form
     when no message has [cache_control]; switches to the array-of-blocks form
     otherwise (Anthropic requires array form for [cache_control] on system). *)
-val system_to_json : (string * Ai_provider.Provider_options.t) list -> Yojson.Basic.t option
+val system_to_json :
+  ?validator:Cache_control_validator.t ->
+  (string * Ai_provider.Provider_options.t) list ->
+  Yojson.Basic.t option
 
 (** Convert SDK messages to Anthropic format with message grouping
-    for alternating user/assistant roles. *)
-val convert_messages : Ai_provider.Prompt.message list -> anthropic_message list
+    for alternating user/assistant roles. Pass [~validator] to share the
+    4-breakpoint budget with [system_to_json] and the tools conversion. *)
+val convert_messages :
+  ?validator:Cache_control_validator.t -> Ai_provider.Prompt.message list -> anthropic_message list
 
 (** Serialize a content block to JSON. *)
 val anthropic_content_to_json : anthropic_content -> Yojson.Basic.t

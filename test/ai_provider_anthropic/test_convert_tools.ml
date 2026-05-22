@@ -19,7 +19,7 @@ let test_single_tool () =
       };
     ]
   in
-  let result, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools ~tool_choice:None in
+  let result, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools ~tool_choice:None () in
   (match result with
   | [ tool ] ->
     (check string) "name" "search" tool.name;
@@ -29,7 +29,7 @@ let test_single_tool () =
 
 let test_tool_choice_auto () =
   let _, choice =
-    Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:(Some Ai_provider.Tool_choice.Auto)
+    Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:(Some Ai_provider.Tool_choice.Auto) ()
   in
   match choice with
   | Some Ai_provider_anthropic.Convert_tools.Tc_auto -> ()
@@ -37,7 +37,7 @@ let test_tool_choice_auto () =
 
 let test_tool_choice_required () =
   let _, choice =
-    Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:(Some Ai_provider.Tool_choice.Required)
+    Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:(Some Ai_provider.Tool_choice.Required) ()
   in
   match choice with
   | Some Ai_provider_anthropic.Convert_tools.Tc_any -> ()
@@ -55,7 +55,7 @@ let test_tool_choice_none () =
             provider_options = Ai_provider.Provider_options.empty;
           };
         ]
-      ~tool_choice:(Some Ai_provider.Tool_choice.None_)
+      ~tool_choice:(Some Ai_provider.Tool_choice.None_) ()
   in
   (check int) "0 tools" 0 (List.length tools);
   (check bool) "no choice" true (Option.is_none choice)
@@ -64,6 +64,7 @@ let test_tool_choice_specific () =
   let _, choice =
     Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[]
       ~tool_choice:(Some (Ai_provider.Tool_choice.Specific { tool_name = "foo" }))
+      ()
   in
   match choice with
   | Some (Ai_provider_anthropic.Convert_tools.Tc_tool { name }) -> (check string) "name" "foo" name
@@ -90,13 +91,13 @@ let test_tool_cache_control_propagates () =
   let tools : Ai_provider.Tool.t list =
     [ { name = "search"; description = None; parameters = `Assoc []; provider_options = po } ]
   in
-  let converted, _ = Ai_provider_anthropic.Convert_tools.convert_tools ~tools ~tool_choice:None in
+  let converted, _ = Ai_provider_anthropic.Convert_tools.convert_tools ~tools ~tool_choice:None () in
   match converted with
   | [ t ] -> (check bool) "cache_control set" true (Option.is_some t.cache_control)
   | _ -> fail "expected one tool"
 
 let test_empty_tools () =
-  let tools, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:None in
+  let tools, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:None () in
   (check int) "0 tools" 0 (List.length tools);
   (check bool) "auto" true (Option.is_some choice)
 

@@ -13,10 +13,13 @@ type anthropic_tool_choice =
   | Tc_tool of { name : string }
 
 (** Convert SDK tools and choice. [Tool_choice.None_] returns empty tools.
-    [Tool_choice.Required] maps to [Tc_any]. *)
+    [Tool_choice.Required] maps to [Tc_any]. Pass [~validator] to share the
+    4-breakpoint budget with the prompt conversion. *)
 val convert_tools :
+  ?validator:Cache_control_validator.t ->
   tools:Ai_provider.Tool.t list ->
   tool_choice:Ai_provider.Tool_choice.t option ->
+  unit ->
   anthropic_tool list * anthropic_tool_choice option
 
 val anthropic_tool_to_json : anthropic_tool -> Yojson.Basic.t
