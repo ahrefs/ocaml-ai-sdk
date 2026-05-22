@@ -85,6 +85,56 @@ let test_thinking_streaming () =
   | _ :: Reasoning { text } :: _ -> (check string) "thinking" "Let me think..." text
   | _ -> fail "expected Reasoning"
 
+(* Cache metrics carried on the Finish chunk: when [message_delta.usage]
+   includes Anthropic's cache token fields, Convert_stream attaches them as
+   [provider_metadata] on the terminal Finish chunk (matching upstream's
+   wire shape — no separate metadata stream-part). *)
+let test_cache_metrics_on_finish () =
+  let events =
+    make_event_stream
+      [
+        make_sse ~event_type:"message_start"
+          ~data:{|{"id":"msg_c","model":"claude","usage":{"input_tokens":100,"output_tokens":0}}|};
+        make_sse ~event_type:"content_block_start" ~data:{|{"index":0,"content_block":{"type":"text","text":""}}|};
+        make_sse ~event_type:"content_block_delta" ~data:{|{"index":0,"delta":{"type":"text_delta","text":"hi"}}|};
+        make_sse ~event_type:"content_block_stop" ~data:{|{"index":0}|};
+        make_sse ~event_type:"message_delta"
+          ~data:
+            {|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5,"cache_read_input_tokens":80,"cache_creation_input_tokens":20}}|};
+      ]
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
+  let provider_metadata_chunks =
+    List.filter_map
+      (function
+        | Ai_provider.Stream_part.Finish { provider_metadata; _ } -> Some provider_metadata
+        | _ -> None)
+      parts
+  in
+  match provider_metadata_chunks with
+  | [ Some _ ] -> ()
+  | [ None ] -> fail "Finish chunk should carry provider_metadata when cache fields are present"
+  | _ -> fail "expected exactly one Finish chunk"
+
+let test_no_metrics_keeps_finish_clean () =
+  let events =
+    make_event_stream
+      [
+        make_sse ~event_type:"message_start"
+          ~data:{|{"id":"msg_n","model":"claude","usage":{"input_tokens":10,"output_tokens":0}}|};
+        make_sse ~event_type:"content_block_start" ~data:{|{"index":0,"content_block":{"type":"text","text":""}}|};
+        make_sse ~event_type:"content_block_delta" ~data:{|{"index":0,"delta":{"type":"text_delta","text":"hi"}}|};
+        make_sse ~event_type:"content_block_stop" ~data:{|{"index":0}|};
+        make_sse ~event_type:"message_delta" ~data:{|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}|};
+      ]
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
+  match List.rev parts with
+  | Ai_provider.Stream_part.Finish { provider_metadata = None; _ } :: _ -> ()
+  | Ai_provider.Stream_part.Finish { provider_metadata = Some _; _ } :: _ ->
+    fail "expected no provider_metadata when usage has no cache fields"
+  | _ -> fail "last chunk should be Finish"
+
 let test_malformed_event_emits_error () =
   let events =
     make_event_stream
@@ -112,6 +162,8 @@ let () =
           test_case "text" `Quick test_text_streaming;
           test_case "tool_call" `Quick test_tool_call_streaming;
           test_case "thinking" `Quick test_thinking_streaming;
+          test_case "cache_metrics_on_finish" `Quick test_cache_metrics_on_finish;
+          test_case "no_metrics_keeps_finish_clean" `Quick test_no_metrics_keeps_finish_clean;
           test_case "malformed_event" `Quick test_malformed_event_emits_error;
         ] );
     ]

@@ -14,6 +14,12 @@ type t = {
   needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
     (** If [Some f], call [f args] before execution. If [true], emit an approval
         request instead of executing. [None] means execute immediately. *)
+  provider_options : Ai_provider.Provider_options.t;
+    (** Provider-specific options for this tool. For Anthropic, set this to
+        {!Ai_provider_anthropic.Cache_control_options.with_cache_control} to
+        mark the tool definition as a cache breakpoint. Mirrors the upstream
+        [Tool.providerOptions] field that flows through to the language
+        model call. *)
 }
 
 (** Create a server-side tool. If [~needs_approval] is provided, the tool will
@@ -21,6 +27,7 @@ type t = {
 val create :
   ?description:string ->
   ?needs_approval:(Yojson.Basic.t -> bool Lwt.t) ->
+  ?provider_options:Ai_provider.Provider_options.t ->
   parameters:Yojson.Basic.t ->
   execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) ->
   unit ->
@@ -28,12 +35,18 @@ val create :
 
 (** Create a server-side tool that always requires approval before execution. *)
 val create_with_approval :
-  ?description:string -> parameters:Yojson.Basic.t -> execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) -> unit -> t
+  ?description:string ->
+  ?provider_options:Ai_provider.Provider_options.t ->
+  parameters:Yojson.Basic.t ->
+  execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) ->
+  unit ->
+  t
 
 (** Create a client-side tool. The server defines the schema for the LLM but
     does not execute the tool. The frontend provides results via [onToolCall]
     and [addToolOutput]. *)
-val create_client_tool : ?description:string -> parameters:Yojson.Basic.t -> unit -> t
+val create_client_tool :
+  ?description:string -> ?provider_options:Ai_provider.Provider_options.t -> parameters:Yojson.Basic.t -> unit -> t
 
 (** Parse a JSON string, falling back to [`String s] on parse error. *)
 val safe_parse_json_args : string -> Yojson.Basic.t

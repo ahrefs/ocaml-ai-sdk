@@ -30,6 +30,7 @@ module Mock_model : Ai_provider.Language_model.S = struct
             {
               finish_reason = Ai_provider.Finish_reason.Stop;
               usage = { Ai_provider.Usage.input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+              provider_metadata = None;
             }));
     push None;
     Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }

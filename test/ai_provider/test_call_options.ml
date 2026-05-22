@@ -1,7 +1,9 @@
 open Alcotest
 
 let test_default_options () =
-  let prompt = [ Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty } ] in
+  let prompt =
+    [ Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty } ]
+  in
   let opts = Ai_provider.Call_options.default ~prompt in
   (check int) "no tools" 0 (List.length opts.tools);
   (check bool) "no tool_choice" true (Option.is_none opts.tool_choice);
@@ -34,7 +36,12 @@ let test_stream_parts () =
       Stream_start { warnings = [] };
       Text { text = "hello " };
       Text { text = "world" };
-      Finish { finish_reason = Stop; usage = { input_tokens = 10; output_tokens = 5; total_tokens = None } };
+      Finish
+        {
+          finish_reason = Stop;
+          usage = { input_tokens = 10; output_tokens = 5; total_tokens = None };
+          provider_metadata = None;
+        };
     ]
   in
   (check int) "4 parts" 4 (List.length parts)

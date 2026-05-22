@@ -121,6 +121,7 @@ let weather_tool : Ai_core.Core_tool.t =
           let city = try (city_args_of_json args).city with _ -> "unknown" in
           Lwt.return (`Assoc [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny" ]));
     needs_approval = None;
+    provider_options = Ai_provider.Provider_options.empty;
   }
 
 (* === Mock Language_model for streaming tests === *)
@@ -151,7 +152,11 @@ let make_stream_model response_text =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Stop; usage = { input_tokens = 15; output_tokens = 8; total_tokens = Some 23 } }));
+              {
+                finish_reason = Stop;
+                usage = { input_tokens = 15; output_tokens = 8; total_tokens = Some 23 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -189,6 +194,7 @@ let make_tool_stream_model () =
                 {
                   finish_reason = Tool_calls;
                   usage = { input_tokens = 20; output_tokens = 15; total_tokens = Some 35 };
+                  provider_metadata = None;
                 }));
         push None
       end
@@ -198,7 +204,11 @@ let make_tool_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Finish
-                { finish_reason = Stop; usage = { input_tokens = 30; output_tokens = 12; total_tokens = Some 42 } }));
+                {
+                  finish_reason = Stop;
+                  usage = { input_tokens = 30; output_tokens = 12; total_tokens = Some 42 };
+                  provider_metadata = None;
+                }));
         push None
       end;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
@@ -222,7 +232,11 @@ let make_thinking_stream_model () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Stop; usage = { input_tokens = 25; output_tokens = 20; total_tokens = Some 45 } }));
+              {
+                finish_reason = Stop;
+                usage = { input_tokens = 25; output_tokens = 20; total_tokens = Some 45 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in

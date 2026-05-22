@@ -30,6 +30,10 @@ type step = {
   tool_results : tool_result list;
   finish_reason : Ai_provider.Finish_reason.t;
   usage : Ai_provider.Usage.t;
+  provider_metadata : Ai_provider.Provider_options.t option;
+    (** Provider-specific metadata for this step (e.g. Anthropic cache token
+          counts). Matches [step.providerMetadata] in upstream's
+          [stream-text.ts]. *)
 }
 
 type t = {

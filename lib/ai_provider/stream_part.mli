@@ -28,6 +28,10 @@ type t =
   | Finish of {
       finish_reason : Finish_reason.t;
       usage : Usage.t;
+      provider_metadata : Provider_options.t option;
+        (** Provider-specific metadata available after the stream finishes
+              (e.g. Anthropic cache_creation_input / cache_read_input token
+              counts). Matches the [providerMetadata] field on upstream's
+              [finish] LanguageModelV4StreamPart. *)
     }
   | Error of { error : Provider_error.t }
-  | Provider_metadata of { metadata : Provider_options.t }

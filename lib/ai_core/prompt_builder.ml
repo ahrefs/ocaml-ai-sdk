@@ -62,7 +62,7 @@ let append_assistant_and_tool_results ~messages ~assistant_content ~tool_results
   | [] -> []
   | parts -> [ Ai_provider.Prompt.Tool { content = parts } ]
 
-let resolve_messages ?system ?prompt ?messages () =
+let resolve_messages ?system ?system_provider_options ?prompt ?messages () =
   let base =
     match prompt, messages with
     | Some p, None -> [ Ai_provider.Prompt.User { content = [ Text { text = p; provider_options = po } ] } ]
@@ -71,7 +71,9 @@ let resolve_messages ?system ?prompt ?messages () =
     | None, None -> failwith "Must provide either ~prompt or ~messages"
   in
   match system with
-  | Some s -> Ai_provider.Prompt.System { content = s; provider_options = Ai_provider.Provider_options.empty } :: base
+  | Some s ->
+    let provider_options = Option.value ~default:Ai_provider.Provider_options.empty system_provider_options in
+    Ai_provider.Prompt.System { content = s; provider_options } :: base
   | None -> base
 
 let make_call_options ~messages ~tools ?tool_choice ?(mode = Ai_provider.Mode.Regular) ?max_output_tokens ?temperature
@@ -101,6 +103,6 @@ let tools_to_provider tools =
         Ai_provider.Tool.name;
         description = tool.description;
         parameters = tool.parameters;
-        provider_options = Ai_provider.Provider_options.empty;
+        provider_options = tool.provider_options;
       })
     tools

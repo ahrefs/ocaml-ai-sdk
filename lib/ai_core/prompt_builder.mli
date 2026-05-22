@@ -19,9 +19,14 @@ val append_assistant_and_tool_results :
   Ai_provider.Prompt.message list
 
 (** Build the initial message list from either [prompt] (string) or [messages].
-    Prepends system message if provided. Raises if both or neither are given. *)
+    Prepends system message if provided. Raises if both or neither are given.
+    [?system_provider_options] attaches provider-specific options to the
+    prepended system message (use with
+    {!Ai_provider_anthropic.Cache_control_options.with_cache_control} to mark
+    the system prompt as a cache breakpoint). *)
 val resolve_messages :
   ?system:string ->
+  ?system_provider_options:Ai_provider.Provider_options.t ->
   ?prompt:string ->
   ?messages:Ai_provider.Prompt.message list ->
   unit ->

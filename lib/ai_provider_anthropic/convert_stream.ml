@@ -126,22 +126,27 @@ let transform events ~warnings =
                 | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }, None
               in
               (* Surface Anthropic cache token metrics to streaming consumers, matching
-                 the non-streaming path. Only emit when cache fields are present, so
-                 plain-non-cached streams keep their existing chunk sequence. *)
+                 the non-streaming path. Carry them on the Finish chunk itself —
+                 upstream attaches providerMetadata to the [finish] LanguageModelV4
+                 stream part rather than emitting it as a separate chunk. *)
               let has_cache_signal (u : Convert_usage.anthropic_usage) =
                 Option.is_some u.cache_read_input_tokens
                 || Option.is_some u.cache_creation_input_tokens
                 || Option.is_some u.cache_creation
               in
-              (match anthropic_usage with
-              | Some u when has_cache_signal u ->
-                push
-                  (Some (Ai_provider.Stream_part.Provider_metadata { metadata = Convert_usage.to_provider_metadata u }))
-              | _ -> ());
+              let provider_metadata =
+                match anthropic_usage with
+                | Some u when has_cache_signal u -> Some (Convert_usage.to_provider_metadata u)
+                | _ -> None
+              in
               push
                 (Some
                    (Ai_provider.Stream_part.Finish
-                      { finish_reason = Convert_response.map_stop_reason delta.stop_reason; usage = usage_ai }))
+                      {
+                        finish_reason = Convert_response.map_stop_reason delta.stop_reason;
+                        usage = usage_ai;
+                        provider_metadata;
+                      }))
             | "message_stop" | "ping" -> ()
             | "error" ->
               let error_type, message =

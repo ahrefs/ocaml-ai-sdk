@@ -72,7 +72,10 @@ let transform events ~warnings =
                 | Some u -> Convert_usage.to_usage u
                 | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
               in
-              push (Some (Ai_provider.Stream_part.Finish { finish_reason = Ai_provider.Finish_reason.Stop; usage }));
+              push
+                (Some
+                   (Ai_provider.Stream_part.Finish
+                      { finish_reason = Ai_provider.Finish_reason.Stop; usage; provider_metadata = None }));
               finished := true
             end
           | false ->
@@ -130,7 +133,11 @@ let transform events ~warnings =
                   push
                     (Some
                        (Ai_provider.Stream_part.Finish
-                          { finish_reason = Convert_response.map_finish_reason (Some reason); usage }));
+                          {
+                            finish_reason = Convert_response.map_finish_reason (Some reason);
+                            usage;
+                            provider_metadata = None;
+                          }));
                   finished := true)
                 choice.finish_reason
           with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->

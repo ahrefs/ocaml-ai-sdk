@@ -154,7 +154,7 @@ let transform events ~warnings =
         | None -> empty_usage
       in
       let final_reason = apply_finish_overrides reason in
-      push (Some (Ai_provider.Stream_part.Finish { finish_reason = final_reason; usage }));
+      push (Some (Ai_provider.Stream_part.Finish { finish_reason = final_reason; usage; provider_metadata = None }));
       finished := true
     end
   in

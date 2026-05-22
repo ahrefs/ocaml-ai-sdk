@@ -14,7 +14,8 @@ let () =
         Ai_provider.Call_options.default
           ~prompt:
             [
-              Ai_provider.Prompt.System { content = "You are a creative storyteller."; provider_options = Ai_provider.Provider_options.empty };
+              Ai_provider.Prompt.System
+                { content = "You are a creative storyteller."; provider_options = Ai_provider.Provider_options.empty };
               Ai_provider.Prompt.User
                 {
                   content =
@@ -47,12 +48,11 @@ let () =
             | Tool_call_finish _ -> print_newline ()
             | File _ -> Printf.printf "[file]\n"
             | Source { url; _ } -> Printf.printf "[source: %s]\n" url
-            | Finish { finish_reason; usage } ->
+            | Finish { finish_reason; usage; _ } ->
               Printf.printf "\n\n--- Done ---\n";
               Printf.printf "Finish: %s\n" (Ai_provider.Finish_reason.to_string finish_reason);
               Printf.printf "Tokens: %d in / %d out\n" usage.input_tokens usage.output_tokens
-            | Error { error } -> Printf.eprintf "Error: %s\n" (Ai_provider.Provider_error.to_string error)
-            | Provider_metadata _ -> ())
+            | Error { error } -> Printf.eprintf "Error: %s\n" (Ai_provider.Provider_error.to_string error))
           result.stream
       in
 

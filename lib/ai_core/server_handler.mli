@@ -50,6 +50,7 @@ val handle_chat :
   ?max_retries:int ->
   ?stop_when:Stop_condition.t list ->
   ?system:string ->
+  ?system_provider_options:Ai_provider.Provider_options.t ->
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?send_reasoning:bool ->
   ?max_output_tokens:int ->
@@ -61,6 +62,10 @@ val handle_chat :
   Cohttp.Request.t ->
   Cohttp_lwt.Body.t ->
   (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+(** [system_provider_options] attaches per-message provider options to the
+    [?system] prompt. Use with
+    {!Ai_provider_anthropic.Cache_control_options.with_cache_control} to mark
+    the system prompt as a cache breakpoint. *)
 
 (** Handle a CORS preflight OPTIONS request.
     Returns [204 No Content] with CORS headers.

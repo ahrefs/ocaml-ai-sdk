@@ -89,6 +89,7 @@ let search_tool : Ai_core.Core_tool.t =
           let query = try (query_args_of_json args).query with _ -> "unknown" in
           Lwt.return (`String (Printf.sprintf "Results for: %s" query)));
     needs_approval = None;
+    provider_options = Ai_provider.Provider_options.empty;
   }
 
 (* Tests *)

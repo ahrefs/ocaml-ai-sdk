@@ -221,6 +221,7 @@ let make_step ?(text = "") ?(tool_calls = []) () : Ai_core.Generate_text_result.
     tool_results = [];
     finish_reason = Ai_provider.Finish_reason.Stop;
     usage = empty_usage;
+    provider_metadata = None;
   }
 
 (* Native path: provider returns the JSON as assistant text — parse_output joins text

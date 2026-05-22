@@ -76,6 +76,7 @@ let run_case ~label ~model_id =
       tool_results = [];
       finish_reason = result.finish_reason;
       usage = result.usage;
+      provider_metadata = None;
     }
   in
   match Ai_core.Output.parse_output (Some output) [ step ] with
