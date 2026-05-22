@@ -147,6 +147,33 @@ let test_text_to_json () =
   (check (option string)) "text" (Some "hello") r.text;
   (check string) "type" "text" r.type_
 
+let test_tool_result_cache_control_propagates () =
+  let po =
+    Ai_provider_anthropic.Cache_control_options.with_cache_control
+      ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
+  in
+  let msgs =
+    [
+      Ai_provider.Prompt.Tool
+        {
+          content =
+            [
+              {
+                tool_call_id = "tc_1";
+                tool_name = "search";
+                result = `String "found";
+                is_error = false;
+                content = [ Result_text "found" ];
+                provider_options = po;
+              };
+            ];
+        };
+    ]
+  in
+  match Ai_provider_anthropic.Convert_prompt.convert_messages msgs with
+  | [ { content = [ A_tool_result { cache_control = Some _; _ } ]; _ } ] -> ()
+  | _ -> fail "expected A_tool_result with cache_control set"
+
 let test_text_with_cache_control () =
   let cc = Ai_provider_anthropic.Cache_control.ephemeral in
   let content = Ai_provider_anthropic.Convert_prompt.A_text { text = "cached"; cache_control = Some cc } in
@@ -170,6 +197,7 @@ let () =
           test_case "user_text" `Quick test_convert_user_text;
           test_case "assistant_text" `Quick test_convert_assistant_text;
           test_case "tool_result" `Quick test_convert_tool_result_as_user;
+          test_case "tool_result_cache_control" `Quick test_tool_result_cache_control_propagates;
           test_case "grouping" `Quick test_grouping_consecutive_user;
           test_case "alternating" `Quick test_alternating_preserved;
           test_case "empty" `Quick test_empty_messages;

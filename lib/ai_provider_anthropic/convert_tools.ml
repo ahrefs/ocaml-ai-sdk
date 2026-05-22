@@ -26,7 +26,12 @@ type anthropic_tool_choice =
   | Tc_tool of { name : string }
 
 let convert_single_tool (tool : Ai_provider.Tool.t) : anthropic_tool =
-  { name = tool.name; description = tool.description; input_schema = tool.parameters; cache_control = None }
+  {
+    name = tool.name;
+    description = tool.description;
+    input_schema = tool.parameters;
+    cache_control = Cache_control_options.get_cache_control tool.provider_options;
+  }
 
 let convert_tools ~tools ~tool_choice =
   match tool_choice with

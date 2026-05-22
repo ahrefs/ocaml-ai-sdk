@@ -39,6 +39,7 @@ type anthropic_content =
       tool_use_id : string;
       content : anthropic_tool_result_content list;
       is_error : bool;
+      cache_control : Cache_control.t option;
     }
   | A_thinking of {
       thinking : string;
@@ -67,7 +68,7 @@ let extract_system messages =
   in
   system, rest
 
-(* Get cache control from provider options *)
+(* Get cache control from provider options. Exposed for tests. *)
 let get_cc po = Cache_control_options.get_cache_control po
 
 (* Convert file_data to image source *)
@@ -126,7 +127,13 @@ let convert_tool_result (tr : Ai_provider.Prompt.tool_result) : anthropic_conten
       | json -> [ Tool_text (Yojson.Basic.to_string json) ])
     | _ -> content
   in
-  A_tool_result { tool_use_id = tr.tool_call_id; content; is_error = tr.is_error }
+  A_tool_result
+    {
+      tool_use_id = tr.tool_call_id;
+      content;
+      is_error = tr.is_error;
+      cache_control = get_cc tr.provider_options;
+    }
 
 (* Convert a single SDK message to role + content parts *)
 let convert_single_message (msg : Ai_provider.Prompt.message) : ([ `User | `Assistant ] * anthropic_content list) option
@@ -209,6 +216,7 @@ type tool_result_json = {
   tool_use_id : string;
   content : Melange_json.t list;
   is_error : bool;
+  cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -233,9 +241,9 @@ let anthropic_content_to_json = function
     let source_json = image_source_base64_json_to_json { type_ = "base64"; media_type; data } in
     source_content_json_to_json { type_ = "document"; source = source_json; cache_control }
   | A_tool_use { id; name; input } -> tool_use_json_to_json { type_ = "tool_use"; id; name; input }
-  | A_tool_result { tool_use_id; content; is_error } ->
+  | A_tool_result { tool_use_id; content; is_error; cache_control } ->
     let content_json = List.map tool_result_content_to_json content in
-    tool_result_json_to_json { type_ = "tool_result"; tool_use_id; content = content_json; is_error }
+    tool_result_json_to_json { type_ = "tool_result"; tool_use_id; content = content_json; is_error; cache_control }
   | A_thinking { thinking; signature } -> thinking_json_to_json { type_ = "thinking"; thinking; signature }
 
 type message_json = {

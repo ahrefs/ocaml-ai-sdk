@@ -97,5 +97,10 @@ let make_call_options ~messages ~tools ?tool_choice ?(mode = Ai_provider.Mode.Re
 let tools_to_provider tools =
   List.map
     (fun (name, (tool : Core_tool.t)) ->
-      { Ai_provider.Tool.name; description = tool.description; parameters = tool.parameters })
+      {
+        Ai_provider.Tool.name;
+        description = tool.description;
+        parameters = tool.parameters;
+        provider_options = Ai_provider.Provider_options.empty;
+      })
     tools

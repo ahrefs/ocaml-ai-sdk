@@ -157,7 +157,15 @@ let test_generate_tool_call () =
          ~prompt:
            [ User { content = [ Text { text = "Weather?"; provider_options = Ai_provider.Provider_options.empty } ] } ])
       with
-      tools = [ { name = "get_weather"; description = Some "Get weather"; parameters = `Assoc [] } ];
+      tools =
+        [
+          {
+            name = "get_weather";
+            description = Some "Get weather";
+            parameters = `Assoc [];
+            provider_options = Ai_provider.Provider_options.empty;
+          };
+        ];
     }
   in
   let result = Lwt_main.run (M.generate opts) in

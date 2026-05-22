@@ -41,6 +41,7 @@ type anthropic_content =
       tool_use_id : string;
       content : anthropic_tool_result_content list;
       is_error : bool;
+      cache_control : Cache_control.t option;
     }
   | A_thinking of {
       thinking : string;
