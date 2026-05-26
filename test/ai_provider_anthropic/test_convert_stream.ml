@@ -135,6 +135,33 @@ let test_no_metrics_keeps_finish_clean () =
     fail "expected no provider_metadata when usage has no cache fields"
   | _ -> fail "last chunk should be Finish"
 
+(* Realistic Anthropic wire shape: cache token fields ride on
+   [message_start.message.usage], not [message_delta]. The Finish chunk must
+   still surface them via provider_metadata. *)
+let test_cache_metrics_from_message_start () =
+  let events =
+    make_event_stream
+      [
+        make_sse ~event_type:"message_start"
+          ~data:
+            {|{"type":"message_start","message":{"id":"msg_s","model":"claude","usage":{"input_tokens":100,"output_tokens":0,"cache_read_input_tokens":80,"cache_creation_input_tokens":20}}}|};
+        make_sse ~event_type:"content_block_start" ~data:{|{"index":0,"content_block":{"type":"text","text":""}}|};
+        make_sse ~event_type:"content_block_delta" ~data:{|{"index":0,"delta":{"type":"text_delta","text":"hi"}}|};
+        make_sse ~event_type:"content_block_stop" ~data:{|{"index":0}|};
+        make_sse ~event_type:"message_delta" ~data:{|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}|};
+      ]
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
+  match List.rev parts with
+  | Ai_provider.Stream_part.Finish { provider_metadata = Some pm; usage; _ } :: _ ->
+    (check int) "output_tokens from delta" 5 usage.output_tokens;
+    (match Ai_provider_anthropic.Convert_usage.of_provider_metadata pm with
+    | Some u ->
+      (check (option int)) "cache_read from start" (Some 80) u.cache_read_input_tokens;
+      (check (option int)) "cache_creation from start" (Some 20) u.cache_creation_input_tokens
+    | None -> fail "expected anthropic cache_metrics in provider_metadata")
+  | _ -> fail "expected Finish with provider_metadata carrying message_start cache fields"
+
 let test_malformed_event_emits_error () =
   let events =
     make_event_stream
@@ -164,6 +191,7 @@ let () =
           test_case "thinking" `Quick test_thinking_streaming;
           test_case "cache_metrics_on_finish" `Quick test_cache_metrics_on_finish;
           test_case "no_metrics_keeps_finish_clean" `Quick test_no_metrics_keeps_finish_clean;
+          test_case "cache_metrics_from_message_start" `Quick test_cache_metrics_from_message_start;
           test_case "malformed_event" `Quick test_malformed_event_emits_error;
         ] );
     ]
