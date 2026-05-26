@@ -3,7 +3,12 @@ open Alcotest
 (* Tool tests *)
 let test_tool () =
   let t : Ai_provider.Tool.t =
-    { name = "search"; description = Some "Search the web"; parameters = `Assoc [ "type", `String "object" ] }
+    {
+      name = "search";
+      description = Some "Search the web";
+      parameters = `Assoc [ "type", `String "object" ];
+      provider_options = Ai_provider.Provider_options.empty;
+    }
   in
   (check string) "name" "search" t.name;
   (check (option string)) "description" (Some "Search the web") t.description

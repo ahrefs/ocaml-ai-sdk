@@ -20,7 +20,12 @@ let build_tools_and_choice ~strict (opts : Ai_provider.Call_options.t) =
   match opts.mode with
   | Object_tool { tool_name; schema = { name = _; schema } } ->
     let tool =
-      { Ai_provider.Tool.name = tool_name; description = Some "Structured output tool"; parameters = schema }
+      {
+        Ai_provider.Tool.name = tool_name;
+        description = Some "Structured output tool";
+        parameters = schema;
+        provider_options = Ai_provider.Provider_options.empty;
+      }
     in
     let tools = List.map Convert_tools.openai_tool_to_json (Convert_tools.convert_tools ~strict [ tool ]) in
     let tc = Convert_tools.convert_tool_choice (Specific { tool_name }) in

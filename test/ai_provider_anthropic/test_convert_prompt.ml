@@ -17,30 +17,31 @@ let po = Ai_provider.Provider_options.empty
 let test_extract_system_single () =
   let msgs =
     [
-      Ai_provider.Prompt.System { content = "You are helpful" };
+      Ai_provider.Prompt.System { content = "You are helpful"; provider_options = Ai_provider.Provider_options.empty };
       Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] };
     ]
   in
-  let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  (check (option string)) "system" (Some "You are helpful") system;
+  let parts, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
+  (check int) "1 system part" 1 (List.length parts);
+  (check string) "system text" "You are helpful" (fst (List.hd parts));
   (check int) "rest count" 1 (List.length rest)
 
 let test_extract_system_multiple () =
   let msgs =
     [
-      Ai_provider.Prompt.System { content = "Part 1" };
-      Ai_provider.Prompt.System { content = "Part 2" };
+      Ai_provider.Prompt.System { content = "Part 1"; provider_options = Ai_provider.Provider_options.empty };
+      Ai_provider.Prompt.System { content = "Part 2"; provider_options = Ai_provider.Provider_options.empty };
       Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] };
     ]
   in
-  let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  (check (option string)) "system" (Some "Part 1\nPart 2") system;
+  let parts, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
+  (check int) "2 parts" 2 (List.length parts);
   (check int) "rest count" 1 (List.length rest)
 
 let test_extract_system_none () =
   let msgs = [ Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = po } ] } ] in
-  let system, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
-  (check (option string)) "no system" None system;
+  let parts, rest = Ai_provider_anthropic.Convert_prompt.extract_system msgs in
+  (check int) "0 parts" 0 (List.length parts);
   (check int) "rest count" 1 (List.length rest)
 
 (* convert_messages tests *)
@@ -147,6 +148,58 @@ let test_text_to_json () =
   (check (option string)) "text" (Some "hello") r.text;
   (check string) "type" "text" r.type_
 
+let test_tool_result_cache_control_propagates () =
+  let po =
+    Ai_provider_anthropic.Cache_control_options.with_cache_control
+      ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
+  in
+  let msgs =
+    [
+      Ai_provider.Prompt.Tool
+        {
+          content =
+            [
+              {
+                tool_call_id = "tc_1";
+                tool_name = "search";
+                result = `String "found";
+                is_error = false;
+                content = [ Result_text "found" ];
+                provider_options = po;
+              };
+            ];
+        };
+    ]
+  in
+  match Ai_provider_anthropic.Convert_prompt.convert_messages msgs with
+  | [ { content = [ A_tool_result { cache_control = Some _; _ } ]; _ } ] -> ()
+  | _ -> fail "expected A_tool_result with cache_control set"
+
+(* Upstream @ai-sdk/anthropic always emits the system field as an array of text
+   blocks (one per system message). The OCaml provider matches that wire shape
+   so the cached and uncached paths stay identical. *)
+let test_system_to_json_always_array () =
+  match
+    Ai_provider_anthropic.Convert_prompt.system_to_json
+      [ "A", Ai_provider.Provider_options.empty; "B", Ai_provider.Provider_options.empty ]
+  with
+  | Some (`List [ `Assoc a; `Assoc b ]) ->
+    (check string) "first text" "A" (Yojson.Basic.Util.to_string (List.assoc "text" a));
+    (check string) "second text" "B" (Yojson.Basic.Util.to_string (List.assoc "text" b));
+    (check bool) "no cache_control without po" true (not (List.mem_assoc "cache_control" a))
+  | _ -> fail "expected array-of-blocks form unconditionally"
+
+let test_system_to_json_carries_cache_control () =
+  let po =
+    Ai_provider_anthropic.Cache_control_options.with_cache_control
+      ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
+  in
+  match Ai_provider_anthropic.Convert_prompt.system_to_json [ "S", po ] with
+  | Some (`List [ `Assoc fields ]) ->
+    (check bool) "has cache_control" true (List.mem_assoc "cache_control" fields);
+    (check bool) "has text" true (List.mem_assoc "text" fields)
+  | _ -> fail "expected array-of-blocks form when cache_control is set"
+
 let test_text_with_cache_control () =
   let cc = Ai_provider_anthropic.Cache_control.ephemeral in
   let content = Ai_provider_anthropic.Convert_prompt.A_text { text = "cached"; cache_control = Some cc } in
@@ -164,12 +217,15 @@ let () =
           test_case "single" `Quick test_extract_system_single;
           test_case "multiple" `Quick test_extract_system_multiple;
           test_case "none" `Quick test_extract_system_none;
+          test_case "to_json_always_array" `Quick test_system_to_json_always_array;
+          test_case "to_json_carries_cache_control" `Quick test_system_to_json_carries_cache_control;
         ] );
       ( "convert_messages",
         [
           test_case "user_text" `Quick test_convert_user_text;
           test_case "assistant_text" `Quick test_convert_assistant_text;
           test_case "tool_result" `Quick test_convert_tool_result_as_user;
+          test_case "tool_result_cache_control" `Quick test_tool_result_cache_control_propagates;
           test_case "grouping" `Quick test_grouping_consecutive_user;
           test_case "alternating" `Quick test_alternating_preserved;
           test_case "empty" `Quick test_empty_messages;

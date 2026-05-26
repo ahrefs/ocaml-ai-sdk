@@ -49,6 +49,11 @@ type message_delta_event = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
+type message_start_message = { usage : Convert_usage.anthropic_usage option [@json.default None] }
+[@@json.allow_extra_fields] [@@deriving of_json]
+
+type message_start_event = { message : message_start_message } [@@json.allow_extra_fields] [@@deriving of_json]
+
 type error_info = {
   type_ : string; [@json.key "type"] [@json.default "unknown"]
   message : string; [@json.default ""]
@@ -60,6 +65,11 @@ type error_event = { error : error_info } [@@json.allow_extra_fields] [@@derivin
 let transform events ~warnings =
   let blocks : (int, block_state) Hashtbl.t = Hashtbl.create 8 in
   let is_first = ref true in
+  (* Anthropic emits cache_creation_input_tokens / cache_read_input_tokens on
+     [message_start.message.usage]; [message_delta.usage] carries the final
+     output count. Stash the start usage and fall back to it when the delta
+     omits the cache fields, mirroring upstream @ai-sdk/anthropic. *)
+  let start_usage : Convert_usage.anthropic_usage option ref = ref None in
   let stream, push = Lwt_stream.create () in
   Lwt.async (fun () ->
     let%lwt () =
@@ -69,6 +79,10 @@ let transform events ~warnings =
             let json = Yojson.Basic.from_string evt.data in
             match evt.event_type with
             | "message_start" ->
+              (try
+                 let evt = message_start_event_of_json json in
+                 start_usage := evt.message.usage
+               with Melange_json.Of_json_error _ -> ());
               if !is_first then begin
                 push (Some (Ai_provider.Stream_part.Stream_start { warnings }));
                 is_first := false
@@ -120,15 +134,43 @@ let transform events ~warnings =
               Hashtbl.remove blocks index
             | "message_delta" ->
               let { delta; usage } = message_delta_event_of_json json in
-              let usage =
-                match usage with
+              let has_cache_signal (u : Convert_usage.anthropic_usage) =
+                Option.is_some u.cache_read_input_tokens
+                || Option.is_some u.cache_creation_input_tokens
+                || Option.is_some u.cache_creation
+              in
+              (* Delta carries the final output_tokens; start carries the cache
+                 fields. When delta lacks cache signal, overlay it onto start
+                 so the Finish chunk reports both accurately. *)
+              let anthropic_usage =
+                match usage, !start_usage with
+                | None, _ -> !start_usage
+                | Some u, _ when has_cache_signal u -> Some u
+                | Some u, None -> Some u
+                | Some u, Some s -> Some { s with output_tokens = u.output_tokens }
+              in
+              let usage_ai =
+                match anthropic_usage with
                 | Some u -> Convert_usage.to_usage u
                 | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
+              in
+              (* Surface Anthropic cache token metrics to streaming consumers, matching
+                 the non-streaming path. Upstream attaches providerMetadata to the
+                 [finish] LanguageModelV4 stream part rather than emitting it as a
+                 separate chunk. *)
+              let provider_metadata =
+                match anthropic_usage with
+                | Some u when has_cache_signal u -> Some (Convert_usage.to_provider_metadata u)
+                | _ -> None
               in
               push
                 (Some
                    (Ai_provider.Stream_part.Finish
-                      { finish_reason = Convert_response.map_stop_reason delta.stop_reason; usage }))
+                      {
+                        finish_reason = Convert_response.map_stop_reason delta.stop_reason;
+                        usage = usage_ai;
+                        provider_metadata;
+                      }))
             | "message_stop" | "ping" -> ()
             | "error" ->
               let error_type, message =

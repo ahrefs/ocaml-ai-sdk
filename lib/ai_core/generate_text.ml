@@ -19,11 +19,12 @@ let parse_content (content : Ai_provider.Content.t list) =
     content;
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
-let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option) ?output
-  ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers
-  ?provider_options ?on_step_finish ?telemetry ?(pending_tool_approvals = []) () =
+let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
+  ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens
+  ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?telemetry
+  ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
-  let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
+  let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
   let mode = Output.mode_of_output output in
   let tools = Option.value ~default:[] tools in
   let provider_tools = Prompt_builder.tools_to_provider tools in
@@ -75,17 +76,18 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
   let rec loop ~current_messages ~steps ~total_usage ~all_tool_calls ~all_tool_results ~step_num =
     if step_num > max_steps then begin
       (* Exhausted steps - return what we have *)
-      let last_step =
+      let last_step : Generate_text_result.step =
         match steps with
         | s :: _ -> s
         | [] ->
           {
-            Generate_text_result.text = "";
+            text = "";
             reasoning = "";
             tool_calls = [];
             tool_results = [];
             finish_reason = Ai_provider.Finish_reason.Error;
             usage = { input_tokens = 0; output_tokens = 0; total_tokens = None };
+            provider_metadata = None;
           }
       in
       let rev_steps = List.rev steps in
@@ -200,7 +202,18 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
             executable_calls
         in
         let step : Generate_text_result.step =
-          { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
+          {
+            text;
+            reasoning;
+            tool_calls;
+            tool_results;
+            finish_reason = result.finish_reason;
+            usage = result.usage;
+            provider_metadata =
+              (match result.provider_metadata with
+              | [] -> None
+              | _ :: _ as pm -> Some pm);
+          }
         in
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
@@ -266,7 +279,18 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
       else begin
         (* Final step - no more tool calls *)
         let step : Generate_text_result.step =
-          { text; reasoning; tool_calls; tool_results = []; finish_reason = result.finish_reason; usage = result.usage }
+          {
+            text;
+            reasoning;
+            tool_calls;
+            tool_results = [];
+            finish_reason = result.finish_reason;
+            usage = result.usage;
+            provider_metadata =
+              (match result.provider_metadata with
+              | [] -> None
+              | _ :: _ as pm -> Some pm);
+          }
         in
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
@@ -327,6 +351,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
           tool_results;
           finish_reason = Ai_provider.Finish_reason.Tool_calls;
           usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+          provider_metadata = None;
         }
       in
       Option.iter (fun f -> f step) on_step_finish;

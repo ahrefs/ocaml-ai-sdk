@@ -7,13 +7,14 @@ type structured_output_mode =
 
 type t = {
   thinking : Thinking.t option;
-  cache_control : Cache_control.t option;
   tool_streaming : bool;
   structured_output_mode : structured_output_mode;
 }
 
-(** Default options: no thinking, no cache control, tool streaming enabled,
-    auto structured output. *)
+(** Default options: no thinking, tool streaming enabled, auto structured output.
+
+    Cache control is configured per content block via
+    {!Cache_control_options.with_cache_control}, not via a top-level option. *)
 val default : t
 
 type _ Ai_provider.Provider_options.key +=

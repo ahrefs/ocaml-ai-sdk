@@ -33,12 +33,44 @@ let test_ephemeral () =
   match cc.cache_type with
   | Ai_provider_anthropic.Cache_control.Ephemeral -> ()
 
+let test_ttl_1h_serializes () =
+  let json = Ai_provider_anthropic.Cache_control.to_json Ai_provider_anthropic.Cache_control.ephemeral_1h in
+  match json with
+  | `Assoc fields ->
+    (check (option string)) "ttl" (Some "1h") (List.assoc_opt "ttl" fields |> Option.map Yojson.Basic.Util.to_string)
+  | _ -> fail "expected JSON object"
+
+(* Five user messages each carrying cache_control: only the first four should
+   keep cache_control on the wire; the fifth is silently dropped. *)
+let test_validator_caps_at_four () =
+  let cc = Ai_provider_anthropic.Cache_control.ephemeral in
+  let po =
+    Ai_provider_anthropic.Cache_control_options.with_cache_control ~cache_control:cc Ai_provider.Provider_options.empty
+  in
+  let user n =
+    Ai_provider.Prompt.User
+      { content = [ Text { text = Printf.sprintf "msg %d" n; provider_options = po } ] }
+  in
+  let msgs = [ user 1; user 2; user 3; user 4; user 5 ] in
+  let converted = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
+  let cc_count =
+    List.fold_left
+      (fun acc (m : Ai_provider_anthropic.Convert_prompt.anthropic_message) ->
+        List.fold_left
+          (fun acc c ->
+            match c with
+            | Ai_provider_anthropic.Convert_prompt.A_text { cache_control = Some _; _ } -> acc + 1
+            | _ -> acc)
+          acc m.content)
+      0 converted
+  in
+  (check int) "4 kept" 4 cc_count
+
 (* Anthropic_options tests *)
 
 let test_default_options () =
   let opts = Ai_provider_anthropic.Anthropic_options.default in
   (check bool) "no thinking" true (Option.is_none opts.thinking);
-  (check bool) "no cache" true (Option.is_none opts.cache_control);
   (check bool) "tool streaming" true opts.tool_streaming;
   match opts.structured_output_mode with
   | Ai_provider_anthropic.Anthropic_options.Auto -> ()
@@ -91,7 +123,12 @@ let () =
           test_case "zero" `Quick test_budget_zero;
           test_case "exn_raises" `Quick test_budget_exn_raises;
         ] );
-      "cache_control", [ test_case "ephemeral" `Quick test_ephemeral ];
+      ( "cache_control",
+        [
+          test_case "ephemeral" `Quick test_ephemeral;
+          test_case "ttl_1h_serializes" `Quick test_ttl_1h_serializes;
+          test_case "validator_caps_at_four" `Quick test_validator_caps_at_four;
+        ] );
       ( "anthropic_options",
         [
           test_case "default" `Quick test_default_options;

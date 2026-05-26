@@ -30,7 +30,11 @@ let make_text_stream_model response_text =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Stop; usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 } }));
+              {
+                finish_reason = Stop;
+                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -65,7 +69,11 @@ let make_tool_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Finish
-                { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+                {
+                  finish_reason = Tool_calls;
+                  usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
+                  provider_metadata = None;
+                }));
         push None
       end
       else begin
@@ -74,7 +82,11 @@ let make_tool_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Finish
-                { finish_reason = Stop; usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 } }));
+                {
+                  finish_reason = Stop;
+                  usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
+                  provider_metadata = None;
+                }));
         push None
       end;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
@@ -91,6 +103,7 @@ let search_tool : Ai_core.Core_tool.t =
           let q = try (query_args_of_json args).query with _ -> "?" in
           Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
     needs_approval = None;
+    provider_options = Ai_provider.Provider_options.empty;
   }
 
 (* Tests *)
@@ -231,7 +244,11 @@ let make_json_tool_fallback_stream_model ~chunks =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+              {
+                finish_reason = Tool_calls;
+                usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -301,7 +318,11 @@ let make_approval_stream_model () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+              {
+                finish_reason = Tool_calls;
+                usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -373,7 +394,11 @@ let make_approved_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Finish
-                { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+                {
+                  finish_reason = Tool_calls;
+                  usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
+                  provider_metadata = None;
+                }));
         push None
       end
       else begin
@@ -382,7 +407,11 @@ let make_approved_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Finish
-                { finish_reason = Stop; usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 } }));
+                {
+                  finish_reason = Stop;
+                  usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
+                  provider_metadata = None;
+                }));
         push None
       end;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
@@ -529,7 +558,11 @@ let make_mixed_stream_model () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 } }));
+              {
+                finish_reason = Tool_calls;
+                usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -614,7 +647,11 @@ let make_multi_step_stream_model () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 10; total_tokens = Some 20 } }));
+              {
+                finish_reason = Tool_calls;
+                usage = { input_tokens = 10; output_tokens = 10; total_tokens = Some 20 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -660,7 +697,11 @@ let test_stream_stop_when_has_tool_call () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 } }));
+              {
+                finish_reason = Tool_calls;
+                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -752,6 +793,7 @@ let make_stream_retry_model ~fail_count =
                 {
                   finish_reason = Ai_provider.Finish_reason.Stop;
                   usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
+                  provider_metadata = None;
                 }));
         push None;
         Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
@@ -953,6 +995,49 @@ let test_stream_telemetry_root_attributes () =
       | Some (`String s) -> s
       | _ -> ""))
 
+(* Verify Stream_text_result.provider_metadata resolves to Some _ when the
+   provider attaches metadata to the Finish chunk. Mirrors the cache-metrics
+   path on the non-streaming generate_text result. *)
+let make_provider_metadata_stream_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-pm"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = "hi" }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              {
+                finish_reason = Stop;
+                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+                provider_metadata =
+                  Some
+                    (Ai_provider.Provider_options.of_provider_metadata
+                       (`Assoc
+                          [
+                            ( "anthropic",
+                              `Assoc [ "cache_creation_input_tokens", `Int 20; "cache_read_input_tokens", `Int 80 ] );
+                          ]));
+              }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_stream_surfaces_provider_metadata () =
+  let model = make_provider_metadata_stream_model () in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"hi" () in
+  let _full = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let pm = Lwt_main.run result.provider_metadata in
+  match pm with
+  | Some _ -> ()
+  | None -> fail "expected provider_metadata to be Some after a Finish chunk carrying metadata"
+
 let () =
   run "Stream_text"
     [
@@ -961,6 +1046,7 @@ let () =
           test_case "simple" `Quick test_simple_stream;
           test_case "full_events" `Quick test_full_stream_events;
           test_case "finish_reason" `Quick test_finish_reason;
+          test_case "provider_metadata_surfaced" `Quick test_stream_surfaces_provider_metadata;
         ] );
       ( "tools",
         [

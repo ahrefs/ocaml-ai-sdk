@@ -39,6 +39,7 @@ type anthropic_content =
       tool_use_id : string;
       content : anthropic_tool_result_content list;
       is_error : bool;
+      cache_control : Cache_control.t option;
     }
   | A_thinking of {
       thinking : string;
@@ -50,24 +51,20 @@ type anthropic_message = {
   content : anthropic_content list;
 }
 
-(* Extract system messages and return the rest *)
+(* Extract system messages with per-message provider_options and return the rest.
+   Each entry is (content, provider_options); the order matches the input. *)
 let extract_system messages =
   let system_parts, rest =
     List.partition_map
       (fun (msg : Ai_provider.Prompt.message) ->
         match msg with
-        | System { content } -> Left content
+        | System { content; provider_options } -> Left (content, provider_options)
         | User _ | Assistant _ | Tool _ -> Right msg)
       messages
   in
-  let system =
-    match system_parts with
-    | [] -> None
-    | parts -> Some (String.concat "\n" parts)
-  in
-  system, rest
+  system_parts, rest
 
-(* Get cache control from provider options *)
+(* Get cache control from provider options. Exposed for tests. *)
 let get_cc po = Cache_control_options.get_cache_control po
 
 (* Convert file_data to image source *)
@@ -77,13 +74,15 @@ let file_data_to_image_source ~media_type (data : Ai_provider.Prompt.file_data) 
   | Base64 s -> Base64_image { media_type; data = s }
   | Url u -> Url_image { url = u }
 
-(* Convert a user part to anthropic content *)
-let convert_user_part (part : Ai_provider.Prompt.user_part) : anthropic_content =
+(* Convert a user part to anthropic content. The validator is consulted for
+   every cache_control so we honour Anthropic's 4-breakpoint limit. *)
+let convert_user_part ~validator (part : Ai_provider.Prompt.user_part) : anthropic_content =
+  let cc po = Cache_control_validator.take validator (get_cc po) in
   match part with
-  | Text { text; provider_options } -> A_text { text; cache_control = get_cc provider_options }
+  | Text { text; provider_options } -> A_text { text; cache_control = cc provider_options }
   | File { data; media_type; provider_options; _ } ->
     if String.starts_with ~prefix:"image/" media_type then
-      A_image { source = file_data_to_image_source ~media_type data; cache_control = get_cc provider_options }
+      A_image { source = file_data_to_image_source ~media_type data; cache_control = cc provider_options }
     else
       A_document
         {
@@ -92,15 +91,16 @@ let convert_user_part (part : Ai_provider.Prompt.user_part) : anthropic_content 
             | Bytes b -> Base64_document { media_type; data = Base64.encode_string (Bytes.to_string b) }
             | Base64 s -> Base64_document { media_type; data = s }
             | Url u -> invalid_arg (Printf.sprintf "Anthropic documents must be base64-encoded, got URL: %s" u));
-          cache_control = get_cc provider_options;
+          cache_control = cc provider_options;
         }
 
 (* Convert an assistant part to anthropic content *)
-let convert_assistant_part (part : Ai_provider.Prompt.assistant_part) : anthropic_content =
+let convert_assistant_part ~validator (part : Ai_provider.Prompt.assistant_part) : anthropic_content =
+  let cc po = Cache_control_validator.take validator (get_cc po) in
   match part with
-  | Text { text; provider_options } -> A_text { text; cache_control = get_cc provider_options }
+  | Text { text; provider_options } -> A_text { text; cache_control = cc provider_options }
   | File { data; media_type; provider_options; _ } ->
-    A_image { source = file_data_to_image_source ~media_type data; cache_control = get_cc provider_options }
+    A_image { source = file_data_to_image_source ~media_type data; cache_control = cc provider_options }
   | Reasoning { text; provider_options = _ } ->
     (* Reasoning parts become thinking blocks. Signature is not available
        in the prompt (it comes from responses), so we use empty string. *)
@@ -108,7 +108,7 @@ let convert_assistant_part (part : Ai_provider.Prompt.assistant_part) : anthropi
   | Tool_call { id; name; args; provider_options = _ } -> A_tool_use { id; name; input = args }
 
 (* Convert a tool result to anthropic content *)
-let convert_tool_result (tr : Ai_provider.Prompt.tool_result) : anthropic_content =
+let convert_tool_result ~validator (tr : Ai_provider.Prompt.tool_result) : anthropic_content =
   let content =
     List.map
       (fun (c : Ai_provider.Prompt.tool_result_content) ->
@@ -126,16 +126,22 @@ let convert_tool_result (tr : Ai_provider.Prompt.tool_result) : anthropic_conten
       | json -> [ Tool_text (Yojson.Basic.to_string json) ])
     | _ -> content
   in
-  A_tool_result { tool_use_id = tr.tool_call_id; content; is_error = tr.is_error }
+  A_tool_result
+    {
+      tool_use_id = tr.tool_call_id;
+      content;
+      is_error = tr.is_error;
+      cache_control = Cache_control_validator.take validator (get_cc tr.provider_options);
+    }
 
 (* Convert a single SDK message to role + content parts *)
-let convert_single_message (msg : Ai_provider.Prompt.message) : ([ `User | `Assistant ] * anthropic_content list) option
-    =
+let convert_single_message ~validator (msg : Ai_provider.Prompt.message) :
+  ([ `User | `Assistant ] * anthropic_content list) option =
   match msg with
   | System _ -> None (* already extracted *)
-  | User { content } -> Some (`User, List.map convert_user_part content)
-  | Assistant { content } -> Some (`Assistant, List.map convert_assistant_part content)
-  | Tool { content } -> Some (`User, List.map convert_tool_result content)
+  | User { content } -> Some (`User, List.map (convert_user_part ~validator) content)
+  | Assistant { content } -> Some (`Assistant, List.map (convert_assistant_part ~validator) content)
+  | Tool { content } -> Some (`User, List.map (convert_tool_result ~validator) content)
 
 (* Group messages to ensure alternating user/assistant roles.
    Consecutive messages with the same role are merged. *)
@@ -155,15 +161,20 @@ let group_messages (msgs : ([ `User | `Assistant ] * anthropic_content list) lis
   in
   go [] msgs
 
-let convert_messages messages =
-  let role_content_pairs = List.filter_map convert_single_message messages in
+let convert_messages ?validator messages =
+  let validator =
+    match validator with
+    | Some v -> v
+    | None -> Cache_control_validator.create ()
+  in
+  let role_content_pairs = List.filter_map (convert_single_message ~validator) messages in
   group_messages role_content_pairs
 
 (* JSON serialization — typed records for each content shape *)
 
 type cc = Cache_control.t
 
-let cc_to_json (cc : cc) = Cache_control.breakpoint_to_json cc.cache_type
+let cc_to_json (cc : cc) = Cache_control.to_json cc
 
 type image_source_base64_json = {
   type_ : string; [@json.key "type"]
@@ -189,6 +200,30 @@ type text_content_json = {
 }
 [@@deriving to_json]
 
+(* Build the wire JSON for the system field. Always emit the array-of-blocks
+   form, mirroring upstream @ai-sdk/anthropic's [convertToAnthropicPrompt]
+   which unconditionally maps each system message to its own text block. The
+   array form keeps the wire shape consistent regardless of cache_control,
+   and avoids divergence between the cached and uncached paths. The validator
+   is consulted to enforce the 4-breakpoint limit. *)
+let system_to_json ?validator parts =
+  let validator =
+    match validator with
+    | Some v -> v
+    | None -> Cache_control_validator.create ()
+  in
+  match parts with
+  | [] -> None
+  | _ :: _ ->
+    let blocks =
+      List.map
+        (fun (text, po) ->
+          let cache_control = Cache_control_validator.take validator (get_cc po) in
+          text_content_json_to_json { type_ = "text"; text; cache_control })
+        parts
+    in
+    Some (`List blocks)
+
 type source_content_json = {
   type_ : string; [@json.key "type"]
   source : Melange_json.t;
@@ -209,6 +244,7 @@ type tool_result_json = {
   tool_use_id : string;
   content : Melange_json.t list;
   is_error : bool;
+  cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -233,9 +269,9 @@ let anthropic_content_to_json = function
     let source_json = image_source_base64_json_to_json { type_ = "base64"; media_type; data } in
     source_content_json_to_json { type_ = "document"; source = source_json; cache_control }
   | A_tool_use { id; name; input } -> tool_use_json_to_json { type_ = "tool_use"; id; name; input }
-  | A_tool_result { tool_use_id; content; is_error } ->
+  | A_tool_result { tool_use_id; content; is_error; cache_control } ->
     let content_json = List.map tool_result_content_to_json content in
-    tool_result_json_to_json { type_ = "tool_result"; tool_use_id; content = content_json; is_error }
+    tool_result_json_to_json { type_ = "tool_result"; tool_use_id; content = content_json; is_error; cache_control }
   | A_thinking { thinking; signature } -> thinking_json_to_json { type_ = "thinking"; thinking; signature }
 
 type message_json = {

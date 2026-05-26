@@ -17,7 +17,11 @@ let make_mock_stream_model () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Stop; usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 } }));
+              {
+                finish_reason = Stop;
+                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -40,7 +44,11 @@ let make_reasoning_stream_model () =
       push
         (Some
            (Ai_provider.Stream_part.Finish
-              { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } }));
+              {
+                finish_reason = Stop;
+                usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
+                provider_metadata = None;
+              }));
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -177,6 +185,7 @@ let test_tool_approval_request () =
       steps = Lwt.return [];
       warnings = [];
       output = Lwt.return_none;
+      provider_metadata = Lwt.return_none;
     }
   in
   let ui_chunks =
@@ -247,6 +256,7 @@ let test_tool_output_denied () =
       steps = Lwt.return [];
       warnings = [];
       output = Lwt.return_none;
+      provider_metadata = Lwt.return_none;
     }
   in
   let ui_chunks =

@@ -221,7 +221,7 @@ let parse_messages_from_body body_json =
               | _ -> None)
             |> String.concat ""
           in
-          [ Ai_provider.Prompt.System { content = text } ]
+          [ Ai_provider.Prompt.System { content = text; provider_options = Ai_provider.Provider_options.empty } ]
         | Some User ->
           let content = List.filter_map parse_user_part msg.parts in
           (match content with
@@ -311,8 +311,8 @@ let handle_cors_preflight _conn _req _body =
   let response = Cohttp.Response.make ~status:`No_content ~headers () in
   Lwt.return (response, Cohttp_lwt.Body.empty)
 
-let handle_chat ~model ?tools ?max_steps ?max_retries ?stop_when ?system ?output ?send_reasoning ?max_output_tokens
-  ?(cors = true) ?provider_options ?transform ?telemetry _conn _req body =
+let handle_chat ~model ?tools ?max_steps ?max_retries ?stop_when ?system ?system_provider_options ?output
+  ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry _conn _req body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let body_json =
     try Ok (Yojson.Basic.from_string body_str)
@@ -330,7 +330,9 @@ let handle_chat ~model ?tools ?max_steps ?max_retries ?stop_when ?system ?output
     let messages = parse_messages_from_body body_json in
     let messages =
       match system with
-      | Some s -> Ai_provider.Prompt.System { content = s } :: messages
+      | Some s ->
+        let provider_options = Option.value ~default:Ai_provider.Provider_options.empty system_provider_options in
+        Ai_provider.Prompt.System { content = s; provider_options } :: messages
       | None -> messages
     in
     let pending_tool_approvals = collect_pending_tool_approvals body_json in

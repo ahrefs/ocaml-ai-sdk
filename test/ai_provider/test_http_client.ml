@@ -83,13 +83,9 @@ let test_crlf_split () =
 (* [Provider_error.make_timeout] applies the phase-based retryability rule
    that the [Http_client.post] timeout translation relies on. *)
 let test_timeout_phase_retryability () =
-  let req =
-    Ai_provider.Provider_error.make_timeout ~provider:"p" ~phase:Request_headers ~elapsed_s:1.0 ~limit_s:1.0
-  in
+  let req = Ai_provider.Provider_error.make_timeout ~provider:"p" ~phase:Request_headers ~elapsed_s:1.0 ~limit_s:1.0 in
   (check bool) "Request_headers not retryable" false req.is_retryable;
-  let idle =
-    Ai_provider.Provider_error.make_timeout ~provider:"p" ~phase:Stream_idle ~elapsed_s:1.0 ~limit_s:1.0
-  in
+  let idle = Ai_provider.Provider_error.make_timeout ~provider:"p" ~phase:Stream_idle ~elapsed_s:1.0 ~limit_s:1.0 in
   (check bool) "Stream_idle retryable" true idle.is_retryable
 
 let () =

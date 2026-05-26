@@ -26,3 +26,6 @@ val to_usage : anthropic_usage -> Ai_provider.Usage.t
 
 (** Extract cache-specific metrics into provider metadata. *)
 val to_provider_metadata : anthropic_usage -> Ai_provider.Provider_options.t
+
+(** Read Anthropic cache metrics back out of provider metadata, if present. *)
+val of_provider_metadata : Ai_provider.Provider_options.t -> anthropic_usage option

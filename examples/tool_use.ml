@@ -23,6 +23,7 @@ let () =
                   `Assoc [ "city", `Assoc [ "type", `String "string"; "description", `String "The city name" ] ] );
                 "required", `List [ `String "city" ];
               ];
+          provider_options = Ai_provider.Provider_options.empty;
         }
       in
 

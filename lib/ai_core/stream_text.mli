@@ -13,6 +13,7 @@
 val stream_text :
   model:Ai_provider.Language_model.t ->
   ?system:string ->
+  ?system_provider_options:Ai_provider.Provider_options.t ->
   ?prompt:string ->
   ?messages:Ai_provider.Prompt.message list ->
   ?tools:(string * Core_tool.t) list ->

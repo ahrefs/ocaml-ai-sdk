@@ -26,6 +26,6 @@ type t =
   | Finish of {
       finish_reason : Finish_reason.t;
       usage : Usage.t;
+      provider_metadata : Provider_options.t option;
     }
   | Error of { error : Provider_error.t }
-  | Provider_metadata of { metadata : Provider_options.t }

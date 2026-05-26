@@ -78,7 +78,14 @@ let test_generate_tool_call () =
            [ User { content = [ Text { text = "Weather?"; provider_options = Ai_provider.Provider_options.empty } ] } ])
       with
       tools =
-        [ { name = "get_weather"; description = Some "Get weather"; parameters = `Assoc [ "type", `String "object" ] } ];
+        [
+          {
+            name = "get_weather";
+            description = Some "Get weather";
+            parameters = `Assoc [ "type", `String "object" ];
+            provider_options = Ai_provider.Provider_options.empty;
+          };
+        ];
     }
   in
   let result = Lwt_main.run (M.generate opts) in

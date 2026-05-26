@@ -31,8 +31,12 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     |> Stdlib.Option.value ~default:Anthropic_options.default
   in
   let warnings = check_unsupported ~anthropic_opts opts in
-  let system, remaining = Convert_prompt.extract_system opts.prompt in
-  let messages = Convert_prompt.convert_messages remaining in
+  (* One validator per request — shared across system, tools, and messages
+     so the 4-breakpoint limit covers them all. Upstream order matches
+     this: system blocks, then tools, then messages. *)
+  let validator = Cache_control_validator.create () in
+  let system_parts, remaining = Convert_prompt.extract_system opts.prompt in
+  let system = Convert_prompt.system_to_json ~validator system_parts in
   (* Route Object_json per-model: native output_config where supported, synthetic [json]
      tool with forced tool_choice otherwise — matches upstream @ai-sdk/anthropic. *)
   let supports_native_structured_output =
@@ -59,7 +63,10 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
         ] )
   in
   let warnings = warnings @ extra_warnings in
-  let base_tools, base_tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in
+  let base_tools, base_tool_choice =
+    Convert_tools.convert_tools ~validator ~tools:opts.tools ~tool_choice:opts.tool_choice ()
+  in
+  let messages = Convert_prompt.convert_messages ~validator remaining in
   let tools = Option.fold ~none:base_tools ~some:(fun t -> base_tools @ [ t ]) fallback_tool in
   (* When structured-output fallback is active, override the caller's tool_choice. *)
   let tool_choice =
@@ -90,6 +97,7 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     Beta_headers.required_betas ~thinking:thinking_enabled ~has_pdf:false ~tool_streaming:anthropic_opts.tool_streaming
   in
   let extra_headers = Beta_headers.merge_beta_headers ~user_headers:opts.headers ~required:required_betas in
+  let warnings = warnings @ Cache_control_validator.warnings validator in
   body, warnings, extra_headers
 
 let create ~config ~model =

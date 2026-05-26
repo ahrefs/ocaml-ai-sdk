@@ -17,7 +17,7 @@ type output_config = { format : output_format } [@@deriving to_json]
 type request_body = {
   model : string;
   messages : Melange_json.t list;
-  system : string option; [@json.option] [@json.drop_default]
+  system : Melange_json.t option; [@json.option] [@json.drop_default]
   tools : Melange_json.t list option; [@json.option] [@json.drop_default]
   tool_choice : Melange_json.t option; [@json.option] [@json.drop_default]
   max_tokens : int;

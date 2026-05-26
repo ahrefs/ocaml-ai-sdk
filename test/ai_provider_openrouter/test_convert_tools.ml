@@ -1,7 +1,14 @@
 open Alcotest
 
 let test_convert_single_tool () =
-  let tool = { Ai_provider.Tool.name = "get_weather"; description = Some "Get weather"; parameters = `Assoc [] } in
+  let tool =
+    {
+      Ai_provider.Tool.name = "get_weather";
+      description = Some "Get weather";
+      parameters = `Assoc [];
+      provider_options = Ai_provider.Provider_options.empty;
+    }
+  in
   let converted = Ai_provider_openrouter.Convert_tools.convert_tools ~strict:true [ tool ] in
   (check int) "one tool" 1 (List.length converted);
   match converted with

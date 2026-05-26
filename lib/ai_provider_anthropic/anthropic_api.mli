@@ -15,7 +15,7 @@ val request_body_to_json : request_body -> Melange_json.t
 val make_request_body :
   model:string ->
   messages:Convert_prompt.anthropic_message list ->
-  ?system:string ->
+  ?system:Yojson.Basic.t ->
   ?tools:Convert_tools.anthropic_tool list ->
   ?tool_choice:Convert_tools.anthropic_tool_choice ->
   ?max_tokens:int ->

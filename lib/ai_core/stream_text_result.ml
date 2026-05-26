@@ -7,6 +7,7 @@ type t = {
   steps : Generate_text_result.step list Lwt.t;
   warnings : Ai_provider.Warning.t list;
   output : Yojson.Basic.t option Lwt.t;
+  provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
 }
 
 let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) (result : t) =

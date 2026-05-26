@@ -17,7 +17,11 @@ let () =
       Ai_provider.Call_options.default
         ~prompt:
           [
-            Ai_provider.Prompt.System { content = "You are a helpful assistant. Be concise." };
+            Ai_provider.Prompt.System
+              {
+                content = "You are a helpful assistant. Be concise.";
+                provider_options = Ai_provider.Provider_options.empty;
+              };
             Ai_provider.Prompt.User
               {
                 content =

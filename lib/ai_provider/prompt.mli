@@ -68,7 +68,10 @@ type tool_result = {
 
 (** A prompt message. The role constrains valid content parts. *)
 type message =
-  | System of { content : string }
+  | System of {
+      content : string;
+      provider_options : Provider_options.t;
+    }
   | User of { content : user_part list }
   | Assistant of { content : assistant_part list }
   | Tool of { content : tool_result list }

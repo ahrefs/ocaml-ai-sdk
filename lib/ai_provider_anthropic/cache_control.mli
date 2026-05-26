@@ -2,13 +2,21 @@
 
 type breakpoint = Ephemeral  (** Cache control type. Currently only [Ephemeral] is supported. *)
 
-type t = { cache_type : breakpoint }
+(** Cache TTL. Anthropic accepts ["5m"] (default) or ["1h"]. *)
+type ttl =
+  | Ttl_5m
+  | Ttl_1h
 
-(** Convenience constructor for ephemeral cache control. *)
+type t = {
+  cache_type : breakpoint;
+  ttl : ttl option;
+}
+
+(** Ephemeral cache control with default 5-minute TTL. *)
 val ephemeral : t
 
-val breakpoint_to_json : breakpoint -> Yojson.Basic.t
-val breakpoint_of_json : Yojson.Basic.t -> breakpoint
+(** Ephemeral cache control with explicit 1-hour TTL. *)
+val ephemeral_1h : t
 
 val to_json : t -> Yojson.Basic.t
 val of_json : Yojson.Basic.t -> t

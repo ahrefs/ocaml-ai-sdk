@@ -70,6 +70,7 @@ let test_tools_to_provider () =
           parameters = `Assoc [ "type", `String "object" ];
           execute = Some (fun _ -> Lwt.return `Null);
           needs_approval = None;
+          provider_options = Ai_provider.Provider_options.empty;
         } );
     ]
   in

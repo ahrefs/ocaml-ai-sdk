@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Breaking changes
+
+Source-breaking for downstream code that constructs these records directly
+or pattern-matches without `; _`. Code that goes through the documented
+constructors (`Core_tool.create`, `Prompt_builder.resolve_messages`,
+`Cache_control.ephemeral` / `ephemeral_1h`) is unaffected.
+
+- `Ai_provider.Prompt.System` gained `provider_options : Provider_options.t`
+  alongside `content`. Callers building `System { content }` literally must
+  add `provider_options = Ai_provider.Provider_options.empty`.
+- `Ai_provider.Tool.t` gained `provider_options : Provider_options.t`. The
+  in-tree OpenAI / OpenRouter providers were updated; external providers
+  constructing this record need the same.
+- `Ai_provider.Stream_part.Finish` gained `provider_metadata`. The
+  standalone `Provider_metadata` constructor is removed — its data now
+  rides on `Finish`.
+- `Ai_core.Core_tool.t` gained `provider_options`. The `create` /
+  `create_with_approval` / `create_client_tool` helpers take an optional
+  `?provider_options` defaulting to empty, so call sites that use them are
+  unaffected.
+- `Ai_provider_anthropic.Cache_control.t` gained `ttl : ttl option`.
+  Construct via `Cache_control.ephemeral` (5m, default) or
+  `Cache_control.ephemeral_1h`.
+- Removed `Ai_provider_anthropic.Cache_control.breakpoint_to_json` /
+  `breakpoint_of_json` from the public mli — they silently dropped the
+  `ttl` field and had no in-tree callers.
+
+### Anthropic provider (`ai_provider_anthropic`)
+
+- **Prompt caching reaches the high-level API.** The `cache_control`
+  plumbing landed in 0.3 was only usable through `Ai_provider.Language_model`
+  directly. `Ai_core.Generate_text.generate_text`,
+  `Ai_core.Stream_text.stream_text`, and `Ai_core.Server_handler.handle_chat`
+  now accept `?system_provider_options` for the prepended system prompt,
+  and `Core_tool.t` gains a `provider_options` field that flows through to
+  the provider `Tool` record. The runnable `examples/prompt_caching` demo
+  exercises the new path.
+- **`Stream_part.Finish` carries `provider_metadata`** matching upstream
+  `LanguageModelV4StreamPart`. The standalone `Provider_metadata` chunk is
+  removed; Anthropic cache token metrics now ride on the terminal `Finish`
+  chunk on cached requests, and `Stream_text_result.provider_metadata` /
+  `Generate_text_result.step.provider_metadata` expose them to callers.
+  Cache fields are read from `message_start.message.usage` (where Anthropic
+  actually emits them) with a fallback to `message_delta.usage`.
+- **System messages always serialize as array-of-blocks** on the wire,
+  matching upstream `@ai-sdk/anthropic`. The previous "joined string when
+  no `cache_control`, array when `cache_control` is set" behavior changed
+  the model's input based on a feature flag.
+
 ## 0.3 — 2026-04-20
 
 ### Anthropic provider (`ai_provider_anthropic`)

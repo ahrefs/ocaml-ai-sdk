@@ -3,15 +3,24 @@ type t = {
   parameters : Yojson.Basic.t;
   execute : (Yojson.Basic.t -> Yojson.Basic.t Lwt.t) option;
   needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
+  provider_options : Ai_provider.Provider_options.t;
 }
 
-let create ?description ?needs_approval ~parameters ~execute () =
-  { description; parameters; execute = Some execute; needs_approval }
+let create ?description ?needs_approval ?(provider_options = Ai_provider.Provider_options.empty) ~parameters ~execute ()
+    =
+  { description; parameters; execute = Some execute; needs_approval; provider_options }
 
-let create_with_approval ?description ~parameters ~execute () =
-  { description; parameters; execute = Some execute; needs_approval = Some (fun _ -> Lwt.return_true) }
+let create_with_approval ?description ?(provider_options = Ai_provider.Provider_options.empty) ~parameters ~execute () =
+  {
+    description;
+    parameters;
+    execute = Some execute;
+    needs_approval = Some (fun _ -> Lwt.return_true);
+    provider_options;
+  }
 
-let create_client_tool ?description ~parameters () = { description; parameters; execute = None; needs_approval = None }
+let create_client_tool ?description ?(provider_options = Ai_provider.Provider_options.empty) ~parameters () =
+  { description; parameters; execute = None; needs_approval = None; provider_options }
 
 let safe_parse_json_args s =
   match s with

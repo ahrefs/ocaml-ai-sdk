@@ -9,7 +9,8 @@
   agent_loop
   smooth_streaming
   structured_output
-  telemetry_logging)
+  telemetry_logging
+  prompt_caching)
  (libraries
   ai_provider
   ai_provider_anthropic

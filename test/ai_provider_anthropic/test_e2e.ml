@@ -72,7 +72,7 @@ let make_opts ?(system = "You are a helpful assistant") text =
   Ai_provider.Call_options.default
     ~prompt:
       [
-        Ai_provider.Prompt.System { content = system };
+        Ai_provider.Prompt.System { content = system; provider_options = Ai_provider.Provider_options.empty };
         Ai_provider.Prompt.User { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] };
       ]
 
@@ -122,6 +122,7 @@ let test_tool_call_response () =
       description = Some "Search the web";
       parameters =
         `Assoc [ "type", `String "object"; "properties", `Assoc [ "query", `Assoc [ "type", `String "string" ] ] ];
+      provider_options = Ai_provider.Provider_options.empty;
     }
   in
   let opts = { (make_opts "Search for OCaml AI SDK") with tools = [ tool ] } in

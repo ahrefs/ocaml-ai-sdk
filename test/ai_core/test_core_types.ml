@@ -11,6 +11,7 @@ let test_tool_construction () =
       parameters = `Assoc [ "type", `String "object" ];
       execute = Some (fun _args -> Lwt.return (`String "result"));
       needs_approval = None;
+      provider_options = Ai_provider.Provider_options.empty;
     }
   in
   (check (option string)) "description" (Some "Search the web") tool.description
@@ -26,6 +27,7 @@ let test_tool_execute () =
             let q = (query_args_of_json args).query in
             Lwt.return (`String (Printf.sprintf "Found: %s" q)));
       needs_approval = None;
+      provider_options = Ai_provider.Provider_options.empty;
     }
   in
   let exec =
@@ -62,6 +64,7 @@ let test_step_construction () =
       tool_results = [];
       finish_reason = Ai_provider.Finish_reason.Stop;
       usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+      provider_metadata = None;
     }
   in
   (check string) "text" "Hello" step.text;

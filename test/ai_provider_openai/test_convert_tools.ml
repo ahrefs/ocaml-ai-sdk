@@ -2,7 +2,12 @@ open Alcotest
 
 let test_single_tool () =
   let tool : Ai_provider.Tool.t =
-    { name = "get_weather"; description = Some "Get the weather"; parameters = `Assoc [ "type", `String "object" ] }
+    {
+      name = "get_weather";
+      description = Some "Get the weather";
+      parameters = `Assoc [ "type", `String "object" ];
+      provider_options = Ai_provider.Provider_options.empty;
+    }
   in
   let result = Ai_provider_openai.Convert_tools.convert_tools ~strict:true [ tool ] in
   match result with
@@ -14,7 +19,9 @@ let test_single_tool () =
   | _ -> fail "expected exactly one tool"
 
 let test_strict_false () =
-  let tool : Ai_provider.Tool.t = { name = "test"; description = None; parameters = `Assoc [] } in
+  let tool : Ai_provider.Tool.t =
+    { name = "test"; description = None; parameters = `Assoc []; provider_options = Ai_provider.Provider_options.empty }
+  in
   let result = Ai_provider_openai.Convert_tools.convert_tools ~strict:false [ tool ] in
   match result with
   | [ t ] -> (check (option bool)) "strict" None t.function_.strict

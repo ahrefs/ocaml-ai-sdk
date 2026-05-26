@@ -84,7 +84,12 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     match opts.mode with
     | Object_tool { tool_name; schema = { name = _; schema } } ->
       let tool =
-        { Ai_provider.Tool.name = tool_name; description = Some "Structured output tool"; parameters = schema }
+        {
+          Ai_provider.Tool.name = tool_name;
+          description = Some "Structured output tool";
+          parameters = schema;
+          provider_options = Ai_provider.Provider_options.empty;
+        }
       in
       let tools =
         List.map Convert_tools.openai_tool_to_json
