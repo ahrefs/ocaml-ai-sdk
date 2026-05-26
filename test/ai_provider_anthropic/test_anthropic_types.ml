@@ -40,20 +40,31 @@ let test_ttl_1h_serializes () =
     (check (option string)) "ttl" (Some "1h") (List.assoc_opt "ttl" fields |> Option.map Yojson.Basic.Util.to_string)
   | _ -> fail "expected JSON object"
 
+(* Five user messages each carrying cache_control: only the first four should
+   keep cache_control on the wire; the fifth is silently dropped. *)
 let test_validator_caps_at_four () =
-  let v = Ai_provider_anthropic.Cache_control_validator.create () in
-  let cc = Some Ai_provider_anthropic.Cache_control.ephemeral in
-  let r1 = Ai_provider_anthropic.Cache_control_validator.take v cc in
-  let r2 = Ai_provider_anthropic.Cache_control_validator.take v cc in
-  let r3 = Ai_provider_anthropic.Cache_control_validator.take v cc in
-  let r4 = Ai_provider_anthropic.Cache_control_validator.take v cc in
-  let r5 = Ai_provider_anthropic.Cache_control_validator.take v cc in
-  (check bool) "1st kept" true (Option.is_some r1);
-  (check bool) "4th kept" true (Option.is_some r4);
-  (check bool) "5th dropped" true (Option.is_none r5);
-  (check int) "1 warning" 1 (List.length (Ai_provider_anthropic.Cache_control_validator.warnings v));
-  ignore r2;
-  ignore r3
+  let cc = Ai_provider_anthropic.Cache_control.ephemeral in
+  let po =
+    Ai_provider_anthropic.Cache_control_options.with_cache_control ~cache_control:cc Ai_provider.Provider_options.empty
+  in
+  let user n =
+    Ai_provider.Prompt.User
+      { content = [ Text { text = Printf.sprintf "msg %d" n; provider_options = po } ] }
+  in
+  let msgs = [ user 1; user 2; user 3; user 4; user 5 ] in
+  let converted = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
+  let cc_count =
+    List.fold_left
+      (fun acc (m : Ai_provider_anthropic.Convert_prompt.anthropic_message) ->
+        List.fold_left
+          (fun acc c ->
+            match c with
+            | Ai_provider_anthropic.Convert_prompt.A_text { cache_control = Some _; _ } -> acc + 1
+            | _ -> acc)
+          acc m.content)
+      0 converted
+  in
+  (check int) "4 kept" 4 cc_count
 
 (* Anthropic_options tests *)
 
