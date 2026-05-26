@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Breaking changes
+
+Source-breaking for downstream code that constructs these records directly
+or pattern-matches without `; _`. Code that goes through the documented
+constructors (`Core_tool.create`, `Prompt_builder.resolve_messages`,
+`Cache_control.ephemeral` / `ephemeral_1h`) is unaffected.
+
+- `Ai_provider.Prompt.System` gained `provider_options : Provider_options.t`
+  alongside `content`. Callers building `System { content }` literally must
+  add `provider_options = Ai_provider.Provider_options.empty`.
+- `Ai_provider.Tool.t` gained `provider_options : Provider_options.t`. The
+  in-tree OpenAI / OpenRouter providers were updated; external providers
+  constructing this record need the same.
+- `Ai_provider.Stream_part.Finish` gained `provider_metadata`. The
+  standalone `Provider_metadata` constructor is removed — its data now
+  rides on `Finish`.
+- `Ai_core.Core_tool.t` gained `provider_options`. The `create` /
+  `create_with_approval` / `create_client_tool` helpers take an optional
+  `?provider_options` defaulting to empty, so call sites that use them are
+  unaffected.
+- `Ai_provider_anthropic.Cache_control.t` gained `ttl : ttl option`.
+  Construct via `Cache_control.ephemeral` (5m, default) or
+  `Cache_control.ephemeral_1h`.
+- Removed `Ai_provider_anthropic.Cache_control.breakpoint_to_json` /
+  `breakpoint_of_json` from the public mli — they silently dropped the
+  `ttl` field and had no in-tree callers.
+
 ### Anthropic provider (`ai_provider_anthropic`)
 
 - **Prompt caching reaches the high-level API.** The `cache_control`
@@ -19,13 +46,12 @@ All notable changes to this project will be documented in this file.
   removed; Anthropic cache token metrics now ride on the terminal `Finish`
   chunk on cached requests, and `Stream_text_result.provider_metadata` /
   `Generate_text_result.step.provider_metadata` expose them to callers.
+  Cache fields are read from `message_start.message.usage` (where Anthropic
+  actually emits them) with a fallback to `message_delta.usage`.
 - **System messages always serialize as array-of-blocks** on the wire,
   matching upstream `@ai-sdk/anthropic`. The previous "joined string when
   no `cache_control`, array when `cache_control` is set" behavior changed
   the model's input based on a feature flag.
-- **Removed `Cache_control.breakpoint_to_json` / `breakpoint_of_json`** from
-  the public mli. They sat next to `to_json`/`of_json` but silently dropped
-  the `ttl` field — a footgun with no in-tree callers.
 
 ## 0.3 — 2026-04-20
 
