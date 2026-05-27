@@ -14,7 +14,9 @@
     - {b User} multi-part messages propagate message-level
       [cache_control] to the {e last} text part only (per-part wins).
       No root-level [cache_control] on multi-part user messages.
-    - {b Assistant} messages can carry a root-level [cache_control].
+    - {b Assistant} part-level cache markers are hoisted to the
+      root-level [cache_control] field used by OpenRouter assistant
+      messages.
     - {b Tool} messages include a [name] field and a root-level
       [cache_control] (message-level wins over per-result).
 

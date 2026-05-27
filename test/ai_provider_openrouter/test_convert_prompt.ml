@@ -133,6 +133,24 @@ let test_user_single_text_part_cache () =
     | _ -> fail "expected cache_control on the one text part")
   | _ -> fail "expected one-element array content"
 
+let test_user_single_text_public_serializer_with_cache () =
+  let json =
+    CP.openrouter_message_to_json
+      (CP.User_msg_single_text { text = "public cached"; cache_control = Some CC.ephemeral })
+  in
+  match json_field "content" json with
+  | Some (`List [ `Assoc fs ]) ->
+    (match List.assoc_opt "type" fs with
+    | Some (`String "text") -> ()
+    | _ -> fail "expected text part");
+    (match List.assoc_opt "text" fs with
+    | Some (`String "public cached") -> ()
+    | _ -> fail "expected text body");
+    (match List.assoc_opt "cache_control" fs with
+    | Some (`Assoc _) -> ()
+    | _ -> fail "expected cache_control on public single-text serializer")
+  | _ -> fail "expected one-element array content"
+
 (* --- User multi-part tests (plan §4.4) --- *)
 
 (* The Prompt.User variant currently has no [provider_options] field, so
@@ -251,10 +269,58 @@ let test_assistant_with_tool_call_no_cache_no_field () =
     | _ -> fail "expected one tool_call")
   | _ -> fail "assoc"
 
+let test_assistant_text_part_cache_hoisted () =
+  let po = CCO.with_cache_control ~cache_control:CC.ephemeral PO.empty in
+  let json =
+    convert_one ~system_message_mode:System
+      (Ai_provider.Prompt.Assistant
+         { content = [ Text { text = "cached assistant"; provider_options = po } ] })
+  in
+  match json with
+  | `Assoc fs ->
+    (match List.assoc_opt "content" fs with
+    | Some (`String "cached assistant") -> ()
+    | _ -> fail "expected content string");
+    (match List.assoc_opt "cache_control" fs with
+    | Some (`Assoc cfs) ->
+      (match List.assoc_opt "type" cfs with
+      | Some (`String "ephemeral") -> ()
+      | _ -> fail "cache_control.type")
+    | _ -> fail "expected root cache_control from assistant text part")
+  | _ -> fail "assoc"
+
+let test_assistant_tool_call_part_cache_hoisted () =
+  let po = CCO.with_cache_control ~cache_control:CC.ephemeral PO.empty in
+  let json =
+    convert_one ~system_message_mode:System
+      (Ai_provider.Prompt.Assistant
+         {
+           content =
+             [
+               Tool_call
+                 {
+                   id = "call_cached";
+                   name = "do_cached";
+                   args = `Assoc [ "x", `Int 1 ];
+                   provider_options = po;
+                 };
+             ];
+         })
+  in
+  match json with
+  | `Assoc fs ->
+    (match List.assoc_opt "tool_calls" fs with
+    | Some (`List [ _ ]) -> ()
+    | _ -> fail "expected one tool_call");
+    (match List.assoc_opt "cache_control" fs with
+    | Some (`Assoc _) -> ()
+    | _ -> fail "expected root cache_control from assistant tool_call part")
+  | _ -> fail "assoc"
+
 (* Note: the Prompt.Assistant variant currently has no [provider_options]
    field, so root-level cache_control on assistant messages cannot be
-   exercised end-to-end via the public Prompt API today (see TODO in
-   convert_prompt.ml). When the surface is added, add a test here. *)
+   exercised end-to-end via the public Prompt API today. Until that surface is
+   added, assistant-part cache markers are hoisted to root cache_control. *)
 
 (* --- Tool message tests (plan §4.6) --- *)
 
@@ -379,6 +445,8 @@ let () =
           test_case "no_cache_emits_string" `Quick test_user_single_text_no_cache_emits_string;
           test_case "system_message_cache_sanity" `Quick test_user_single_text_message_cache;
           test_case "part_cache_flips_to_array" `Quick test_user_single_text_part_cache;
+          test_case "public_serializer_with_cache" `Quick
+            test_user_single_text_public_serializer_with_cache;
         ] );
       ( "user_multipart",
         [
@@ -390,6 +458,9 @@ let () =
         [
           test_case "no_cache_no_field" `Quick test_assistant_no_cache_no_field;
           test_case "with_tool_call_no_cache" `Quick test_assistant_with_tool_call_no_cache_no_field;
+          test_case "text_part_cache_hoisted" `Quick test_assistant_text_part_cache_hoisted;
+          test_case "tool_call_part_cache_hoisted" `Quick
+            test_assistant_tool_call_part_cache_hoisted;
         ] );
       ( "tool",
         [

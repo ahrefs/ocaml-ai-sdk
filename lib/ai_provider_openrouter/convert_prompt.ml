@@ -230,17 +230,27 @@ let convert_user_message ~message_po (parts : Ai_provider.Prompt.user_part list)
 (* --- Assistant message conversion --- *)
 
 let convert_assistant_parts (parts : Ai_provider.Prompt.assistant_part list) :
-  string option * or_tool_call list =
+  string option * or_tool_call list * Cache_control.t option =
   let text_buf = Buffer.create 256 in
-  let tool_calls =
+  let cache_control = ref None in
+  let take_cache_control provider_options =
+    match !cache_control with
+    | Some _ -> ()
+    | None -> cache_control := Cache_control_options.get_cache_control provider_options
+  in
+  let tool_calls_rev =
     List.fold_left
       (fun acc (part : Ai_provider.Prompt.assistant_part) ->
         match part with
-        | Text { text; _ } ->
+        | Text { text; provider_options } ->
+          take_cache_control provider_options;
           Buffer.add_string text_buf text;
           acc
-        | File _ | Reasoning _ -> acc
-        | Tool_call { id; name; args; _ } ->
+        | File { provider_options; _ } | Reasoning { provider_options; _ } ->
+          take_cache_control provider_options;
+          acc
+        | Tool_call { id; name; args; provider_options } ->
+          take_cache_control provider_options;
           {
             id;
             type_ = "function";
@@ -248,14 +258,14 @@ let convert_assistant_parts (parts : Ai_provider.Prompt.assistant_part list) :
           }
           :: acc)
       [] parts
-    |> List.rev
   in
+  let tool_calls = List.rev tool_calls_rev in
   let content =
     match Buffer.length text_buf > 0 with
     | true -> Some (Buffer.contents text_buf)
     | false -> None
   in
-  content, tool_calls
+  content, tool_calls, !cache_control
 
 (* --- Tool message conversion --- *)
 
@@ -322,11 +332,13 @@ let convert_messages ~system_message_mode messages =
         | User { content } ->
           [ convert_user_message ~message_po:Ai_provider.Provider_options.empty content ]
         | Assistant { content } ->
-          let text, tool_calls = convert_assistant_parts content in
+          let text, tool_calls, cache_control = convert_assistant_parts content in
           (* The Prompt.Assistant variant has no provider_options field today
-             (see lib/ai_provider/prompt.mli). When that surface is added,
-             thread it through here for the root-level cache_control per §4.5. *)
-          [ Assistant_msg { content = text; tool_calls; cache_control = None } ]
+             (see lib/ai_provider/prompt.mli). Until that surface is added,
+             hoist the first assistant-part cache marker to the root
+             assistant cache_control field, which is the OpenRouter wire
+             placement for assistant messages. *)
+          [ Assistant_msg { content = text; tool_calls; cache_control } ]
         | Tool { content } ->
           (* Tool message has no message-level provider_options field today;
              cache control resolution therefore falls through to each
@@ -374,9 +386,11 @@ let openrouter_message_to_json = function
           ];
       }
   | Developer_msg { content } -> developer_msg_json_to_json { role = "developer"; content }
-  | User_msg_single_text { text; cache_control = _ } ->
-    (* By construction only reached with cache_control = None. *)
+  | User_msg_single_text { text; cache_control = None } ->
     user_msg_string_json_to_json { role = "user"; content = text }
+  | User_msg_single_text { text; cache_control = Some cc } ->
+    user_msg_parts_json_to_json
+      { role = "user"; content = [ content_part_to_json (Or_text { text; cache_control = Some cc }) ] }
   | User_msg_parts { parts } ->
     user_msg_parts_json_to_json
       { role = "user"; content = List.map content_part_to_json parts }

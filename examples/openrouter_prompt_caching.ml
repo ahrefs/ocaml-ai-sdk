@@ -30,6 +30,10 @@ let big_system_prompt =
 
 let model_id = "anthropic/claude-3.5-sonnet"
 
+let top_level_prompt = "Summarize the reference material in one short sentence."
+
+let explicit_prompt = "Extract the first recurring phrase from the reference material."
+
 let extract_or_metadata pm =
   Stdlib.Option.bind pm (fun po -> Ai_provider.Provider_options.find OR.Convert_usage.Openrouter_usage po)
 
@@ -80,8 +84,8 @@ let run_explicit label prompt =
 let () =
   Lwt_main.run
     (let%lwt () = Lwt_io.printl "=== Top-level cache_control (Anthropic automatic) ===" in
-     let%lwt () = run_top_level "top-cold" "What's first?" in
-     let%lwt () = run_top_level "top-warm" "What's second?" in
+     let%lwt () = run_top_level "top-cold" top_level_prompt in
+     let%lwt () = run_top_level "top-warm" top_level_prompt in
      let%lwt () = Lwt_io.printl "=== Explicit breakpoint via system_provider_options ===" in
-     let%lwt () = run_explicit "explicit-cold" "What's third?" in
-     run_explicit "explicit-warm" "What's fourth?")
+     let%lwt () = run_explicit "explicit-cold" explicit_prompt in
+     run_explicit "explicit-warm" explicit_prompt)

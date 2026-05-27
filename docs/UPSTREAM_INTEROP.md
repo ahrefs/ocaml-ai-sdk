@@ -140,6 +140,10 @@ falls through to the **last text part only** for multi-part user
 messages (mirrors upstream `convert-to-openrouter-chat-messages.ts`
 ~line 212).
 
+OpenRouter's wire format puts assistant cache control at the message
+root. Because `Prompt.Assistant` does not yet carry message-level
+`provider_options`, assistant-part markers are hoisted to that root field.
+
 ### Known gap
 
 Message-level `provider_options` on `Prompt.User`, `Prompt.Assistant`,
@@ -147,7 +151,8 @@ and `Prompt.Tool` is **not yet supported** — only `Prompt.System`
 carries one. Upstream resolves `messagePO ?? partPO`, but the OCaml
 `Prompt.message` type does not expose `provider_options` on the other
 three variants. Workaround: set the cache marker on the specific part
-or `tool_result` instead. Tracked in
+or `tool_result` instead. Assistant-part markers are preserved by
+hoisting them to the assistant message root. Tracked in
 `docs/plans/2026-03-26-v3-roadmap.md` under "Message-level
 `provider_options` on User / Assistant / Tool prompts".
 
