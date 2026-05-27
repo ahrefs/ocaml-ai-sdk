@@ -1,5 +1,6 @@
 module Config = Config
 module Model_catalog = Model_catalog
+module Cache_control = Cache_control
 module Openrouter_options = Openrouter_options
 module Openrouter_error = Openrouter_error
 module Convert_prompt = Convert_prompt

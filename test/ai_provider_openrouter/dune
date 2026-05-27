@@ -1,6 +1,7 @@
 (tests
  (names
   test_config
+  test_cache_control
   test_convert_prompt
   test_convert_tools
   test_convert_response
