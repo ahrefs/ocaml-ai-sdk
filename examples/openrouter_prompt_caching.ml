@@ -28,7 +28,7 @@ let big_system_prompt =
   done;
   Buffer.contents buf
 
-let model_id = "anthropic/claude-3.5-sonnet"
+let model_id = "anthropic/claude-sonnet-4.5"
 
 let top_level_prompt = "Summarize the reference material in one short sentence."
 

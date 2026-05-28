@@ -225,7 +225,7 @@ No code change in step 6.
 
 New file: `examples/openrouter_prompt_caching.ml`.
 
-Two runs against `anthropic/claude-3.5-sonnet` (or whichever model is cheapest with a 1024+ token cache threshold):
+Two runs against `anthropic/claude-sonnet-4.5` (or whichever current Sonnet OpenRouter exposes — the older `claude-3.5-sonnet` slug returns HTTP 404 "No endpoints found"; check `https://openrouter.ai/api/v1/models` for live IDs):
 
 1. **Top-level mode**: set `Openrouter_options.cache_control = Some { type_ = "ephemeral"; ttl = Some "5m" }`. Send a large system prompt, two requests back-to-back. Print `cache_read_tokens` / `cache_write_tokens`.
 2. **Explicit breakpoint mode**: leave top-level unset; pass `~system_provider_options` carrying `Openrouter_cache_control_options.Cache = Cache_control.ephemeral`. Same two requests. Print the same metrics.
@@ -326,6 +326,7 @@ Each step is independently committable. Verify upstream files at the start of ea
 - **Step 5 (dune)**: already-completed during step 2 (the `ai_provider_anthropic` build dep was added when the fallback key resolution landed); noted here for completeness. No further work required.
 - **Step 6 (example)**: Added `examples/openrouter_prompt_caching.ml` demonstrating both cache-control modes against `anthropic/claude-3.5-sonnet`: (1) top-level via `Openrouter_options.cache_control = Some { type_ = "ephemeral"; ttl = Some "5m" }`, (2) explicit per-part via `~system_provider_options` carrying `Openrouter_cache_control_options.with_cache_control`. Two `generate_text` calls per mode; prints `input` / `output` / `cache_read_tokens` / `cache_write_tokens` extracted via `Ai_provider.Provider_options.find Convert_usage.Openrouter_usage`. Registered in `examples/dune` (added `openrouter_prompt_caching` to `names` and `ai_provider_openrouter` to `libraries`). Files: `examples/openrouter_prompt_caching.ml`, `examples/dune`. Deviations: none.
 - **Step 7 (UPSTREAM_INTEROP + roadmap entry + mli gap docs)**: Added a new "Prompt caching (OpenRouter)" H2 section to `docs/UPSTREAM_INTEROP.md` covering the two cache-control modes, the model-family matrix from the OpenRouter docs, the no-separate-cache + sticky-routing clarification, the where-to-set-markers table, usage telemetry routing, the known gap on message-level `provider_options`, and the upstream-mirror file pointers. Documented the gap prominently in `lib/ai_provider_openrouter/cache_control_options.mli` under a "Supported placement today" / "Not yet supported" block that points at the v3 roadmap. Filed the gap as a new High-Priority entry in `docs/plans/2026-03-26-v3-roadmap.md` (item #5: "Message-level `provider_options` on User / Assistant / Tool prompts"); renumbered subsequent items #5–#16 → #6–#18. Files: `docs/UPSTREAM_INTEROP.md`, `lib/ai_provider_openrouter/cache_control_options.mli`, `docs/plans/2026-03-26-v3-roadmap.md`. Deviations: none.
+- **Post-implementation fixup (2026-05-28)**: First live run of `examples/openrouter_prompt_caching.exe` failed with HTTP 404 "No endpoints found for anthropic/claude-3.5-sonnet" — OpenRouter has deprecated that slug. Switched the example to `anthropic/claude-sonnet-4.5` (verified live via `https://openrouter.ai/api/v1/models`). Updated §6's model recommendation accordingly. Files: `examples/openrouter_prompt_caching.ml`, this plan.
 
 ## 14. Review checklist
 
