@@ -103,6 +103,31 @@ let test_usage_conversion () =
   (check int) "output" 50 sdk_usage.output_tokens;
   (check (option int)) "total" (Some 150) sdk_usage.total_tokens
 
+let test_usage_allows_extra_fields () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 12,
+          "ephemeral_1h_input_tokens": 34,
+          "future_cache_bucket_tokens": 56
+        },
+        "service_tier": "standard",
+        "server_tool_use": {"web_search_requests": 1}
+      }|}
+  in
+  let usage = Ai_provider_anthropic.Convert_usage.anthropic_usage_of_json json in
+  (check int) "input" 100 usage.input_tokens;
+  (check int) "output" 50 usage.output_tokens;
+  (check (option string)) "service tier" (Some "standard") usage.service_tier;
+  match usage.cache_creation with
+  | Some cache_creation ->
+    (check int) "ephemeral 5m" 12 cache_creation.ephemeral_5m_input_tokens;
+    (check int) "ephemeral 1h" 34 cache_creation.ephemeral_1h_input_tokens
+  | None -> fail "expected cache_creation"
+
 let () =
   run "Convert_response"
     [
@@ -120,5 +145,9 @@ let () =
           test_case "thinking" `Quick test_parse_thinking_response;
         ] );
       "error", [ test_case "parsing" `Quick test_error_parsing; test_case "retryable" `Quick test_is_retryable ];
-      "usage", [ test_case "conversion" `Quick test_usage_conversion ];
+      ( "usage",
+        [
+          test_case "conversion" `Quick test_usage_conversion;
+          test_case "allows extra fields" `Quick test_usage_allows_extra_fields;
+        ] );
     ]

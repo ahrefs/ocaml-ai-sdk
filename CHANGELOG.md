@@ -52,6 +52,9 @@ constructors (`Core_tool.create`, `Prompt_builder.resolve_messages`,
   matching upstream `@ai-sdk/anthropic`. The previous "joined string when
   no `cache_control`, array when `cache_control` is set" behavior changed
   the model's input based on a feature flag.
+- Anthropic usage decoders now ignore unknown fields, including nested
+  `cache_creation` fields, so new provider-side usage metadata does not
+  break response parsing.
 
 ### OpenRouter provider (`ai_provider_openrouter`)
 
