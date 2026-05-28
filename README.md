@@ -9,6 +9,7 @@ Type-safe, provider-agnostic AI model abstraction for OCaml, inspired by the [Ve
 | `ai_provider` | `ocaml-ai-sdk.ai_provider` | Provider abstraction — language model module types, tool definitions, prompt types, GADT-based provider options |
 | `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, full Claude model catalog |
 | `ai_provider_openai` | `ocaml-ai-sdk.ai_provider_openai` | OpenAI Chat Completions API — streaming SSE, tool calling with strict mode, GPT-4o/o1/o3/o4-mini catalog |
+| `ai_provider_openrouter` | `ocaml-ai-sdk.ai_provider_openrouter` | OpenRouter Chat Completions API — model routing, provider preferences, reasoning, web search, usage accounting, prompt caching |
 | `ai_core` | `ocaml-ai-sdk.ai_core` | Core SDK — `generate_text`, `stream_text` (with tool loops), UIMessage stream protocol, server handler, structured output |
 | `ai_sdk_react` | `ai-sdk-react.ai_sdk_react` | Melange bindings for `@ai-sdk/react` — `useChat`, `useCompletion`, v6 part types |
 
@@ -48,7 +49,7 @@ let handler = Server_handler.create ~model ()
 (* Serves SSE responses compatible with useChat() from @ai-sdk/react *)
 ```
 
-See [`examples/`](examples/) for complete runnable demos including tool use, thinking, structured output, and full-stack Melange apps.
+See [`examples/`](examples/) for complete runnable demos including tool use, thinking, structured output, OpenRouter prompt caching, and full-stack Melange apps.
 
 ## Architecture
 
@@ -56,12 +57,13 @@ See [`examples/`](examples/) for complete runnable demos including tool use, thi
 ai_provider          Provider abstraction (module types, GADT options)
 ├── ai_provider_anthropic   Anthropic implementation
 ├── ai_provider_openai      OpenAI implementation
+├── ai_provider_openrouter  OpenRouter implementation
 └── ai_core                 Core SDK (generate, stream, UIMessage protocol)
 ```
 
 **Key design choices:**
 
-- **Provider options** use an extensible GADT (`type _ key = ..`) for compile-time type-safe provider-specific settings (e.g. thinking budget, cache control)
+- **Provider options** use an extensible GADT (`type _ key = ..`) for compile-time type-safe provider-specific settings (e.g. thinking budget, cache control, OpenRouter routing)
 - **Prompt types** are role-constrained variants — `System` accepts only strings, `User` accepts text + files, etc.
 - **Streaming** uses `Lwt_stream.t` — `stream_text` returns synchronously with streams populated by a background Lwt task
 - **UIMessage protocol** emits SSE chunks matching the `ai@6` Zod schemas exactly, so `useChat()` works without adaptation

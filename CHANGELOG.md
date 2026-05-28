@@ -53,6 +53,22 @@ constructors (`Core_tool.create`, `Prompt_builder.resolve_messages`,
   no `cache_control`, array when `cache_control` is set" behavior changed
   the model's input based on a feature flag.
 
+### OpenRouter provider (`ai_provider_openrouter`)
+
+- **Prompt caching support.** Added typed `Cache_control` /
+  `Cache_control_options` modules for explicit per-block cache breakpoints,
+  including Anthropic-compatible `ttl` values (`5m` / `1h`) and fallback
+  support for prompts that already use the Anthropic cache-control key.
+- **OpenRouter prompt conversion now mirrors upstream.** The provider no
+  longer reuses the OpenAI prompt converter for chat messages. It now emits
+  OpenRouter-specific `cache_control` placement for system, user, assistant,
+  and tool messages, while preserving the no-cache shape for non-system
+  messages.
+- **Cache usage metadata.** OpenRouter `usage.prompt_tokens_details` is mapped
+  into provider metadata as `cache_read_tokens` and `cache_write_tokens`.
+  Added `examples/openrouter_prompt_caching` to demonstrate both top-level
+  automatic caching and explicit breakpoint mode.
+
 ## 0.3 — 2026-04-20
 
 ### Anthropic provider (`ai_provider_anthropic`)
