@@ -10,10 +10,12 @@
   smooth_streaming
   structured_output
   telemetry_logging
-  prompt_caching)
+  prompt_caching
+  openrouter_prompt_caching)
  (libraries
   ai_provider
   ai_provider_anthropic
+  ai_provider_openrouter
   ai_core
   lwt
   lwt.unix

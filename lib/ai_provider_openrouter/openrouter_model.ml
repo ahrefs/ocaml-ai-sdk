@@ -120,7 +120,7 @@ let prepare_request ~config ~model ~stream (opts : Ai_provider.Call_options.t) =
     | None -> Model_catalog.infer_system_message_mode model
   in
   let messages, prompt_warnings = Convert_prompt.convert_messages ~system_message_mode opts.prompt in
-  let messages_json = List.map Convert_prompt.openai_message_to_json messages in
+  let messages_json = List.map Convert_prompt.openrouter_message_to_json messages in
   let warnings = warnings @ prompt_warnings in
   let tools_json, tool_choice_json = build_tools_and_choice ~strict:or_opts.strict_json_schema opts in
   let response_format = build_response_format ~strict_json_schema:or_opts.strict_json_schema opts.mode in

@@ -1,6 +1,8 @@
 (tests
  (names
   test_config
+  test_cache_control
+  test_cache_control_options
   test_convert_prompt
   test_convert_tools
   test_convert_response
@@ -15,6 +17,7 @@
   ai_provider
   ai_provider_openrouter
   ai_provider_openai
+  ai_provider_anthropic
   alcotest
   yojson
   melange-json-native
