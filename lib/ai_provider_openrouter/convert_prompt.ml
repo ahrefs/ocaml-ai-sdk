@@ -146,8 +146,7 @@ let file_data_to_url ~media_type (data : Ai_provider.Prompt.file_data) =
   | Base64 s -> Printf.sprintf "data:%s;base64,%s" media_type s
   | Url u -> u
 
-let cache_control_json (cc : Cache_control.t option) : Melange_json.t option =
-  Option.map Cache_control.to_json cc
+let cache_control_json (cc : Cache_control.t option) : Melange_json.t option = Option.map Cache_control.to_json cc
 
 (* --- User message conversion --- *)
 
@@ -160,9 +159,9 @@ let last_text_part_index (parts : Ai_provider.Prompt.user_part list) : int =
     match i < 0 with
     | true -> -1
     | false ->
-      (match arr.(i) with
-      | Ai_provider.Prompt.Text _ -> i
-      | _ -> loop (i - 1))
+    match arr.(i) with
+    | Ai_provider.Prompt.Text _ -> i
+    | _ -> loop (i - 1)
   in
   loop (len - 1)
 
@@ -171,8 +170,7 @@ let last_text_part_index (parts : Ai_provider.Prompt.user_part list) : int =
    the message's [provider_options]. [is_last_text] flags whether
    this is the last text part (the only one to inherit [message_cc]
    when its own provider_options has no cache control). *)
-let convert_user_part_multi ~message_cc ~is_last_text (part : Ai_provider.Prompt.user_part) :
-  or_content_part =
+let convert_user_part_multi ~message_cc ~is_last_text (part : Ai_provider.Prompt.user_part) : or_content_part =
   match part with
   | Text { text; provider_options } ->
     let part_cc = Cache_control_options.get_cache_control provider_options in
@@ -251,12 +249,7 @@ let convert_assistant_parts (parts : Ai_provider.Prompt.assistant_part list) :
           acc
         | Tool_call { id; name; args; provider_options } ->
           take_cache_control provider_options;
-          {
-            id;
-            type_ = "function";
-            function_ = { name; arguments = Yojson.Basic.to_string args };
-          }
-          :: acc)
+          { id; type_ = "function"; function_ = { name; arguments = Yojson.Basic.to_string args } } :: acc)
       [] parts
   in
   let tool_calls = List.rev tool_calls_rev in
@@ -281,8 +274,7 @@ let tool_result_content_to_string (tr : Ai_provider.Prompt.tool_result) : string
         (fun (c : Ai_provider.Prompt.tool_result_content) ->
           match c with
           | Result_text s -> s
-          | Result_image { data; media_type } ->
-            Printf.sprintf "[image: %s, %d bytes]" media_type (String.length data))
+          | Result_image { data; media_type } -> Printf.sprintf "[image: %s, %d bytes]" media_type (String.length data))
         parts
     in
     String.concat "\n" texts
@@ -323,14 +315,10 @@ let convert_messages ~system_message_mode messages =
           | Remove ->
             warnings :=
               Ai_provider.Warning.Unsupported_feature
-                {
-                  feature = "system-messages";
-                  details = Some "System messages are removed for this model";
-                }
+                { feature = "system-messages"; details = Some "System messages are removed for this model" }
               :: !warnings;
             [])
-        | User { content } ->
-          [ convert_user_message ~message_po:Ai_provider.Provider_options.empty content ]
+        | User { content } -> [ convert_user_message ~message_po:Ai_provider.Provider_options.empty content ]
         | Assistant { content } ->
           let text, tool_calls, cache_control = convert_assistant_parts content in
           (* The Prompt.Assistant variant has no provider_options field today
@@ -353,22 +341,13 @@ let convert_messages ~system_message_mode messages =
 
 let content_part_to_json = function
   | Or_text { text; cache_control } ->
-    text_part_json_to_json
-      { type_ = "text"; text; cache_control = cache_control_json cache_control }
+    text_part_json_to_json { type_ = "text"; text; cache_control = cache_control_json cache_control }
   | Or_image_url { url; cache_control } ->
     image_url_part_json_to_json
-      {
-        type_ = "image_url";
-        image_url = { url };
-        cache_control = cache_control_json cache_control;
-      }
+      { type_ = "image_url"; image_url = { url }; cache_control = cache_control_json cache_control }
 
 let domain_tool_call_to_json_record (tc : or_tool_call) : tool_call_json =
-  {
-    id = tc.id;
-    type_ = tc.type_;
-    function_ = { name = tc.function_.name; arguments = tc.function_.arguments };
-  }
+  { id = tc.id; type_ = tc.type_; function_ = { name = tc.function_.name; arguments = tc.function_.arguments } }
 
 let openrouter_message_to_json = function
   | System_msg { content; cache_control } ->
@@ -376,14 +355,7 @@ let openrouter_message_to_json = function
     system_msg_json_to_json
       {
         role = "system";
-        content =
-          [
-            {
-              type_ = "text";
-              text = content;
-              cache_control = cache_control_json cache_control;
-            };
-          ];
+        content = [ { type_ = "text"; text = content; cache_control = cache_control_json cache_control } ];
       }
   | Developer_msg { content } -> developer_msg_json_to_json { role = "developer"; content }
   | User_msg_single_text { text; cache_control = None } ->
@@ -392,8 +364,7 @@ let openrouter_message_to_json = function
     user_msg_parts_json_to_json
       { role = "user"; content = [ content_part_to_json (Or_text { text; cache_control = Some cc }) ] }
   | User_msg_parts { parts } ->
-    user_msg_parts_json_to_json
-      { role = "user"; content = List.map content_part_to_json parts }
+    user_msg_parts_json_to_json { role = "user"; content = List.map content_part_to_json parts }
   | Assistant_msg { content; tool_calls; cache_control } ->
     let cc_json = cache_control_json cache_control in
     (match tool_calls with
@@ -408,10 +379,4 @@ let openrouter_message_to_json = function
         })
   | Tool_msg { tool_call_id; tool_name; content; cache_control } ->
     tool_msg_json_to_json
-      {
-        role = "tool";
-        tool_call_id;
-        content;
-        name = tool_name;
-        cache_control = cache_control_json cache_control;
-      }
+      { role = "tool"; tool_call_id; content; name = tool_name; cache_control = cache_control_json cache_control }

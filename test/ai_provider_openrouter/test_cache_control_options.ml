@@ -14,18 +14,14 @@ let check_cache_eq ~msg expected actual =
   (check string) msg s_expected s_actual
 
 let test_round_trip_openrouter_key () =
-  let po =
-    Cache_control_options.with_cache_control ~cache_control:Cache_control.ephemeral
-      Provider_options.empty
-  in
+  let po = Cache_control_options.with_cache_control ~cache_control:Cache_control.ephemeral Provider_options.empty in
   match Cache_control_options.get_cache_control po with
   | None -> failf "expected Some, got None"
   | Some cc -> check_cache_eq ~msg:"openrouter round trip" Cache_control.ephemeral cc
 
 let test_fallback_to_anthropic_key () =
   let po =
-    Anthropic_cache_control_options.with_cache_control
-      ~cache_control:Anthropic_cache_control.ephemeral
+    Anthropic_cache_control_options.with_cache_control ~cache_control:Anthropic_cache_control.ephemeral
       Provider_options.empty
   in
   match Cache_control_options.get_cache_control po with
@@ -37,8 +33,7 @@ let test_openrouter_wins_when_both_set () =
      when both are present, the OpenRouter key takes precedence. *)
   let po =
     Provider_options.empty
-    |> Anthropic_cache_control_options.with_cache_control
-         ~cache_control:Anthropic_cache_control.ephemeral
+    |> Anthropic_cache_control_options.with_cache_control ~cache_control:Anthropic_cache_control.ephemeral
     |> Cache_control_options.with_cache_control ~cache_control:Cache_control.ephemeral_1h
   in
   match Cache_control_options.get_cache_control po with
@@ -52,8 +47,7 @@ let test_neither_set () =
 
 let test_fallback_preserves_ttl_1h () =
   let po =
-    Anthropic_cache_control_options.with_cache_control
-      ~cache_control:Anthropic_cache_control.ephemeral_1h
+    Anthropic_cache_control_options.with_cache_control ~cache_control:Anthropic_cache_control.ephemeral_1h
       Provider_options.empty
   in
   match Cache_control_options.get_cache_control po with
@@ -61,16 +55,9 @@ let test_fallback_preserves_ttl_1h () =
   | Some cc -> check_cache_eq ~msg:"ttl 1h preserved" Cache_control.ephemeral_1h cc
 
 let test_fallback_preserves_ttl_5m () =
-  let anthropic_5m =
-    { Anthropic_cache_control.cache_type = Ephemeral; ttl = Some Anthropic_cache_control.Ttl_5m }
-  in
-  let openrouter_5m =
-    { Cache_control.cache_type = Ephemeral; ttl = Some Cache_control.Ttl_5m }
-  in
-  let po =
-    Anthropic_cache_control_options.with_cache_control ~cache_control:anthropic_5m
-      Provider_options.empty
-  in
+  let anthropic_5m = { Anthropic_cache_control.cache_type = Ephemeral; ttl = Some Anthropic_cache_control.Ttl_5m } in
+  let openrouter_5m = { Cache_control.cache_type = Ephemeral; ttl = Some Cache_control.Ttl_5m } in
+  let po = Anthropic_cache_control_options.with_cache_control ~cache_control:anthropic_5m Provider_options.empty in
   match Cache_control_options.get_cache_control po with
   | None -> failf "expected Some"
   | Some cc -> check_cache_eq ~msg:"ttl 5m preserved" openrouter_5m cc

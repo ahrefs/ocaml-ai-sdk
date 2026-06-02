@@ -96,8 +96,7 @@ let test_user_single_text_message_cache () =
   let msgs, _ =
     CP.convert_messages ~system_message_mode:System
       [
-        Ai_provider.Prompt.System
-          { content = "preamble"; provider_options = mpo }
+        Ai_provider.Prompt.System { content = "preamble"; provider_options = mpo }
         (* sneak the message_po onto the user via Prompt.User — Prompt.User has no
            provider_options field, so we instead test the equivalent path: a part-level
            cache_control. The single-text path's "message_po wins" branch is exercised
@@ -117,8 +116,7 @@ let test_user_single_text_part_cache () =
   let ppo = CCO.with_cache_control ~cache_control:CC.ephemeral PO.empty in
   let json =
     convert_one ~system_message_mode:System
-      (Ai_provider.Prompt.User
-         { content = [ Text { text = "cached user"; provider_options = ppo } ] })
+      (Ai_provider.Prompt.User { content = [ Text { text = "cached user"; provider_options = ppo } ] })
   in
   match json_field "content" json with
   | Some (`List [ `Assoc fs ]) ->
@@ -166,10 +164,7 @@ let test_user_multipart_part_cache_only () =
       (Ai_provider.Prompt.User
          {
            content =
-             [
-               Text { text = "first"; provider_options = PO.empty };
-               Text { text = "second"; provider_options = ppo };
-             ];
+             [ Text { text = "first"; provider_options = PO.empty }; Text { text = "second"; provider_options = ppo } ];
          })
   in
   match json_field "content" json with
@@ -215,13 +210,7 @@ let test_user_multipart_no_root_cache () =
   let json =
     convert_one ~system_message_mode:System
       (Ai_provider.Prompt.User
-         {
-           content =
-             [
-               Text { text = "a"; provider_options = ppo };
-               Text { text = "b"; provider_options = PO.empty };
-             ];
-         })
+         { content = [ Text { text = "a"; provider_options = ppo }; Text { text = "b"; provider_options = PO.empty } ] })
   in
   match json with
   | `Assoc fs -> check bool "no root cache_control" true (Option.is_none (List.assoc_opt "cache_control" fs))
@@ -232,8 +221,7 @@ let test_user_multipart_no_root_cache () =
 let test_assistant_no_cache_no_field () =
   let json =
     convert_one ~system_message_mode:System
-      (Ai_provider.Prompt.Assistant
-         { content = [ Text { text = "hi"; provider_options = PO.empty } ] })
+      (Ai_provider.Prompt.Assistant { content = [ Text { text = "hi"; provider_options = PO.empty } ] })
   in
   match json with
   | `Assoc fs ->
@@ -252,12 +240,7 @@ let test_assistant_with_tool_call_no_cache_no_field () =
              [
                Text { text = "calling"; provider_options = PO.empty };
                Tool_call
-                 {
-                   id = "call_1";
-                   name = "do_thing";
-                   args = `Assoc [ "x", `Int 1 ];
-                   provider_options = PO.empty;
-                 };
+                 { id = "call_1"; name = "do_thing"; args = `Assoc [ "x", `Int 1 ]; provider_options = PO.empty };
              ];
          })
   in
@@ -273,8 +256,7 @@ let test_assistant_text_part_cache_hoisted () =
   let po = CCO.with_cache_control ~cache_control:CC.ephemeral PO.empty in
   let json =
     convert_one ~system_message_mode:System
-      (Ai_provider.Prompt.Assistant
-         { content = [ Text { text = "cached assistant"; provider_options = po } ] })
+      (Ai_provider.Prompt.Assistant { content = [ Text { text = "cached assistant"; provider_options = po } ] })
   in
   match json with
   | `Assoc fs ->
@@ -298,12 +280,7 @@ let test_assistant_tool_call_part_cache_hoisted () =
            content =
              [
                Tool_call
-                 {
-                   id = "call_cached";
-                   name = "do_cached";
-                   args = `Assoc [ "x", `Int 1 ];
-                   provider_options = po;
-                 };
+                 { id = "call_cached"; name = "do_cached"; args = `Assoc [ "x", `Int 1 ]; provider_options = po };
              ];
          })
   in
@@ -332,9 +309,7 @@ let test_tool_message_includes_name () =
   let json =
     convert_one ~system_message_mode:System
       (Ai_provider.Prompt.Tool
-         {
-           content = [ mk_tool_result ~id:"call_1" ~name:"get_weather" ~result:(`String "sunny") () ];
-         })
+         { content = [ mk_tool_result ~id:"call_1" ~name:"get_weather" ~result:(`String "sunny") () ] })
   in
   match json_field "name" json with
   | Some (`String "get_weather") -> ()
@@ -343,24 +318,17 @@ let test_tool_message_includes_name () =
 let test_tool_message_no_cache () =
   let json =
     convert_one ~system_message_mode:System
-      (Ai_provider.Prompt.Tool
-         {
-           content = [ mk_tool_result ~id:"c" ~name:"t" ~result:(`String "ok") () ];
-         })
+      (Ai_provider.Prompt.Tool { content = [ mk_tool_result ~id:"c" ~name:"t" ~result:(`String "ok") () ] })
   in
   match json with
-  | `Assoc fs ->
-    check bool "no cache_control field" true (Option.is_none (List.assoc_opt "cache_control" fs))
+  | `Assoc fs -> check bool "no cache_control field" true (Option.is_none (List.assoc_opt "cache_control" fs))
   | _ -> fail "assoc"
 
 let test_tool_message_per_result_cache () =
   let po = CCO.with_cache_control ~cache_control:CC.ephemeral PO.empty in
   let json =
     convert_one ~system_message_mode:System
-      (Ai_provider.Prompt.Tool
-         {
-           content = [ mk_tool_result ~po ~id:"c" ~name:"t" ~result:(`String "ok") () ];
-         })
+      (Ai_provider.Prompt.Tool { content = [ mk_tool_result ~po ~id:"c" ~name:"t" ~result:(`String "ok") () ] })
   in
   match json_field "cache_control" json with
   | Some (`Assoc _) -> ()
@@ -370,10 +338,7 @@ let test_tool_message_per_result_cache_with_ttl () =
   let po = CCO.with_cache_control ~cache_control:CC.ephemeral_1h PO.empty in
   let json =
     convert_one ~system_message_mode:System
-      (Ai_provider.Prompt.Tool
-         {
-           content = [ mk_tool_result ~po ~id:"c" ~name:"t" ~result:(`String "ok") () ];
-         })
+      (Ai_provider.Prompt.Tool { content = [ mk_tool_result ~po ~id:"c" ~name:"t" ~result:(`String "ok") () ] })
   in
   match json_field "cache_control" json with
   | Some (`Assoc fs) ->
@@ -409,13 +374,8 @@ let test_byte_equivalence_no_cache_non_system () =
     CP.convert_messages ~system_message_mode:System
       [
         Ai_provider.Prompt.User { content = [ Text { text = "Hi"; provider_options = PO.empty } ] };
-        Ai_provider.Prompt.Assistant
-          { content = [ Text { text = "Hello!"; provider_options = PO.empty } ] };
-        Ai_provider.Prompt.Tool
-          {
-            content =
-              [ mk_tool_result ~id:"call_1" ~name:"echo" ~result:(`String "Hi") () ];
-          };
+        Ai_provider.Prompt.Assistant { content = [ Text { text = "Hello!"; provider_options = PO.empty } ] };
+        Ai_provider.Prompt.Tool { content = [ mk_tool_result ~id:"call_1" ~name:"echo" ~result:(`String "Hi") () ] };
       ]
   in
   let serialized = List.map CP.openrouter_message_to_json msgs |> List.map Yojson.Basic.to_string in
@@ -426,9 +386,7 @@ let test_byte_equivalence_no_cache_non_system () =
       {|{"role":"tool","tool_call_id":"call_1","content":"Hi","name":"echo"}|};
     ]
   in
-  let pair_check i (a, b) =
-    check string (Printf.sprintf "msg %d byte-equal" i) b a
-  in
+  let pair_check i (a, b) = check string (Printf.sprintf "msg %d byte-equal" i) b a in
   List.iteri pair_check (List.combine serialized expected)
 
 let () =
@@ -445,8 +403,7 @@ let () =
           test_case "no_cache_emits_string" `Quick test_user_single_text_no_cache_emits_string;
           test_case "system_message_cache_sanity" `Quick test_user_single_text_message_cache;
           test_case "part_cache_flips_to_array" `Quick test_user_single_text_part_cache;
-          test_case "public_serializer_with_cache" `Quick
-            test_user_single_text_public_serializer_with_cache;
+          test_case "public_serializer_with_cache" `Quick test_user_single_text_public_serializer_with_cache;
         ] );
       ( "user_multipart",
         [
@@ -459,8 +416,7 @@ let () =
           test_case "no_cache_no_field" `Quick test_assistant_no_cache_no_field;
           test_case "with_tool_call_no_cache" `Quick test_assistant_with_tool_call_no_cache_no_field;
           test_case "text_part_cache_hoisted" `Quick test_assistant_text_part_cache_hoisted;
-          test_case "tool_call_part_cache_hoisted" `Quick
-            test_assistant_tool_call_part_cache_hoisted;
+          test_case "tool_call_part_cache_hoisted" `Quick test_assistant_tool_call_part_cache_hoisted;
         ] );
       ( "tool",
         [
@@ -471,8 +427,5 @@ let () =
           test_case "one_message_per_result" `Quick test_tool_emits_one_per_result;
         ] );
       ( "regression",
-        [
-          test_case "byte_equivalence_no_cache_non_system" `Quick
-            test_byte_equivalence_no_cache_non_system;
-        ] );
+        [ test_case "byte_equivalence_no_cache_non_system" `Quick test_byte_equivalence_no_cache_non_system ] );
     ]

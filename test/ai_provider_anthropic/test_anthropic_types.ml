@@ -48,8 +48,7 @@ let test_validator_caps_at_four () =
     Ai_provider_anthropic.Cache_control_options.with_cache_control ~cache_control:cc Ai_provider.Provider_options.empty
   in
   let user n =
-    Ai_provider.Prompt.User
-      { content = [ Text { text = Printf.sprintf "msg %d" n; provider_options = po } ] }
+    Ai_provider.Prompt.User { content = [ Text { text = Printf.sprintf "msg %d" n; provider_options = po } ] }
   in
   let msgs = [ user 1; user 2; user 3; user 4; user 5 ] in
   let converted = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in

@@ -30,7 +30,7 @@
 
 type _ Ai_provider.Provider_options.key +=
   | Cache : Cache_control.t Ai_provider.Provider_options.key
-        (** GADT key for per-part cache control on OpenRouter requests. *)
+      (** GADT key for per-part cache control on OpenRouter requests. *)
 
 (** Add cache control to provider options. No-op if [cache_control] is [None]. *)
 val with_cache_control :

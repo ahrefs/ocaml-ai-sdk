@@ -12,9 +12,7 @@ let test_to_json_ephemeral_1h () =
   (check string) "ephemeral_1h json" {|{"type":"ephemeral","ttl":"1h"}|} (json_string j)
 
 let test_to_json_ephemeral_5m () =
-  let cc =
-    { Cache_control.cache_type = Cache_control.Ephemeral; ttl = Some Cache_control.Ttl_5m }
-  in
+  let cc = { Cache_control.cache_type = Cache_control.Ephemeral; ttl = Some Cache_control.Ttl_5m } in
   let j = Cache_control.to_json cc in
   (check string) "ephemeral_5m json" {|{"type":"ephemeral","ttl":"5m"}|} (json_string j)
 
@@ -31,9 +29,7 @@ let test_round_trip_ephemeral_1h () =
   (check string) "round trip ephemeral_1h" (json_string j) (json_string j')
 
 let test_round_trip_ephemeral_5m () =
-  let cc =
-    { Cache_control.cache_type = Cache_control.Ephemeral; ttl = Some Cache_control.Ttl_5m }
-  in
+  let cc = { Cache_control.cache_type = Cache_control.Ephemeral; ttl = Some Cache_control.Ttl_5m } in
   let j = Cache_control.to_json cc in
   let cc' = Cache_control.of_json j in
   let j' = Cache_control.to_json cc' in

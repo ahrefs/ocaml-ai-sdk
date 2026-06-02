@@ -24,7 +24,11 @@ let model () = Ai_provider_anthropic.model (Ai_provider_anthropic.Model_catalog.
 
 let print_metrics label ~input ~output pm =
   let cache = Option.bind pm Ai_provider_anthropic.Convert_usage.of_provider_metadata in
-  let show f = match cache with Some u -> Option.fold ~none:"-" ~some:string_of_int (f u) | None -> "-" in
+  let show f =
+    match cache with
+    | Some u -> Option.fold ~none:"-" ~some:string_of_int (f u)
+    | None -> "-"
+  in
   Printf.printf "[%s] input=%d output=%d cache_creation=%s cache_read=%s\n%!" label input output
     (show (fun u -> u.cache_creation_input_tokens))
     (show (fun u -> u.cache_read_input_tokens))
