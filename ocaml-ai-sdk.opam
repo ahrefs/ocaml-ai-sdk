@@ -25,6 +25,7 @@ depends: [
   "re2" {>= "0.16"}
   "uuseg" {>= "17.0"}
   "trace" {>= "0.12"}
+  "cohttp-lwt" {with-test}
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

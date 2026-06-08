@@ -92,6 +92,7 @@
    (>= 17.0))
   (trace
    (>= 0.12))
+  (cohttp-lwt :with-test)
   (alcotest :with-test)))
 
 (package
