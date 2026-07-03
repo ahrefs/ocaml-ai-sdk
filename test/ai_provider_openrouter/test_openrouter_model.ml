@@ -245,7 +245,18 @@ let test_headers () =
   | None -> fail "expected X-Provider-API-Keys header"
 
 let test_http_200_error () =
-  let error_response = `Assoc [ "error", `Assoc [ "message", `String "Model not found"; "code", `Int 404 ] ] in
+  let error_response =
+    `Assoc
+      [
+        ( "error",
+          `Assoc
+            [
+              "message", `String "Model not found";
+              "code", `Int 404;
+              "metadata", `Assoc [ "error_type", `String "not_found" ];
+            ] );
+      ]
+  in
   let config = make_mock_config error_response in
   let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"invalid/model" in
   let module M = (val model : Ai_provider.Language_model.S) in
@@ -259,8 +270,11 @@ let test_http_200_error () =
     (check string) "provider" "openrouter" err.provider;
     (match err.kind with
     | Api_error { status; body } ->
-      (check int) "status" 404 status;
-      (check string) "body" "Model not found" body
+      (* 200-embedded error: status derived from error.code, body is the readable
+         message with error_type appended. *)
+      (check int) "status from code" 404 status;
+      (check bool) "not retryable (404)" false err.is_retryable;
+      (check string) "readable body" "Model not found (not_found)" body
     | _ -> fail "expected Api_error")
 
 let () =

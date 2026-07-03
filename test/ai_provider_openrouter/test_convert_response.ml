@@ -115,7 +115,48 @@ let test_finish_reason_mapping () =
   (check string) "stop" "stop" (Ai_provider.Finish_reason.to_string (map_finish_reason (Some "stop")));
   (check string) "length" "length" (Ai_provider.Finish_reason.to_string (map_finish_reason (Some "length")));
   (check string) "tool_calls" "tool-calls" (Ai_provider.Finish_reason.to_string (map_finish_reason (Some "tool_calls")));
+  (match map_finish_reason (Some "error") with
+  | Ai_provider.Finish_reason.Error -> ()
+  | other -> failf "expected Error, got %s" (Ai_provider.Finish_reason.to_string other));
   (check string) "none" "other" (Ai_provider.Finish_reason.to_string (map_finish_reason None))
+
+let expect_provider_error f =
+  match f () with
+  | _ -> fail "expected Provider_error"
+  | exception Ai_provider.Provider_error.Provider_error err -> err
+
+(* A choice carrying an [error] object is raised as a Provider_error rather than
+   returned with its partial [message] content: partial output would fail downstream
+   structured-output validation, and a clean error drives retry/error handling. The
+   error body is a human-readable message (provider name + upstream message + error_type),
+   and retryability keys off [error.code] since the HTTP response was 200. *)
+let test_choice_error_raises_readable_message () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+        "id": "gen-choice-error",
+        "model": "anthropic/claude-sonnet-4.6",
+        "choices": [{
+          "index": 0,
+          "message": {"role": "assistant", "content": "partial output..."},
+          "finish_reason": "error",
+          "error": {
+            "code": 502,
+            "message": "Provider disconnected mid-stream",
+            "metadata": { "provider_name": "anthropic", "error_type": "provider_unavailable" }
+          }
+        }]
+      }|}
+  in
+  let err = expect_provider_error (fun () -> Ai_provider_openrouter.Convert_response.parse_response json) in
+  match err.kind with
+  | Api_error { status; body } ->
+    (check int) "status derived from error.code" 502 status;
+    (check bool) "retryable (5xx)" true err.is_retryable;
+    (* Exact-match asserts both the readable format and that the partial "partial output..."
+       content did not leak into the surfaced error. *)
+    (check string) "readable body" "[anthropic] Provider disconnected mid-stream (provider_unavailable)" body
+  | _ -> fail "expected Api_error"
 
 let test_parse_response_with_reasoning_details () =
   let json =
@@ -421,6 +462,7 @@ let () =
           test_case "response_with_tool_calls" `Quick test_parse_response_with_tool_calls;
           test_case "extended_usage" `Quick test_parse_response_with_extended_usage;
           test_case "finish_reason_mapping" `Quick test_finish_reason_mapping;
+          test_case "choice_error_readable_message" `Quick test_choice_error_raises_readable_message;
           test_case "reasoning_details_text" `Quick test_parse_response_with_reasoning_details;
           test_case "reasoning_details_encrypted" `Quick test_parse_response_with_encrypted_reasoning;
           test_case "reasoning_details_summary" `Quick test_parse_response_with_summary_reasoning;
