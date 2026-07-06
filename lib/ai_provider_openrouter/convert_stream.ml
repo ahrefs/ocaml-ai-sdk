@@ -50,19 +50,9 @@ let empty_usage = { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total
 
 (** Extract an error message from a streaming error chunk and emit error + finish. *)
 let process_error_chunk ~push ~emit_finish fields =
-  let error_json = List.assoc "error" fields in
-  let msg =
-    match error_json with
-    | `Assoc ef ->
-      (match List.assoc_opt "message" ef with
-      | Some (`String m) -> m
-      | _ -> "Unknown streaming error")
-    | _ -> "Unknown streaming error"
-  in
-  push
-    (Some
-       (Ai_provider.Stream_part.Error
-          { error = Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status:200 ~body:msg () }));
+  let error_json = Option.value (List.assoc_opt "error" fields) ~default:(`Assoc fields) in
+  let error = Openrouter_error.of_error_json error_json in
+  push (Some (Ai_provider.Stream_part.Error { error }));
   emit_finish Ai_provider.Finish_reason.Error
 
 (** Emit reasoning stream parts from structured reasoning_details with legacy fallback. *)

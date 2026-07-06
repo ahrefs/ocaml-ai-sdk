@@ -123,17 +123,7 @@ let check_200_error json =
   | `Assoc fields ->
     (match List.assoc_opt "error" fields with
     | Some (`Assoc error_fields) ->
-      let message =
-        match List.assoc_opt "message" error_fields with
-        | Some (`String m) -> m
-        | _ -> "Unknown error"
-      in
-      let status =
-        match List.assoc_opt "code" error_fields with
-        | Some (`Int n) -> n
-        | _ -> 200
-      in
-      let err = Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body:message () in
+      let err = Openrouter_error.of_error_json (`Assoc error_fields) in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
     | _ -> Lwt.return json)
   | _ -> Lwt.return json

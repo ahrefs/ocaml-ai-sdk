@@ -48,6 +48,7 @@ type choice_json = {
   index : int; [@json.default 0]
   message : choice_message_json;
   finish_reason : string option; [@json.default None]
+  error : Melange_json.t option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -55,6 +56,7 @@ type openrouter_response_json = {
   id : string option; [@json.default None]
   model : string option; [@json.default None]
   provider : string option; [@json.default None]
+  error : Melange_json.t option; [@json.default None]
   choices : choice_json list; [@json.default []]
   usage : Convert_usage.openrouter_usage option; [@json.default None]
 }
@@ -70,6 +72,7 @@ let map_finish_reason = function
   | Some "content_filter" -> Ai_provider.Finish_reason.Content_filter
   | Some "tool_calls" -> Ai_provider.Finish_reason.Tool_calls
   | Some "function_call" -> Ai_provider.Finish_reason.Tool_calls
+  | Some "error" -> Ai_provider.Finish_reason.Error
   | Some other -> Ai_provider.Finish_reason.Other other
   | None -> Ai_provider.Finish_reason.Unknown
 
@@ -143,6 +146,16 @@ let override_finish_reason ~has_tool_calls ~has_encrypted (finish_reason : Ai_pr
 let parse_response json =
   let resp = openrouter_response_json_of_json json in
   let choice = List.nth_opt resp.choices 0 in
+  (* Top-level [resp.error] is already raised upstream by Openrouter_api.check_200_error,
+     so we only handle choice-level errors here. A choice may carry a partial [message]
+     alongside an [error] (e.g. finish_reason="error" after mid-stream provider failure);
+     we raise rather than return the truncated content, since partial output would fail
+     downstream structured-output validation and a clean error drives retry/error handling. *)
+  (match choice with
+  | Some { error = Some error_json; _ } ->
+    let err = Openrouter_error.of_error_json error_json in
+    raise (Ai_provider.Provider_error.Provider_error err)
+  | Some { error = None; _ } | None -> ());
   let content =
     match choice with
     | None -> []

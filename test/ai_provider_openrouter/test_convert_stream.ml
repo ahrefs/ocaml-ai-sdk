@@ -169,7 +169,13 @@ let test_summary_reasoning_stream () =
   | _ -> fail "expected Reasoning with summary"
 
 let test_error_chunk_stream () =
-  let events = Lwt_stream.of_list [ make_sse_event {|{"error":{"message":"Rate limit exceeded","code":429}}|} ] in
+  let events =
+    Lwt_stream.of_list
+      [
+        make_sse_event
+          {|{"error":{"message":"Rate limit exceeded","code":429,"metadata":{"error_type":"rate_limit_exceeded"}}}|};
+      ]
+  in
   let stream = Ai_provider_openrouter.Convert_stream.transform events ~warnings:[] in
   let parts = collect_stream stream in
   let error_parts =
@@ -180,6 +186,14 @@ let test_error_chunk_stream () =
       parts
   in
   (check int) "one error" 1 (List.length error_parts);
+  (* Streaming errors carry no HTTP status, so status is derived from error.code (429 -> retryable).
+     The body is a readable message with the error_type appended. *)
+  (match error_parts with
+  | [ Error { error = { kind = Api_error { status; body }; is_retryable; _ } } ] ->
+    (check int) "error status from code" 429 status;
+    (check bool) "retryable (429)" true is_retryable;
+    (check string) "readable body" "Rate limit exceeded (rate_limit_exceeded)" body
+  | _ -> fail "expected one Api_error stream part");
   let finish_parts =
     List.filter
       (function
