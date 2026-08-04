@@ -13,13 +13,15 @@ let () =
     let open Ai_provider_anthropic.Model_catalog in
     let model = Claude_sonnet_4_6 in
     let caps = capabilities model in
-    assert (match caps.thinking with Some { adaptive = true; _ } -> true | _ -> false);
+    assert (
+      match caps.thinking with
+      | Some { adaptive = true; _ } -> true
+      | _ -> false);
     let claude = Ai_provider_anthropic.model (to_model_id model) in
 
     (* Configure adaptive thinking via type-safe provider options *)
     let thinking : Ai_provider_anthropic.Thinking.t =
-      Ai_provider_anthropic.Thinking.Adaptive
-        { display = Some Ai_provider_anthropic.Thinking.Summarized }
+      Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Summarized }
     in
     let anthropic_opts =
       {

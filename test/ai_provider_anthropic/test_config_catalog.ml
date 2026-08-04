@@ -59,9 +59,13 @@ let test_of_model_id_custom () =
 let test_capabilities_opus_4_6 () =
   let caps = Ai_provider_anthropic.Model_catalog.capabilities Claude_opus_4_6 in
   (check bool) "manual thinking" true
-    (match caps.thinking with Some { manual = true; _ } -> true | _ -> false);
+    (match caps.thinking with
+    | Some { manual = true; _ } -> true
+    | _ -> false);
   (check bool) "adaptive thinking" true
-    (match caps.thinking with Some { adaptive = true; _ } -> true | _ -> false);
+    (match caps.thinking with
+    | Some { adaptive = true; _ } -> true
+    | _ -> false);
   (check int) "max_tokens" 128_000 caps.max_output_tokens
 
 let test_capabilities_haiku_4_5 () =
@@ -80,46 +84,199 @@ let test_capability_matrix () =
   let through_high = [ "low"; "medium"; "high" ] in
   let matrix =
     [
-      ("claude-fable-5", 128_000, false, true, true, Ai_provider_anthropic.Model_catalog.Unsupported, all_effort, true, true, None);
-      ("claude-mythos-5", 128_000, false, true, true, Ai_provider_anthropic.Model_catalog.Unsupported, all_effort, true, true, None);
-      ("claude-mythos-preview", 128_000, true, true, true, Ai_provider_anthropic.Model_catalog.Unsupported, no_xhigh, true, true, None);
-      ("claude-opus-5", 128_000, false, true, true, Ai_provider_anthropic.Model_catalog.Up_to_high, all_effort, true, true, None);
-      ("claude-opus-4-8", 128_000, false, true, false, Ai_provider_anthropic.Model_catalog.Allowed, all_effort, true, true, None);
-      ("claude-sonnet-5", 128_000, false, true, true, Ai_provider_anthropic.Model_catalog.Allowed, all_effort, true, true, None);
-      ("claude-opus-4-7", 128_000, false, true, false, Ai_provider_anthropic.Model_catalog.Allowed, no_xhigh, true, true, None);
-      ("claude-opus-4-6", 128_000, true, true, false, Ai_provider_anthropic.Model_catalog.Allowed, no_xhigh, false, true, Some "summarized");
-      ("claude-sonnet-4-6", 128_000, true, true, false, Ai_provider_anthropic.Model_catalog.Allowed, no_xhigh, false, true, Some "summarized");
-      ("claude-haiku-4-5", 64_000, true, false, false, Ai_provider_anthropic.Model_catalog.Allowed, [], false, true, Some "summarized");
-      ("claude-sonnet-4-5", 64_000, true, false, false, Ai_provider_anthropic.Model_catalog.Allowed, [], false, true, Some "summarized");
-      ("claude-opus-4-5", 64_000, true, false, false, Ai_provider_anthropic.Model_catalog.Allowed, through_high, false, true, Some "summarized");
-      ("claude-opus-4-1", 32_000, true, false, false, Ai_provider_anthropic.Model_catalog.Allowed, [], false, true, Some "summarized");
-      ("claude-sonnet-4-20250514", 64_000, true, false, false, Ai_provider_anthropic.Model_catalog.Allowed, [], false, false, Some "summarized");
-      ("claude-opus-4-20250514", 32_000, true, false, false, Ai_provider_anthropic.Model_catalog.Allowed, [], false, false, Some "summarized");
+      ( "claude-fable-5",
+        128_000,
+        false,
+        true,
+        true,
+        Ai_provider_anthropic.Model_catalog.Unsupported,
+        all_effort,
+        true,
+        true,
+        None );
+      ( "claude-mythos-5",
+        128_000,
+        false,
+        true,
+        true,
+        Ai_provider_anthropic.Model_catalog.Unsupported,
+        all_effort,
+        true,
+        true,
+        None );
+      ( "claude-mythos-preview",
+        128_000,
+        true,
+        true,
+        true,
+        Ai_provider_anthropic.Model_catalog.Unsupported,
+        no_xhigh,
+        true,
+        true,
+        None );
+      ( "claude-opus-5",
+        128_000,
+        false,
+        true,
+        true,
+        Ai_provider_anthropic.Model_catalog.Up_to_high,
+        all_effort,
+        true,
+        true,
+        None );
+      ( "claude-opus-4-8",
+        128_000,
+        false,
+        true,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        all_effort,
+        true,
+        true,
+        None );
+      ( "claude-sonnet-5",
+        128_000,
+        false,
+        true,
+        true,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        all_effort,
+        true,
+        true,
+        None );
+      ( "claude-opus-4-7",
+        128_000,
+        false,
+        true,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        no_xhigh,
+        true,
+        true,
+        None );
+      ( "claude-opus-4-6",
+        128_000,
+        true,
+        true,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        no_xhigh,
+        false,
+        true,
+        Some "summarized" );
+      ( "claude-sonnet-4-6",
+        128_000,
+        true,
+        true,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        no_xhigh,
+        false,
+        true,
+        Some "summarized" );
+      ( "claude-haiku-4-5",
+        64_000,
+        true,
+        false,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        [],
+        false,
+        true,
+        Some "summarized" );
+      ( "claude-sonnet-4-5",
+        64_000,
+        true,
+        false,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        [],
+        false,
+        true,
+        Some "summarized" );
+      ( "claude-opus-4-5",
+        64_000,
+        true,
+        false,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        through_high,
+        false,
+        true,
+        Some "summarized" );
+      ( "claude-opus-4-1",
+        32_000,
+        true,
+        false,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        [],
+        false,
+        true,
+        Some "summarized" );
+      ( "claude-sonnet-4-20250514",
+        64_000,
+        true,
+        false,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        [],
+        false,
+        false,
+        Some "summarized" );
+      ( "claude-opus-4-20250514",
+        32_000,
+        true,
+        false,
+        false,
+        Ai_provider_anthropic.Model_catalog.Allowed,
+        [],
+        false,
+        false,
+        Some "summarized" );
     ]
   in
   List.iter
-    (fun (id, max_tokens, manual, adaptive, defaults_to_adaptive, disabled, efforts, rejects_sampling, structured,
-          display_default) ->
-      let caps = Ai_provider_anthropic.Model_catalog.capabilities (Ai_provider_anthropic.Model_catalog.of_model_id id) in
-      let thinking = match caps.thinking with Some thinking -> thinking | None -> fail ("missing thinking for " ^ id) in
+    (fun ( id,
+           max_tokens,
+           manual,
+           adaptive,
+           defaults_to_adaptive,
+           disabled,
+           efforts,
+           rejects_sampling,
+           structured,
+           display_default ) ->
+      let caps =
+        Ai_provider_anthropic.Model_catalog.capabilities (Ai_provider_anthropic.Model_catalog.of_model_id id)
+      in
+      let thinking =
+        match caps.thinking with
+        | Some thinking -> thinking
+        | None -> fail ("missing thinking for " ^ id)
+      in
       (check int) (id ^ " max_tokens") max_tokens caps.max_output_tokens;
       (check bool) (id ^ " manual") manual thinking.manual;
       (check bool) (id ^ " adaptive") adaptive thinking.adaptive;
       (check bool) (id ^ " defaults_to_adaptive") defaults_to_adaptive thinking.defaults_to_adaptive;
       (check bool) (id ^ " rejects_sampling") rejects_sampling caps.rejects_sampling_parameters;
       (check bool) (id ^ " structured_output") structured caps.supports_structured_output;
-      (check (list string)) (id ^ " effort") efforts (List.map Ai_provider_anthropic.Effort.to_string thinking.effort_levels);
-      (check (option string)) (id ^ " display_default") display_default
+      (check (list string))
+        (id ^ " effort") efforts
+        (List.map Ai_provider_anthropic.Effort.to_string thinking.effort_levels);
+      (check (option string))
+        (id ^ " display_default") display_default
         (Option.map
            (function
-           | Ai_provider_anthropic.Thinking.Summarized -> "summarized"
-           | Ai_provider_anthropic.Thinking.Omitted -> "omitted")
+             | Ai_provider_anthropic.Thinking.Summarized -> "summarized"
+             | Ai_provider_anthropic.Thinking.Omitted -> "omitted")
            thinking.display_default);
       (check bool) (id ^ " disabled") true
         (match disabled, thinking.disabled with
         | Ai_provider_anthropic.Model_catalog.Allowed, Ai_provider_anthropic.Model_catalog.Allowed
         | Ai_provider_anthropic.Model_catalog.Up_to_high, Ai_provider_anthropic.Model_catalog.Up_to_high
-        | Ai_provider_anthropic.Model_catalog.Unsupported, Ai_provider_anthropic.Model_catalog.Unsupported -> true
+        | Ai_provider_anthropic.Model_catalog.Unsupported, Ai_provider_anthropic.Model_catalog.Unsupported ->
+          true
         | _ -> false))
     matrix
 

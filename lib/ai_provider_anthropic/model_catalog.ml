@@ -77,8 +77,7 @@ let of_model_id = function
   | "claude-opus-4-20250514" | "claude-opus-4-0" -> Claude_opus_4
   | s -> Custom s
 
-let all_effort_levels =
-  [ Effort.Low; Effort.Medium; Effort.High; Effort.Xhigh; Effort.Max ]
+let all_effort_levels = [ Effort.Low; Effort.Medium; Effort.High; Effort.Xhigh; Effort.Max ]
 
 let effort_without_xhigh = [ Effort.Low; Effort.Medium; Effort.High; Effort.Max ]
 let effort_through_high = [ Effort.Low; Effort.Medium; Effort.High ]

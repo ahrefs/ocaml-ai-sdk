@@ -9,9 +9,9 @@ let effective_thinking_active ~capabilities ~thinking =
   | Some (Thinking.Enabled _ | Thinking.Adaptive _) -> true
   | Some Thinking.Disabled -> false
   | None ->
-    (match capabilities.Model_catalog.thinking with
-    | Some { defaults_to_adaptive; _ } -> defaults_to_adaptive
-    | None -> false)
+  match capabilities.Model_catalog.thinking with
+  | Some { defaults_to_adaptive; _ } -> defaults_to_adaptive
+  | None -> false
 
 let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice =
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking with
@@ -25,18 +25,16 @@ let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_t
   | Some _, Some (Thinking.Enabled _ | Thinking.Adaptive _) -> ());
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.effort with
   | Some thinking, Some effort when not (List.mem effort thinking.effort_levels) ->
-    invalid_arg
-      (Printf.sprintf "%s does not support effort '%s'" model (Effort.to_string effort))
+    invalid_arg (Printf.sprintf "%s does not support effort '%s'" model (Effort.to_string effort))
   | None, _ | Some _, None | Some _, Some _ -> ());
-  (match anthropic_opts.Anthropic_options.thinking with
+  match anthropic_opts.Anthropic_options.thinking with
   | Some (Thinking.Enabled _)
-    when
-      (match tool_choice with
-      | Some (Ai_provider.Tool_choice.Required | Ai_provider.Tool_choice.Specific _) -> true
-      | None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_) -> false)
-      || Option.is_some forced_tool_choice ->
+    when (match tool_choice with
+           | Some (Ai_provider.Tool_choice.Required | Ai_provider.Tool_choice.Specific _) -> true
+           | None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_) -> false)
+         || Option.is_some forced_tool_choice ->
     invalid_arg "manual thinking cannot be combined with forced tool choice"
-  | _ -> ())
+  | _ -> ()
 
 let normalize_sampling ~model ~known_model ~capabilities ~thinking_active (opts : Ai_provider.Call_options.t) =
   let base_warnings =
@@ -73,10 +71,7 @@ let normalize_sampling ~model ~known_model ~capabilities ~thinking_active (opts 
       None, [ warning "top_p" (Some "top_p is not supported when temperature is set. top_p is ignored.") ]
     | _, _, _, _ -> top_p, []
   in
-  ( temperature,
-    top_p,
-    top_k,
-    base_warnings @ temperature_warnings @ top_p_warnings @ top_k_warnings @ top_p_warning )
+  temperature, top_p, top_k, base_warnings @ temperature_warnings @ top_p_warnings @ top_k_warnings @ top_p_warning
 
 let normalize_disabled_effort ~model ~capabilities ~anthropic_opts =
   match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking, anthropic_opts.effort with
@@ -84,10 +79,7 @@ let normalize_disabled_effort ~model ~capabilities ~anthropic_opts =
     ( Some Effort.High,
       [
         warning "providerOptions.anthropic.effort"
-          (Some
-             (Printf.sprintf
-                "effort is not supported by %s when thinking is disabled; lowered to 'high'"
-                model));
+          (Some (Printf.sprintf "effort is not supported by %s when thinking is disabled; lowered to 'high'" model));
       ] )
   | _, _, effort -> effort, []
 
@@ -162,9 +154,8 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
       | None -> Model_catalog.default_max_tokens (Model_catalog.of_model_id model))
   in
   let body =
-    Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens
-      ?temperature ?top_p ?top_k ~stop_sequences:opts.stop_sequences
-      ?thinking:anthropic_opts.thinking ?output_config ~stream ()
+    Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens ?temperature ?top_p ?top_k
+      ~stop_sequences:opts.stop_sequences ?thinking:anthropic_opts.thinking ?output_config ~stream ()
   in
   (* Merge user headers with required beta headers — the result includes all of opts.headers
      plus a merged anthropic-beta header, so it replaces opts.headers entirely *)

@@ -166,8 +166,7 @@ When the user asks "what's the weather here?" or similar, use both tools.|}
 
 let anthropic_thinking_options =
   let thinking : Ai_provider_anthropic.Thinking.t =
-    Ai_provider_anthropic.Thinking.Adaptive
-      { display = Some Ai_provider_anthropic.Thinking.Summarized }
+    Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Summarized }
   in
   let opts =
     {

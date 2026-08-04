@@ -272,10 +272,10 @@ let test_provider_options_request_body () =
                   "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ];
                 ];
             ] );
-        ("tool_choice", `Assoc [ "type", `String "auto" ]);
-        ("max_tokens", `Int 128000);
-        ("thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ]);
-        ("output_config", `Assoc [ "effort", `String "high" ]);
+        "tool_choice", `Assoc [ "type", `String "auto" ];
+        "max_tokens", `Int 128000;
+        "thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ];
+        "output_config", `Assoc [ "effort", `String "high" ];
       ]
   in
   (check bool) "exact provider-options body" true (Yojson.Basic.equal expected actual);
@@ -302,8 +302,8 @@ let reject_options model_id provider_options =
 let warning_features warnings =
   List.filter_map
     (function
-    | Ai_provider.Warning.Unsupported_feature { feature; _ } -> Some feature
-    | Ai_provider.Warning.Other _ -> None)
+      | Ai_provider.Warning.Unsupported_feature { feature; _ } -> Some feature
+      | Ai_provider.Warning.Other _ -> None)
     warnings
 
 let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperature ?top_p ?top_k () =
@@ -324,7 +324,11 @@ let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperatur
     }
   in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
-  let body = match !captured_body with Some body -> request_body_json_of_json body | None -> fail "fetch was not called" in
+  let body =
+    match !captured_body with
+    | Some body -> request_body_json_of_json body
+    | None -> fail "fetch was not called"
+  in
   body, result
 
 let test_policy_rejects_invalid_combinations () =
@@ -377,20 +381,19 @@ let test_policy_lowers_disabled_effort () =
 
 let test_policy_preserves_custom_model_options () =
   let provider_options =
-    anthropic_provider_options
-      ~thinking:Ai_provider_anthropic.Thinking.Disabled
+    anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled
       ~effort:Ai_provider_anthropic.Effort.Max ()
   in
   let body, _result =
-    capture_generate ~model_id:"my-anthropic-compatible-model" ~provider_options ~temperature:0.3 ~top_p:0.8
-      ~top_k:10 ()
+    capture_generate ~model_id:"my-anthropic-compatible-model" ~provider_options ~temperature:0.3 ~top_p:0.8 ~top_k:10
+      ()
   in
   (check (option (float 0.01))) "custom temperature" (Some 0.3) body.temperature;
   (check (option (float 0.01))) "custom top_p" (Some 0.8) body.top_p;
   (check (option int)) "custom top_k" (Some 10) body.top_k;
-  (match body.output_config with
+  match body.output_config with
   | Some { effort = Some effort; _ } -> (check string) "custom effort" "max" effort
-  | _ -> fail "expected custom effort")
+  | _ -> fail "expected custom effort"
 
 (* Assert that Object_json (Some schema) on [model_id] takes the tool-fallback path:
    synthesise the [json] tool, force tool_choice to it, leave system untouched and
