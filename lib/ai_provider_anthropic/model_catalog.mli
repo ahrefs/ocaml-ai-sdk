@@ -1,8 +1,23 @@
 (** Known Anthropic models with capabilities metadata. *)
 
+type disabled_thinking_support =
+  | Allowed
+  | Up_to_high
+  | Unsupported
+
+type thinking_capabilities = {
+  manual : bool;
+  adaptive : bool;
+  defaults_to_adaptive : bool;
+  disabled : disabled_thinking_support;
+  effort_levels : Effort.t list;
+  display_default : Thinking.display option;
+}
+
 type model_capabilities = {
   max_output_tokens : int;
-  supports_thinking : bool;
+  thinking : thinking_capabilities option;
+  rejects_sampling_parameters : bool;
   supports_structured_output : bool;
   supports_prompt_caching : bool;
   min_cache_tokens : int;
@@ -11,6 +26,12 @@ type model_capabilities = {
 }
 
 type known_model =
+  | Claude_fable_5
+  | Claude_mythos_5
+  | Claude_mythos_preview
+  | Claude_opus_5
+  | Claude_opus_4_8
+  | Claude_sonnet_5
   | Claude_opus_4_7
   | Claude_opus_4_6
   | Claude_sonnet_4_6

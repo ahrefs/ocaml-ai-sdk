@@ -13,6 +13,12 @@ type output_config_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
+type thinking_json = {
+  type_ : string; [@json.key "type"]
+  display : string option; [@json.default None]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
+
 type tool_json = {
   name : string;
   input_schema : Melange_json.t;
@@ -34,6 +40,10 @@ type system_block_json = {
 type request_body_json = {
   system : system_block_json list option; [@json.default None]
   output_config : output_config_json option; [@json.default None]
+  thinking : thinking_json option; [@json.default None]
+  temperature : float option; [@json.default None]
+  top_p : float option; [@json.default None]
+  top_k : int option; [@json.default None]
   tools : tool_json list option; [@json.default None]
   tool_choice : tool_choice_json option; [@json.default None]
 }
@@ -262,16 +272,125 @@ let test_provider_options_request_body () =
                   "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ];
                 ];
             ] );
-        "tool_choice", `Assoc [ "type", `String "auto" ];
-        "max_tokens", `Int 64000;
-        "thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ];
-        "output_config", `Assoc [ "effort", `String "high" ];
+        ("tool_choice", `Assoc [ "type", `String "auto" ]);
+        ("max_tokens", `Int 128000);
+        ("thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ]);
+        ("output_config", `Assoc [ "effort", `String "high" ]);
       ]
   in
   (check bool) "exact provider-options body" true (Yojson.Basic.equal expected actual);
   (check (option string))
     "adaptive has no thinking beta" (Some "fine-grained-tool-streaming-2025-05-14")
     (List.assoc_opt "anthropic-beta" !captured_headers)
+
+let anthropic_provider_options ?thinking ?effort () =
+  let opts = { Ai_provider_anthropic.Anthropic_options.default with thinking; effort } in
+  Ai_provider_anthropic.Anthropic_options.to_provider_options opts
+
+let assert_invalid_argument f =
+  try
+    f ();
+    fail "expected Invalid_argument"
+  with Invalid_argument _ -> ()
+
+let reject_options model_id provider_options =
+  let config = make_config mock_text_response in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:model_id in
+  let opts = { (make_opts ()) with provider_options } in
+  assert_invalid_argument (fun () -> ignore (Lwt_main.run (Ai_provider.Language_model.generate model opts)))
+
+let warning_features warnings =
+  List.filter_map
+    (function
+    | Ai_provider.Warning.Unsupported_feature { feature; _ } -> Some feature
+    | Ai_provider.Warning.Other _ -> None)
+    warnings
+
+let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperature ?top_p ?top_k () =
+  let captured_body = ref None in
+  let fetch ~url:_ ~headers:_ ~body =
+    captured_body := Some (Yojson.Basic.from_string body);
+    Lwt.return mock_text_response
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:model_id in
+  let opts =
+    {
+      (make_opts ()) with
+      provider_options = Option.value provider_options ~default:Ai_provider.Provider_options.empty;
+      temperature;
+      top_p;
+      top_k;
+    }
+  in
+  let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
+  let body = match !captured_body with Some body -> request_body_json_of_json body | None -> fail "fetch was not called" in
+  body, result
+
+let test_policy_rejects_invalid_combinations () =
+  let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
+  let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
+  let adaptive = Ai_provider_anthropic.Thinking.Adaptive { display = None } in
+  reject_options "claude-fable-5" (anthropic_provider_options ~thinking:manual ());
+  reject_options "claude-fable-5" (anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled ());
+  reject_options "claude-opus-4-5" (anthropic_provider_options ~thinking:adaptive ());
+  reject_options "claude-sonnet-4-5" (anthropic_provider_options ~effort:Ai_provider_anthropic.Effort.Low ())
+
+let test_policy_rejects_forced_tool_choice_with_manual_thinking () =
+  let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
+  let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
+  let config = make_config mock_text_response in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-opus-4-6" in
+  let opts =
+    {
+      (make_opts ()) with
+      provider_options = anthropic_provider_options ~thinking:manual ();
+      tool_choice = Some (Ai_provider.Tool_choice.Specific { tool_name = "search" });
+    }
+  in
+  assert_invalid_argument (fun () -> ignore (Lwt_main.run (Ai_provider.Language_model.generate model opts)))
+
+let test_policy_normalizes_sampling_parameters () =
+  let body, result = capture_generate ~temperature:0.3 ~top_p:0.8 ~top_k:10 () in
+  (check (option (float 0.01))) "temperature removed" None body.temperature;
+  (check (option (float 0.01))) "top_p removed" None body.top_p;
+  (check (option int)) "top_k removed" None body.top_k;
+  let features = warning_features result.warnings in
+  List.iter
+    (fun feature -> (check bool) (feature ^ " warning") true (List.mem feature features))
+    [ "temperature"; "top_p"; "top_k" ]
+
+let test_policy_lowers_disabled_effort () =
+  let provider_options =
+    anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled
+      ~effort:Ai_provider_anthropic.Effort.Max ()
+  in
+  let body, result = capture_generate ~provider_options () in
+  (match body.thinking with
+  | Some thinking -> (check string) "thinking" "disabled" thinking.type_
+  | None -> fail "expected disabled thinking");
+  (match body.output_config with
+  | Some { effort = Some effort; _ } -> (check string) "lowered effort" "high" effort
+  | _ -> fail "expected lowered effort");
+  (check bool) "normalization warning" true
+    (List.mem "providerOptions.anthropic.effort" (warning_features result.warnings))
+
+let test_policy_preserves_custom_model_options () =
+  let provider_options =
+    anthropic_provider_options
+      ~thinking:Ai_provider_anthropic.Thinking.Disabled
+      ~effort:Ai_provider_anthropic.Effort.Max ()
+  in
+  let body, _result =
+    capture_generate ~model_id:"my-anthropic-compatible-model" ~provider_options ~temperature:0.3 ~top_p:0.8
+      ~top_k:10 ()
+  in
+  (check (option (float 0.01))) "custom temperature" (Some 0.3) body.temperature;
+  (check (option (float 0.01))) "custom top_p" (Some 0.8) body.top_p;
+  (check (option int)) "custom top_k" (Some 10) body.top_k;
+  (match body.output_config with
+  | Some { effort = Some effort; _ } -> (check string) "custom effort" "max" effort
+  | _ -> fail "expected custom effort")
 
 (* Assert that Object_json (Some schema) on [model_id] takes the tool-fallback path:
    synthesise the [json] tool, force tool_choice to it, leave system untouched and
@@ -374,6 +493,11 @@ let () =
           test_case "no_schema" `Quick test_object_json_no_schema;
           test_case "with_schema_native" `Quick test_object_json_with_schema_native;
           test_case "provider_options_request_body" `Quick test_provider_options_request_body;
+          test_case "policy_rejects_invalid" `Quick test_policy_rejects_invalid_combinations;
+          test_case "policy_rejects_forced_tool" `Quick test_policy_rejects_forced_tool_choice_with_manual_thinking;
+          test_case "policy_normalizes_sampling" `Quick test_policy_normalizes_sampling_parameters;
+          test_case "policy_lowers_disabled_effort" `Quick test_policy_lowers_disabled_effort;
+          test_case "policy_custom_passthrough" `Quick test_policy_preserves_custom_model_options;
           test_case "with_schema_tool_fallback (legacy model)" `Quick test_object_json_with_schema_tool_fallback_legacy;
           test_case "with_schema_tool_fallback (custom model)" `Quick test_object_json_with_schema_tool_fallback_custom;
           test_case "preserves_existing_system" `Quick test_object_json_preserves_existing_system;

@@ -68,6 +68,17 @@ ai_provider          Provider abstraction (module types, GADT options)
 - **Streaming** uses `Lwt_stream.t` — `stream_text` returns synchronously with streams populated by a background Lwt task
 - **UIMessage protocol** emits SSE chunks matching the `ai@6` Zod schemas exactly, so `useChat()` works without adaptation
 
+### Anthropic thinking
+
+`Anthropic_options.thinking = None` omits the `thinking` request field. Use
+`Some Thinking.Disabled` to explicitly disable thinking on models that default
+to it; `Adaptive` and `Enabled` select the corresponding Anthropic modes.
+`effort` is independent and is serialized under `output_config`.
+
+When forwarding Anthropic reasoning blocks, preserve their provider metadata
+signature. Omitted-display thinking can have empty text, but its signature is
+required for multi-turn and tool-loop resubmission.
+
 ## AI SDK v6 compatibility
 
 The UIMessage stream protocol (`x-vercel-ai-ui-message-stream: v1`) is wire-compatible with:

@@ -13,18 +13,23 @@ let () =
     let open Ai_provider_anthropic.Model_catalog in
     let model = Claude_sonnet_4_6 in
     let caps = capabilities model in
-    assert caps.supports_thinking;
+    assert (match caps.thinking with Some { adaptive = true; _ } -> true | _ -> false);
     let claude = Ai_provider_anthropic.model (to_model_id model) in
 
-    (* Configure extended thinking via type-safe provider options *)
-    let budget = Ai_provider_anthropic.Thinking.budget_exn 4096 in
+    (* Configure adaptive thinking via type-safe provider options *)
     let thinking : Ai_provider_anthropic.Thinking.t =
-      Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None }
+      Ai_provider_anthropic.Thinking.Adaptive
+        { display = Some Ai_provider_anthropic.Thinking.Summarized }
     in
-    let anthropic_opts = { Ai_provider_anthropic.Anthropic_options.default with thinking = Some thinking } in
+    let anthropic_opts =
+      {
+        Ai_provider_anthropic.Anthropic_options.default with
+        thinking = Some thinking;
+        effort = Some Ai_provider_anthropic.Effort.High;
+      }
+    in
     let provider_options = Ai_provider_anthropic.Anthropic_options.to_provider_options anthropic_opts in
 
-    (* max_output_tokens must be > budget_tokens for Anthropic *)
     let opts =
       {
         (Ai_provider.Call_options.default
