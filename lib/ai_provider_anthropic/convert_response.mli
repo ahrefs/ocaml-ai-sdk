@@ -35,5 +35,8 @@ val anthropic_response_json_to_json : anthropic_response_json -> Yojson.Basic.t
 (** Map Anthropic stop reasons to SDK finish reasons. *)
 val map_stop_reason : string option -> Ai_provider.Finish_reason.t
 
+(** Build provider metadata carrying an Anthropic thinking signature. *)
+val reasoning_provider_options : string option -> Ai_provider.Provider_options.t
+
 (** Parse a full Anthropic Messages API response into a Generate_result. *)
 val parse_response : Yojson.Basic.t -> Ai_provider.Generate_result.t

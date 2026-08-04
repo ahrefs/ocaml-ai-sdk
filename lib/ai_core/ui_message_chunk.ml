@@ -18,12 +18,19 @@ type t =
       delta : string;
     }
   | Text_end of { id : string }
-  | Reasoning_start of { id : string }
+  | Reasoning_start of {
+      id : string;
+      provider_metadata : Yojson.Basic.t option;
+    }
   | Reasoning_delta of {
       id : string;
       delta : string;
+      provider_metadata : Yojson.Basic.t option;
     }
-  | Reasoning_end of { id : string }
+  | Reasoning_end of {
+      id : string;
+      provider_metadata : Yojson.Basic.t option;
+    }
   | Tool_input_start of {
       tool_call_id : string;
       tool_name : string;
@@ -115,6 +122,21 @@ type id_delta_json = {
   type_ : string; [@json.key "type"]
   id : string;
   delta : string;
+}
+[@@deriving to_json]
+
+type reasoning_id_json = {
+  type_ : string; [@json.key "type"]
+  id : string;
+  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
+}
+[@@deriving to_json]
+
+type reasoning_id_delta_json = {
+  type_ : string; [@json.key "type"]
+  id : string;
+  delta : string;
+  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -236,9 +258,12 @@ let to_json = function
   | Text_start { id } -> id_json_to_json { type_ = "text-start"; id }
   | Text_delta { id; delta } -> id_delta_json_to_json { type_ = "text-delta"; id; delta }
   | Text_end { id } -> id_json_to_json { type_ = "text-end"; id }
-  | Reasoning_start { id } -> id_json_to_json { type_ = "reasoning-start"; id }
-  | Reasoning_delta { id; delta } -> id_delta_json_to_json { type_ = "reasoning-delta"; id; delta }
-  | Reasoning_end { id } -> id_json_to_json { type_ = "reasoning-end"; id }
+  | Reasoning_start { id; provider_metadata } ->
+    reasoning_id_json_to_json { type_ = "reasoning-start"; id; provider_metadata }
+  | Reasoning_delta { id; delta; provider_metadata } ->
+    reasoning_id_delta_json_to_json { type_ = "reasoning-delta"; id; delta; provider_metadata }
+  | Reasoning_end { id; provider_metadata } ->
+    reasoning_id_json_to_json { type_ = "reasoning-end"; id; provider_metadata }
   | Tool_input_start { tool_call_id; tool_name } ->
     tool_input_start_json_to_json { type_ = "tool-input-start"; tool_call_id; tool_name }
   | Tool_input_delta { tool_call_id; input_text_delta } ->

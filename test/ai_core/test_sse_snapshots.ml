@@ -60,9 +60,9 @@ let test_reasoning_snapshot () =
     [
       Start { message_id = Some "msg_2"; message_metadata = None };
       Start_step;
-      Reasoning_start { id = "rsn_1" };
-      Reasoning_delta { id = "rsn_1"; delta = "Let me think..." };
-      Reasoning_end { id = "rsn_1" };
+      Reasoning_start { id = "rsn_1"; provider_metadata = None };
+      Reasoning_delta { id = "rsn_1"; delta = "Let me think..."; provider_metadata = None };
+      Reasoning_end { id = "rsn_1"; provider_metadata = None };
       Text_start { id = "txt_1" };
       Text_delta { id = "txt_1"; delta = "The answer is 42." };
       Text_end { id = "txt_1" };

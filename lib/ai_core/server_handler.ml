@@ -77,6 +77,7 @@ type parsed_part = {
   error_text : string option; [@json.key "errorText"] [@json.option]
   approved : bool option; [@json.option]
   approval : parsed_approval option; [@json.option]
+  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option]
   result_provider_metadata : Melange_json.t option; [@json.key "resultProviderMetadata"] [@json.option]
   call_provider_metadata : Melange_json.t option; [@json.key "callProviderMetadata"] [@json.option]
 }
@@ -121,9 +122,10 @@ let resolve_provider_metadata (p : parsed_part) : Yojson.Basic.t option =
 
 (** Build [provider_options] from resolved provider metadata. *)
 let provider_options_of_part (p : parsed_part) =
-  match resolve_provider_metadata p with
-  | Some json -> Ai_provider.Provider_options.of_provider_metadata json
-  | None -> empty_opts
+  match p.provider_metadata, resolve_provider_metadata p with
+  | Some json, _ -> Ai_provider.Provider_options.of_provider_metadata json
+  | None, Some json -> Ai_provider.Provider_options.of_provider_metadata json
+  | None, None -> empty_opts
 
 let parse_file_data (p : parsed_part) =
   match p.media_type with
@@ -150,7 +152,11 @@ let parse_user_part (p : parsed_part) : Ai_provider.Prompt.user_part option =
 let parse_assistant_part (p : parsed_part) : Ai_provider.Prompt.assistant_part option =
   match part_type_of_string p.type_ with
   | Text -> Option.map (fun text -> Ai_provider.Prompt.Text { text; provider_options = empty_opts }) p.text
-  | Reasoning -> Option.map (fun text -> Ai_provider.Prompt.Reasoning { text; provider_options = empty_opts }) p.text
+  | Reasoning ->
+    Option.map
+      (fun text ->
+        Ai_provider.Prompt.Reasoning { text; provider_options = provider_options_of_part p })
+      p.text
   | File ->
     Option.map
       (fun (data, media_type, filename) ->

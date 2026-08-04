@@ -28,6 +28,12 @@ let map_stop_reason = function
   | Some other -> Ai_provider.Finish_reason.Other other
   | None -> Ai_provider.Finish_reason.Unknown
 
+let reasoning_provider_options = function
+  | None -> Ai_provider.Provider_options.empty
+  | Some signature ->
+    Ai_provider.Provider_options.of_provider_metadata
+      (`Assoc [ "anthropic", `Assoc [ "signature", `String signature ] ])
+
 let parse_content_block (block : content_block_json) =
   match block.type_ with
   | "text" -> Option.map (fun text -> Ai_provider.Content.Text { text }) block.text
@@ -42,7 +48,11 @@ let parse_content_block (block : content_block_json) =
     Option.map
       (fun text ->
         Ai_provider.Content.Reasoning
-          { text; signature = block.signature; provider_options = Ai_provider.Provider_options.empty })
+          {
+            text;
+            signature = block.signature;
+            provider_options = reasoning_provider_options block.signature;
+          })
       block.thinking
   | _ -> None
 

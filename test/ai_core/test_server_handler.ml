@@ -688,6 +688,25 @@ let test_parse_tool_error_with_provider_metadata () =
     (check bool) "has provider_metadata" true (Option.is_some pm)
   | _ -> fail "expected tool error result with provider metadata"
 
+let test_parse_reasoning_provider_metadata () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"reasoning","text":"","providerMetadata":{"anthropic":{"signature":"sig_ui"}}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant { content = [ Reasoning { text; provider_options } ] } ] ->
+    (check string) "empty reasoning text" "" text;
+    (match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some metadata ->
+      (check string) "reasoning metadata"
+        {|{"anthropic":{"signature":"sig_ui"}}|}
+        (Yojson.Basic.to_string metadata)
+    | None -> fail "expected reasoning provider metadata")
+  | _ -> fail "expected assistant reasoning part"
+
 let () =
   run "Server_handler"
     [
@@ -763,5 +782,6 @@ let () =
           test_case "no provider metadata" `Quick test_parse_tool_result_no_provider_metadata;
           test_case "callProviderMetadata on tool call" `Quick test_parse_tool_call_with_call_provider_metadata;
           test_case "provider metadata on tool error" `Quick test_parse_tool_error_with_provider_metadata;
+          test_case "provider metadata on reasoning" `Quick test_parse_reasoning_provider_metadata;
         ] );
     ]

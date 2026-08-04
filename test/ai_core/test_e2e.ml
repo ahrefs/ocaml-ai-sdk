@@ -97,6 +97,38 @@ let mock_thinking_response =
       ]
     ~stop_reason:"end_turn" ~input_tokens:25 ~output_tokens:20
 
+(* Thinking + tool call response, followed by the tool-loop answer. *)
+let mock_thinking_tool_call_response =
+  mock_response ~id:"msg_e2e_5"
+    ~content:
+      [
+        {
+          type_ = "thinking";
+          text = None;
+          id = None;
+          name = None;
+          input = None;
+          thinking = Some "I should check the weather.";
+          signature = Some "sig_nonstream";
+        };
+        text_block "Let me check.";
+        {
+          type_ = "tool_use";
+          text = None;
+          id = Some "toolu_thinking";
+          name = Some "get_weather";
+          input = Some (`Assoc [ "city", `String "Paris" ]);
+          thinking = None;
+          signature = None;
+        };
+      ]
+    ~stop_reason:"tool_use" ~input_tokens:20 ~output_tokens:15
+
+let mock_thinking_tool_followup_response =
+  mock_response ~id:"msg_e2e_6"
+    ~content:[ text_block "The weather is sunny." ]
+    ~stop_reason:"end_turn" ~input_tokens:30 ~output_tokens:12
+
 let make_mock_config response =
   let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch ()
@@ -109,6 +141,17 @@ let make_tool_loop_config () =
     if !call_count = 1 then Lwt.return mock_tool_call_response else Lwt.return mock_followup_response
   in
   Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch ()
+
+let make_thinking_tool_loop_config () =
+  let call_count = ref 0 in
+  let bodies = ref [] in
+  let fetch ~url:_ ~headers:_ ~body =
+    incr call_count;
+    bodies := Yojson.Basic.from_string body :: !bodies;
+    if !call_count = 1 then Lwt.return mock_thinking_tool_call_response
+    else Lwt.return mock_thinking_tool_followup_response
+  in
+  Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch (), bodies
 
 let weather_tool : Ai_core.Core_tool.t =
   {
@@ -227,7 +270,23 @@ let make_thinking_stream_model () =
     let stream _opts =
       let stream, push = Lwt_stream.create () in
       push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Reasoning { text = "Let me count the r's..."; signature = None }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Reasoning
+              {
+                text = "Let me count the r's...";
+                signature = None;
+                provider_options = Ai_provider.Provider_options.empty;
+              }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Reasoning
+              {
+                text = "";
+                signature = Some "sig_ui_stream";
+                provider_options =
+                  Ai_provider_anthropic.Convert_response.reasoning_provider_options (Some "sig_ui_stream");
+              }));
       push (Some (Ai_provider.Stream_part.Text { text = "There are 3 r's in strawberry." }));
       push
         (Some
@@ -241,6 +300,76 @@ let make_thinking_stream_model () =
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
   (module M : Ai_provider.Language_model.S)
+
+(* Mock streaming tool loop with Anthropic-style thinking signatures. *)
+let make_thinking_tool_stream_model () =
+  let call_count = ref 0 in
+  let requests = ref [] in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock-anthropic"
+    let model_id = "claude-sonnet-4-6"
+
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream opts =
+      incr call_count;
+      requests := opts.Ai_provider.Call_options.prompt :: !requests;
+      let stream, push = Lwt_stream.create () in
+      if !call_count = 1 then begin
+        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Reasoning
+                {
+                  text = "";
+                  signature = None;
+                  provider_options = Ai_provider.Provider_options.empty;
+                }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Reasoning
+                {
+                  text = "";
+                  signature = Some "sig_stream";
+                  provider_options =
+                    Ai_provider_anthropic.Convert_response.reasoning_provider_options (Some "sig_stream");
+                }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Tool_call_delta
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "toolu_stream";
+                  tool_name = "get_weather";
+                  args_text_delta = {|{"city":"Paris"}|};
+                }));
+        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "toolu_stream" }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Finish
+                {
+                  finish_reason = Tool_calls;
+                  usage = { input_tokens = 20; output_tokens = 15; total_tokens = Some 35 };
+                  provider_metadata = None;
+                }));
+      end
+      else begin
+        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+        push (Some (Ai_provider.Stream_part.Text { text = "The weather is sunny." }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Finish
+                {
+                  finish_reason = Stop;
+                  usage = { input_tokens = 30; output_tokens = 12; total_tokens = Some 42 };
+                  provider_metadata = None;
+                }));
+      end;
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S), requests
 
 (* === generate_text E2E tests (through Anthropic provider with mock fetch) === *)
 
@@ -288,6 +417,31 @@ let test_generate_text_thinking () =
   (check string) "reasoning content" "Let me count the r's..." result.reasoning;
   (check bool) "has text" true (String.length result.text > 0);
   (check string) "text content" "There are 3 r's in strawberry." result.text
+
+let test_generate_text_tool_loop_preserves_thinking_signature () =
+  let config, bodies = make_thinking_tool_loop_config () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let _result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"What's the weather in Paris?"
+         ~tools:[ "get_weather", weather_tool ]
+         ~max_steps:5 ())
+  in
+  match List.rev !bodies with
+  | _initial :: second_request :: _ ->
+    let messages = second_request |> Yojson.Basic.Util.member "messages" |> Yojson.Basic.Util.to_list in
+    (match List.nth messages 1 with
+    | `Assoc assistant_fields ->
+      (match List.assoc "content" assistant_fields with
+      | `List (`Assoc thinking_fields :: _) ->
+        (check string) "thinking type" "thinking" (Yojson.Basic.Util.member "type" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string);
+        (check string) "thinking text" "I should check the weather."
+          (Yojson.Basic.Util.member "thinking" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string);
+        (check string) "thinking signature" "sig_nonstream"
+          (Yojson.Basic.Util.member "signature" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string)
+      | _ -> fail "expected assistant content")
+    | _ -> fail "expected assistant message")
+  | _ -> fail "expected two requests"
 
 let test_generate_text_tool_result_content () =
   let config = make_tool_loop_config () in
@@ -403,6 +557,23 @@ let test_stream_pipeline_with_tools () =
   (check int) "total input" 50 usage.input_tokens;
   (check int) "total output" 27 usage.output_tokens
 
+let test_stream_tool_loop_preserves_thinking_signature () =
+  let model, requests = make_thinking_tool_stream_model () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Weather in Paris?"
+      ~tools:[ "get_weather", weather_tool ]
+      ~max_steps:5 ()
+  in
+  ignore (Lwt_main.run result.steps);
+  match List.rev !requests with
+  | _initial :: second_prompt :: _ ->
+    (match Ai_provider_anthropic.Convert_prompt.convert_messages second_prompt with
+    | [ _; { content = [ A_thinking { thinking; signature }; A_tool_use _ ] }; _ ] ->
+      (check string) "thinking text" "" thinking;
+      (check string) "thinking signature" "sig_stream" signature
+    | _ -> fail "expected thinking and tool-use blocks in second request")
+  | _ -> fail "expected two streamed requests"
+
 let test_stream_pipeline_with_thinking () =
   let model = make_thinking_stream_model () in
   let result = Ai_core.Stream_text.stream_text ~model ~prompt:"How many r's in strawberry?" () in
@@ -418,6 +589,15 @@ let test_stream_pipeline_with_thinking () =
       ui_chunks
   in
   (check bool) "has reasoning deltas" true (List.length reasoning_deltas > 0);
+  let has_signature_metadata =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Reasoning_delta { provider_metadata = Some metadata; _ } ->
+          Yojson.Basic.to_string metadata = {|{"anthropic":{"signature":"sig_ui_stream"}}|}
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "has reasoning signature metadata" true has_signature_metadata;
   (* Verify text deltas present *)
   let text_deltas =
     List.filter_map
@@ -453,6 +633,8 @@ let () =
           test_case "simple text" `Quick test_generate_text_simple;
           test_case "with tools" `Quick test_generate_text_with_tools;
           test_case "thinking" `Quick test_generate_text_thinking;
+          test_case "tool loop preserves thinking signature" `Quick
+            test_generate_text_tool_loop_preserves_thinking_signature;
           test_case "tool result content" `Quick test_generate_text_tool_result_content;
           test_case "step callback" `Quick test_generate_text_step_callback;
         ] );
@@ -461,6 +643,8 @@ let () =
           test_case "ui message chunks" `Quick test_stream_to_ui_message;
           test_case "sse format" `Quick test_stream_sse_format;
           test_case "pipeline with tools" `Quick test_stream_pipeline_with_tools;
+          test_case "tool loop preserves thinking signature" `Quick
+            test_stream_tool_loop_preserves_thinking_signature;
           test_case "pipeline with thinking" `Quick test_stream_pipeline_with_thinking;
           test_case "tool sse format" `Quick test_stream_tool_sse_format;
         ] );

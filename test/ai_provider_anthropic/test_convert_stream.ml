@@ -85,6 +85,37 @@ let test_thinking_streaming () =
   | _ :: Reasoning { text } :: _ -> (check string) "thinking" "Let me think..." text
   | _ -> fail "expected Reasoning"
 
+let test_signature_delta_streaming () =
+  let events =
+    make_event_stream
+      [
+        make_sse ~event_type:"message_start"
+          ~data:{|{"id":"msg_omitted","model":"claude","usage":{"input_tokens":10,"output_tokens":0}}|};
+        make_sse ~event_type:"content_block_start"
+          ~data:{|{"index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}|};
+        make_sse ~event_type:"content_block_delta"
+          ~data:{|{"index":0,"delta":{"type":"signature_delta","signature":"sig_omitted"}}|};
+        make_sse ~event_type:"content_block_stop" ~data:{|{"index":0}|};
+        make_sse ~event_type:"content_block_start" ~data:{|{"index":1,"content_block":{"type":"text","text":""}}|};
+        make_sse ~event_type:"content_block_delta"
+          ~data:{|{"index":1,"delta":{"type":"text_delta","text":"Answer"}}|};
+        make_sse ~event_type:"content_block_stop" ~data:{|{"index":1}|};
+        make_sse ~event_type:"message_delta" ~data:{|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":20}}|};
+      ]
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
+  match parts with
+  | _ :: Ai_provider.Stream_part.Reasoning { text; signature; provider_options } :: _ ->
+    (check string) "empty thinking" "" text;
+    (check (option string)) "signature" (Some "sig_omitted") signature;
+    (match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some metadata ->
+      (check string) "metadata"
+        {|{"anthropic":{"signature":"sig_omitted"}}|}
+        (Yojson.Basic.to_string metadata)
+    | None -> fail "expected signature provider metadata")
+  | _ -> fail "expected signature Reasoning part"
+
 (* Cache metrics carried on the Finish chunk: when [message_delta.usage]
    includes Anthropic's cache token fields, Convert_stream attaches them as
    [provider_metadata] on the terminal Finish chunk (matching upstream's
@@ -189,6 +220,7 @@ let () =
           test_case "text" `Quick test_text_streaming;
           test_case "tool_call" `Quick test_tool_call_streaming;
           test_case "thinking" `Quick test_thinking_streaming;
+          test_case "signature_delta" `Quick test_signature_delta_streaming;
           test_case "cache_metrics_on_finish" `Quick test_cache_metrics_on_finish;
           test_case "no_metrics_keeps_finish_clean" `Quick test_no_metrics_keeps_finish_clean;
           test_case "cache_metrics_from_message_start" `Quick test_cache_metrics_from_message_start;

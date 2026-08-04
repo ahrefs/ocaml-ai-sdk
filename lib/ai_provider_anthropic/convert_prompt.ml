@@ -97,14 +97,28 @@ let convert_user_part ~validator (part : Ai_provider.Prompt.user_part) : anthrop
 (* Convert an assistant part to anthropic content *)
 let convert_assistant_part ~validator (part : Ai_provider.Prompt.assistant_part) : anthropic_content =
   let cc po = Cache_control_validator.take validator (get_cc po) in
+  let signature_of_provider_options provider_options =
+    match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some (`Assoc fields) ->
+      (match List.assoc_opt "anthropic" fields with
+      | Some (`Assoc fields) ->
+        (match List.assoc_opt "signature" fields with
+        | Some (`String signature) when String.length signature > 0 -> Some signature
+        | Some _ | None -> None)
+      | Some _ | None -> None)
+    | Some _ | None -> None
+  in
   match part with
   | Text { text; provider_options } -> A_text { text; cache_control = cc provider_options }
   | File { data; media_type; provider_options; _ } ->
     A_image { source = file_data_to_image_source ~media_type data; cache_control = cc provider_options }
-  | Reasoning { text; provider_options = _ } ->
-    (* Reasoning parts become thinking blocks. Signature is not available
-       in the prompt (it comes from responses), so we use empty string. *)
-    A_thinking { thinking = text; signature = "" }
+  | Reasoning { text; provider_options } ->
+    let signature =
+      match signature_of_provider_options provider_options with
+      | Some signature -> signature
+      | None -> invalid_arg "Anthropic thinking block is missing its signature"
+    in
+    A_thinking { thinking = text; signature }
   | Tool_call { id; name; args; provider_options = _ } -> A_tool_use { id; name; input = args }
 
 (* Convert a tool result to anthropic content *)

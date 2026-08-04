@@ -29,6 +29,7 @@ type delta_info = {
   text : string option; [@json.default None]
   partial_json : string option; [@json.default None]
   thinking : string option; [@json.default None]
+  signature : string option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -122,7 +123,27 @@ let transform events ~warnings =
                 | None -> ())
               | "thinking_delta" ->
                 (match delta.thinking with
-                | Some text -> push (Some (Ai_provider.Stream_part.Reasoning { text; signature = None }))
+                | Some text ->
+                  push
+                    (Some
+                       (Ai_provider.Stream_part.Reasoning
+                          {
+                            text;
+                            signature = None;
+                            provider_options = Ai_provider.Provider_options.empty;
+                          }))
+                | None -> ())
+              | "signature_delta" ->
+                (match delta.signature with
+                | Some signature ->
+                  push
+                    (Some
+                       (Ai_provider.Stream_part.Reasoning
+                          {
+                            text = "";
+                            signature = Some signature;
+                            provider_options = Convert_response.reasoning_provider_options (Some signature);
+                          }))
                 | None -> ())
               | _ -> ())
             | "content_block_stop" ->

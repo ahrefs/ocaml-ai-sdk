@@ -4,6 +4,7 @@ type t =
   | Reasoning of {
       text : string;
       signature : string option;
+      provider_options : Provider_options.t;
     }
   | Tool_call_delta of {
       tool_call_type : string;

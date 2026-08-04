@@ -73,9 +73,15 @@ let test_parse_thinking_response () =
   let result = Ai_provider_anthropic.Convert_response.parse_response json in
   (check int) "2 content" 2 (List.length result.content);
   match result.content with
-  | Ai_provider.Content.Reasoning { text; signature; _ } :: _ ->
+  | Ai_provider.Content.Reasoning { text; signature; provider_options } :: _ ->
     (check string) "thinking" "Let me reason..." text;
-    (check (option string)) "sig" (Some "sig_abc") signature
+    (check (option string)) "sig" (Some "sig_abc") signature;
+    (match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some metadata ->
+      (check string) "signature metadata"
+        {|{"anthropic":{"signature":"sig_abc"}}|}
+        (Yojson.Basic.to_string metadata)
+    | None -> fail "expected signature metadata")
   | _ -> fail "expected Reasoning"
 
 (* Error parsing *)

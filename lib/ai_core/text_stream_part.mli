@@ -9,12 +9,19 @@ type t =
       text : string;
     }
   | Text_end of { id : string }
-  | Reasoning_start of { id : string }
+  | Reasoning_start of {
+      id : string;
+      provider_metadata : Yojson.Basic.t option;
+    }
   | Reasoning_delta of {
       id : string;
       text : string;
+      provider_metadata : Yojson.Basic.t option;
     }
-  | Reasoning_end of { id : string }
+  | Reasoning_end of {
+      id : string;
+      provider_metadata : Yojson.Basic.t option;
+    }
   | Tool_call of {
       tool_call_id : string;
       tool_name : string;

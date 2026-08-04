@@ -139,6 +139,43 @@ let test_empty_messages () =
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages [] in
   (check int) "0 messages" 0 (List.length result)
 
+let test_reasoning_with_tool_call_round_trip () =
+  let reasoning_options = Ai_provider_anthropic.Convert_response.reasoning_provider_options (Some "sig_roundtrip") in
+  let msgs =
+    [
+      Ai_provider.Prompt.Assistant
+        {
+          content =
+            [
+              Ai_provider.Prompt.Reasoning { text = ""; provider_options = reasoning_options };
+              Ai_provider.Prompt.Tool_call
+                {
+                  id = "tc_1";
+                  name = "search";
+                  args = `Assoc [ "query", `String "cats" ];
+                  provider_options = po;
+                };
+            ];
+        };
+    ]
+  in
+  match Ai_provider_anthropic.Convert_prompt.convert_messages msgs with
+  | [ { content = [ A_thinking { thinking; signature }; A_tool_use { id; input; _ } ]; _ } ] ->
+    (check string) "thinking" "" thinking;
+    (check string) "signature" "sig_roundtrip" signature;
+    (check string) "tool id" "tc_1" id;
+    (check string) "tool input" {|{"query":"cats"}|} (Yojson.Basic.to_string input)
+  | _ -> fail "expected thinking and tool-use blocks"
+
+let test_missing_reasoning_signature_rejected () =
+  let msgs =
+    [ Ai_provider.Prompt.Assistant { content = [ Ai_provider.Prompt.Reasoning { text = "thinking"; provider_options = po } ] } ]
+  in
+  try
+    ignore (Ai_provider_anthropic.Convert_prompt.convert_messages msgs);
+    fail "expected missing signature to be rejected"
+  with Invalid_argument _ -> ()
+
 (* JSON serialization tests *)
 
 let test_text_to_json () =
@@ -229,6 +266,8 @@ let () =
           test_case "grouping" `Quick test_grouping_consecutive_user;
           test_case "alternating" `Quick test_alternating_preserved;
           test_case "empty" `Quick test_empty_messages;
+          test_case "reasoning_tool_round_trip" `Quick test_reasoning_with_tool_call_round_trip;
+          test_case "missing_reasoning_signature" `Quick test_missing_reasoning_signature_rejected;
         ] );
       ( "json",
         [ test_case "text" `Quick test_text_to_json; test_case "text_with_cache" `Quick test_text_with_cache_control ] );
