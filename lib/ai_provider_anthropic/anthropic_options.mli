@@ -7,11 +7,12 @@ type structured_output_mode =
 
 type t = {
   thinking : Thinking.t option;
+  effort : Effort.t option;
   tool_streaming : bool;
   structured_output_mode : structured_output_mode;
 }
 
-(** Default options: no thinking, tool streaming enabled, auto structured output.
+(** Default options: no explicit thinking or effort, tool streaming enabled, auto structured output.
 
     Cache control is configured per content block via
     {!Cache_control_options.with_cache_control}, not via a top-level option. *)

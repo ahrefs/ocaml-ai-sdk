@@ -1,7 +1,9 @@
 let required_betas ~thinking ~has_pdf ~tool_streaming =
   List.concat
     [
-      (if thinking then [ "interleaved-thinking-2025-05-14" ] else []);
+      (match thinking with
+      | Some (Thinking.Enabled _) -> [ "interleaved-thinking-2025-05-14" ]
+      | Some (Thinking.Adaptive _ | Thinking.Disabled) | None -> []);
       (if has_pdf then [ "pdfs-2024-09-25" ] else []);
       (if tool_streaming then [ "fine-grained-tool-streaming-2025-05-14" ] else []);
     ]

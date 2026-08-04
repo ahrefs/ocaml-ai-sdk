@@ -13,7 +13,8 @@ let check_unsupported ~anthropic_opts (opts : Ai_provider.Call_options.t) =
       | None -> []);
       (* Warn if thinking is enabled with temperature *)
       (match anthropic_opts.Anthropic_options.thinking with
-      | Some t when t.Thinking.enabled && Option.is_some opts.temperature ->
+      | Some (Thinking.Enabled _ | Thinking.Adaptive _)
+        when Option.is_some opts.temperature ->
         [
           Ai_provider.Warning.Unsupported_feature
             {
@@ -42,11 +43,11 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let supports_native_structured_output =
     (Model_catalog.capabilities (Model_catalog.of_model_id model)).supports_structured_output
   in
-  let output_config, fallback_tool, forced_tool_choice, extra_warnings =
+  let output_format, fallback_tool, forced_tool_choice, extra_warnings =
     match opts.mode with
     | Regular | Object_tool _ -> None, None, None, []
     | Object_json (Some { name = _; schema }) when supports_native_structured_output ->
-      Some Anthropic_api.{ format = { type_ = "json_schema"; schema } }, None, None, []
+      Some Anthropic_api.{ type_ = "json_schema"; schema }, None, None, []
     | Object_json (Some { name = _; schema }) ->
       let tool = Convert_tools.json_response_tool ~schema in
       None, Some tool, Some Convert_tools.forced_json_tool_choice, []
@@ -61,6 +62,12 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
               details = Some "Anthropic structured outputs require a JSON schema; sending request without enforcement";
             };
         ] )
+  in
+  let output_config =
+    match output_format, anthropic_opts.effort with
+    | None, None -> None
+    | format, effort ->
+      Some Anthropic_api.{ format; effort = Option.map Effort.to_string effort }
   in
   let warnings = warnings @ extra_warnings in
   let base_tools, base_tool_choice =
@@ -81,11 +88,6 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
       | Some n -> n
       | None -> Model_catalog.default_max_tokens (Model_catalog.of_model_id model))
   in
-  let thinking_enabled =
-    match anthropic_opts.thinking with
-    | Some t when t.Thinking.enabled -> true
-    | Some _ | None -> false
-  in
   let body =
     Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens
       ?temperature:opts.temperature ?top_p:opts.top_p ?top_k:opts.top_k ~stop_sequences:opts.stop_sequences
@@ -94,7 +96,8 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   (* Merge user headers with required beta headers — the result includes all of opts.headers
      plus a merged anthropic-beta header, so it replaces opts.headers entirely *)
   let required_betas =
-    Beta_headers.required_betas ~thinking:thinking_enabled ~has_pdf:false ~tool_streaming:anthropic_opts.tool_streaming
+    Beta_headers.required_betas ~thinking:anthropic_opts.thinking ~has_pdf:false
+      ~tool_streaming:anthropic_opts.tool_streaming
   in
   let extra_headers = Beta_headers.merge_beta_headers ~user_headers:opts.headers ~required:required_betas in
   let warnings = warnings @ Cache_control_validator.warnings validator in

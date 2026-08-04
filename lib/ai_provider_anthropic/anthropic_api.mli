@@ -5,7 +5,10 @@ type output_format = {
   schema : Melange_json.t;
 }
 
-type output_config = { format : output_format }
+type output_config = {
+  format : output_format option;
+  effort : string option;
+}
 
 type request_body
 

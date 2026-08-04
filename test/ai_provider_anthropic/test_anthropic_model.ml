@@ -7,7 +7,11 @@ type output_format_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
-type output_config_json = { format : output_format_json } [@@json.allow_extra_fields] [@@deriving of_json]
+type output_config_json = {
+  format : output_format_json option; [@json.default None]
+  effort : string option; [@json.default None]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
 
 type tool_json = {
   name : string;
@@ -198,8 +202,14 @@ let test_object_json_with_schema_native () =
       | Some oc -> oc
       | None -> fail "expected output_config"
     in
-    (check string) "format type" "json_schema" oc.format.type_;
-    (check string) "schema json" (Yojson.Basic.to_string schema_json) (Yojson.Basic.to_string oc.format.schema);
+    let format =
+      match oc.format with
+      | Some format -> format
+      | None -> fail "expected output_config.format"
+    in
+    (check string) "format type" "json_schema" format.type_;
+    (check string) "schema json" (Yojson.Basic.to_string schema_json) (Yojson.Basic.to_string format.schema);
+    (check (option string)) "no effort" None oc.effort;
     (check bool) "no fallback tool" true (Option.is_none r.tools);
     Lwt.return mock_text_response
   in
@@ -208,6 +218,58 @@ let test_object_json_with_schema_native () =
   let opts = { (make_opts ()) with mode = Object_json (Some schema) } in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   ()
+
+let test_provider_options_request_body () =
+  let captured_body = ref None in
+  let captured_headers = ref [] in
+  let fetch ~url:_ ~headers ~body =
+    captured_headers := headers;
+    captured_body := Some (Yojson.Basic.from_string body);
+    Lwt.return mock_text_response
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let thinking =
+    Ai_provider_anthropic.Thinking.Adaptive
+      { display = Some Ai_provider_anthropic.Thinking.Summarized }
+  in
+  let anthropic_opts =
+    {
+      Ai_provider_anthropic.Anthropic_options.default with
+      thinking = Some thinking;
+      effort = Some Ai_provider_anthropic.Effort.High;
+    }
+  in
+  let opts =
+    {
+      (make_opts ()) with
+      provider_options = Ai_provider_anthropic.Anthropic_options.to_provider_options anthropic_opts;
+    }
+  in
+  let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
+  let actual = match !captured_body with Some body -> body | None -> fail "fetch was not called" in
+  let expected =
+    `Assoc
+      [
+        ("model", `String "claude-sonnet-4-6");
+        ( "messages",
+          `List
+            [
+              `Assoc
+                [
+                  ("role", `String "user");
+                  ("content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ]);
+                ];
+            ] );
+        ("tool_choice", `Assoc [ "type", `String "auto" ]);
+        ("max_tokens", `Int 64000);
+        ("thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ]);
+        ("output_config", `Assoc [ "effort", `String "high" ]);
+      ]
+  in
+  (check bool) "exact provider-options body" true (Yojson.Basic.equal expected actual);
+  (check (option string)) "adaptive has no thinking beta" (Some "fine-grained-tool-streaming-2025-05-14")
+    (List.assoc_opt "anthropic-beta" !captured_headers)
 
 (* Assert that Object_json (Some schema) on [model_id] takes the tool-fallback path:
    synthesise the [json] tool, force tool_choice to it, leave system untouched and
@@ -309,6 +371,7 @@ let () =
         [
           test_case "no_schema" `Quick test_object_json_no_schema;
           test_case "with_schema_native" `Quick test_object_json_with_schema_native;
+          test_case "provider_options_request_body" `Quick test_provider_options_request_body;
           test_case "with_schema_tool_fallback (legacy model)" `Quick test_object_json_with_schema_tool_fallback_legacy;
           test_case "with_schema_tool_fallback (custom model)" `Quick test_object_json_with_schema_tool_fallback_custom;
           test_case "preserves_existing_system" `Quick test_object_json_preserves_existing_system;

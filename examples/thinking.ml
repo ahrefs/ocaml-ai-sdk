@@ -18,7 +18,9 @@ let () =
 
     (* Configure extended thinking via type-safe provider options *)
     let budget = Ai_provider_anthropic.Thinking.budget_exn 4096 in
-    let thinking : Ai_provider_anthropic.Thinking.t = { enabled = true; budget_tokens = budget } in
+    let thinking : Ai_provider_anthropic.Thinking.t =
+      Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None }
+    in
     let anthropic_opts = { Ai_provider_anthropic.Anthropic_options.default with thinking = Some thinking } in
     let provider_options = Ai_provider_anthropic.Anthropic_options.to_provider_options anthropic_opts in
 
