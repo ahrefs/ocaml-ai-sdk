@@ -52,10 +52,23 @@ let response_info_of_event (event : Sse.event) =
     try
       let body = Yojson.Basic.from_string event.data in
       let chunk = chunk_json_of_json body in
-      match chunk.id, chunk.model with
-      | None, None -> None
-      | id, model -> Some { Ai_provider.Generate_result.id; model; headers = []; body }
+      match chunk.choices, chunk.id, chunk.model with
+      | [], _, _ | _, None, None -> None
+      | _ :: _, id, model -> Some { Ai_provider.Generate_result.id; model; headers = []; body }
     with Yojson.Json_error _ | Melange_json.Of_json_error _ -> None)
+
+let response_info events =
+  let events = Lwt_stream.clone events in
+  let rec find () =
+    let%lwt event = Lwt_stream.get events in
+    match event with
+    | None -> Lwt.return_none
+    | Some event ->
+    match response_info_of_event event with
+    | Some info -> Lwt.return_some info
+    | None -> find ()
+  in
+  find ()
 
 (** Extract an error message from a streaming error chunk and emit error + finish. *)
 let process_error_chunk ~push ~emit_finish fields =
