@@ -37,8 +37,7 @@ let request_json ?thinking ?output_config () =
 
 let check_json name expected actual = (check bool) name true (Yojson.Basic.equal expected actual)
 
-let base_request_json =
-  `Assoc [ "model", `String "claude-sonnet-4-6"; "messages", `List []; "max_tokens", `Int 4096 ]
+let base_request_json = `Assoc [ "model", `String "claude-sonnet-4-6"; "messages", `List []; "max_tokens", `Int 4096 ]
 
 let request_with field value =
   match base_request_json with
@@ -67,41 +66,36 @@ let test_body_with_temperature () =
 
 let test_thinking_wire_shapes () =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 2048 in
-  let enabled display =
-    Some
-      (Ai_provider_anthropic.Thinking.Enabled
-         { budget_tokens = budget; display })
-  in
+  let enabled display = Some (Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display }) in
   let cases =
     [
-      ("omitted thinking", None, base_request_json);
-      ("disabled thinking", Some Ai_provider_anthropic.Thinking.Disabled,
-       request_with "thinking" (`Assoc [ "type", `String "disabled" ]));
-      ("adaptive without display", Some (Ai_provider_anthropic.Thinking.Adaptive { display = None }),
-       request_with "thinking" (`Assoc [ "type", `String "adaptive" ]));
-      ("adaptive summarized",
-       Some
-         (Ai_provider_anthropic.Thinking.Adaptive
-            { display = Some Ai_provider_anthropic.Thinking.Summarized }),
-       request_with "thinking" (`Assoc [ "type", `String "adaptive"; "display", `String "summarized" ]));
-      ("adaptive omitted",
-       Some
-         (Ai_provider_anthropic.Thinking.Adaptive
-            { display = Some Ai_provider_anthropic.Thinking.Omitted }),
-       request_with "thinking" (`Assoc [ "type", `String "adaptive"; "display", `String "omitted" ]));
-      ("enabled without display", enabled None,
-       request_with "thinking" (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int 2048 ]));
-      ("enabled summarized", enabled (Some Ai_provider_anthropic.Thinking.Summarized),
-       request_with "thinking"
-         (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int 2048; "display", `String "summarized" ]));
-      ("enabled omitted", enabled (Some Ai_provider_anthropic.Thinking.Omitted),
-       request_with "thinking"
-         (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int 2048; "display", `String "omitted" ]));
+      "omitted thinking", None, base_request_json;
+      ( "disabled thinking",
+        Some Ai_provider_anthropic.Thinking.Disabled,
+        request_with "thinking" (`Assoc [ "type", `String "disabled" ]) );
+      ( "adaptive without display",
+        Some (Ai_provider_anthropic.Thinking.Adaptive { display = None }),
+        request_with "thinking" (`Assoc [ "type", `String "adaptive" ]) );
+      ( "adaptive summarized",
+        Some (Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Summarized }),
+        request_with "thinking" (`Assoc [ "type", `String "adaptive"; "display", `String "summarized" ]) );
+      ( "adaptive omitted",
+        Some (Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Omitted }),
+        request_with "thinking" (`Assoc [ "type", `String "adaptive"; "display", `String "omitted" ]) );
+      ( "enabled without display",
+        enabled None,
+        request_with "thinking" (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int 2048 ]) );
+      ( "enabled summarized",
+        enabled (Some Ai_provider_anthropic.Thinking.Summarized),
+        request_with "thinking"
+          (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int 2048; "display", `String "summarized" ]) );
+      ( "enabled omitted",
+        enabled (Some Ai_provider_anthropic.Thinking.Omitted),
+        request_with "thinking"
+          (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int 2048; "display", `String "omitted" ]) );
     ]
   in
-  List.iter
-    (fun (name, thinking, expected) -> check_json name expected (request_json ?thinking ()))
-    cases
+  List.iter (fun (name, thinking, expected) -> check_json name expected (request_json ?thinking ())) cases
 
 let test_output_config_wire_shapes () =
   let schema = `Assoc [ "type", `String "object" ] in
@@ -109,25 +103,20 @@ let test_output_config_wire_shapes () =
   let config ~format ~effort : Ai_provider_anthropic.Anthropic_api.output_config = { format; effort } in
   let cases =
     [
-      ("effort only", config ~format:None ~effort:(Some "high"),
-       request_with "output_config" (`Assoc [ "effort", `String "high" ]));
-      ("format only", config ~format:(Some format) ~effort:None,
-       request_with "output_config"
-         (`Assoc
-           [ "format", `Assoc [ "type", `String "json_schema"; "schema", schema ] ]));
-      ("format and effort", config ~format:(Some format) ~effort:(Some "max"),
-       request_with "output_config"
-         (`Assoc
-           [
-             "format", `Assoc [ "type", `String "json_schema"; "schema", schema ];
-             "effort", `String "max";
-           ]));
-      ("empty output_config omitted", config ~format:None ~effort:None, base_request_json);
+      ( "effort only",
+        config ~format:None ~effort:(Some "high"),
+        request_with "output_config" (`Assoc [ "effort", `String "high" ]) );
+      ( "format only",
+        config ~format:(Some format) ~effort:None,
+        request_with "output_config" (`Assoc [ "format", `Assoc [ "type", `String "json_schema"; "schema", schema ] ]) );
+      ( "format and effort",
+        config ~format:(Some format) ~effort:(Some "max"),
+        request_with "output_config"
+          (`Assoc [ "format", `Assoc [ "type", `String "json_schema"; "schema", schema ]; "effort", `String "max" ]) );
+      "empty output_config omitted", config ~format:None ~effort:None, base_request_json;
     ]
   in
-  List.iter
-    (fun (name, output_config, expected) -> check_json name expected (request_json ~output_config ()))
-    cases
+  List.iter (fun (name, output_config, expected) -> check_json name expected (request_json ~output_config ())) cases
 
 let test_body_omits_none_fields () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
@@ -165,9 +154,9 @@ let test_required_betas_all () =
 let test_required_betas_non_manual () =
   let cases =
     [
-      ("none", None);
-      ("disabled", Some Ai_provider_anthropic.Thinking.Disabled);
-      ("adaptive", Some (Ai_provider_anthropic.Thinking.Adaptive { display = None }));
+      "none", None;
+      "disabled", Some Ai_provider_anthropic.Thinking.Disabled;
+      "adaptive", Some (Ai_provider_anthropic.Thinking.Adaptive { display = None });
     ]
   in
   List.iter

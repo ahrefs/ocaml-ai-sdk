@@ -81,7 +81,7 @@ let test_effort_strings () =
   let module E = Ai_provider_anthropic.Effort in
   List.iter
     (fun (effort, expected) -> (check string) expected expected (E.to_string effort))
-    [ (E.Low, "low"); (E.Medium, "medium"); (E.High, "high"); (E.Xhigh, "xhigh"); (E.Max, "max") ]
+    [ E.Low, "low"; E.Medium, "medium"; E.High, "high"; E.Xhigh, "xhigh"; E.Max, "max" ]
 
 let test_provider_options_round_trip () =
   let opts = Ai_provider_anthropic.Anthropic_options.default in

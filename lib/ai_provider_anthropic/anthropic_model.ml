@@ -13,8 +13,7 @@ let check_unsupported ~anthropic_opts (opts : Ai_provider.Call_options.t) =
       | None -> []);
       (* Warn if thinking is enabled with temperature *)
       (match anthropic_opts.Anthropic_options.thinking with
-      | Some (Thinking.Enabled _ | Thinking.Adaptive _)
-        when Option.is_some opts.temperature ->
+      | Some (Thinking.Enabled _ | Thinking.Adaptive _) when Option.is_some opts.temperature ->
         [
           Ai_provider.Warning.Unsupported_feature
             {
@@ -66,8 +65,7 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let output_config =
     match output_format, anthropic_opts.effort with
     | None, None -> None
-    | format, effort ->
-      Some Anthropic_api.{ format; effort = Option.map Effort.to_string effort }
+    | format, effort -> Some Anthropic_api.{ format; effort = Option.map Effort.to_string effort }
   in
   let warnings = warnings @ extra_warnings in
   let base_tools, base_tool_choice =

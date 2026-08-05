@@ -229,10 +229,7 @@ let test_provider_options_request_body () =
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
   let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
-  let thinking =
-    Ai_provider_anthropic.Thinking.Adaptive
-      { display = Some Ai_provider_anthropic.Thinking.Summarized }
-  in
+  let thinking = Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Summarized } in
   let anthropic_opts =
     {
       Ai_provider_anthropic.Anthropic_options.default with
@@ -247,28 +244,33 @@ let test_provider_options_request_body () =
     }
   in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
-  let actual = match !captured_body with Some body -> body | None -> fail "fetch was not called" in
+  let actual =
+    match !captured_body with
+    | Some body -> body
+    | None -> fail "fetch was not called"
+  in
   let expected =
     `Assoc
       [
-        ("model", `String "claude-sonnet-4-6");
+        "model", `String "claude-sonnet-4-6";
         ( "messages",
           `List
             [
               `Assoc
                 [
-                  ("role", `String "user");
-                  ("content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ]);
+                  "role", `String "user";
+                  "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ];
                 ];
             ] );
-        ("tool_choice", `Assoc [ "type", `String "auto" ]);
-        ("max_tokens", `Int 64000);
-        ("thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ]);
-        ("output_config", `Assoc [ "effort", `String "high" ]);
+        "tool_choice", `Assoc [ "type", `String "auto" ];
+        "max_tokens", `Int 64000;
+        "thinking", `Assoc [ "type", `String "adaptive"; "display", `String "summarized" ];
+        "output_config", `Assoc [ "effort", `String "high" ];
       ]
   in
   (check bool) "exact provider-options body" true (Yojson.Basic.equal expected actual);
-  (check (option string)) "adaptive has no thinking beta" (Some "fine-grained-tool-streaming-2025-05-14")
+  (check (option string))
+    "adaptive has no thinking beta" (Some "fine-grained-tool-streaming-2025-05-14")
     (List.assoc_opt "anthropic-beta" !captured_headers)
 
 (* Assert that Object_json (Some schema) on [model_id] takes the tool-fallback path:

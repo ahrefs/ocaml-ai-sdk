@@ -17,6 +17,12 @@ All notable changes to this project will be documented in this file.
   Direct record constructors must set it to `None` for non-redacted blocks.
 - `Ai_provider_anthropic.Convert_prompt.anthropic_content` gained
   `A_redacted_thinking`; exhaustive pattern matches must handle it.
+- `Ai_provider_anthropic.Thinking.t` is now `Enabled`, `Adaptive`, or
+  `Disabled`; migrate the old record to `Enabled { budget_tokens; display =
+  None }`.
+- `Ai_provider_anthropic.Anthropic_options.t` gained `effort`, and
+  `Anthropic_api.output_config` gained `effort` while making `format`
+  optional. Use `None` for either field when it is not configured.
 
 ## 0.4 — 2026-06-02
 
