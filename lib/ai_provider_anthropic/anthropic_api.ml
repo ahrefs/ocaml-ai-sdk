@@ -2,7 +2,8 @@ open Melange_json.Primitives
 
 type thinking_config = {
   type_ : string; [@json.key "type"]
-  budget_tokens : int;
+  budget_tokens : int option; [@json.option] [@json.drop_default]
+  display : string option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -12,7 +13,11 @@ type output_format = {
 }
 [@@deriving to_json]
 
-type output_config = { format : output_format } [@@deriving to_json]
+type output_config = {
+  format : output_format option; [@json.option] [@json.drop_default]
+  effort : string option; [@json.option] [@json.drop_default]
+}
+[@@deriving to_json]
 
 type request_body = {
   model : string;
@@ -46,10 +51,23 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
     | Some n -> n
     | None -> 4096
   in
+  let display_to_string = function
+    | Thinking.Summarized -> "summarized"
+    | Thinking.Omitted -> "omitted"
+  in
   let thinking_json =
     match thinking with
-    | Some t when t.Thinking.enabled -> Some { type_ = "enabled"; budget_tokens = Thinking.to_int t.budget_tokens }
-    | Some _ | None -> None
+    | None -> None
+    | Some Thinking.Disabled -> Some { type_ = "disabled"; budget_tokens = None; display = None }
+    | Some (Thinking.Adaptive { display }) ->
+      Some { type_ = "adaptive"; budget_tokens = None; display = Option.map display_to_string display }
+    | Some (Thinking.Enabled { budget_tokens; display }) ->
+      Some
+        {
+          type_ = "enabled";
+          budget_tokens = Some (Thinking.to_int budget_tokens);
+          display = Option.map display_to_string display;
+        }
   in
   let stream =
     match stream with
@@ -60,6 +78,11 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
     match stop_sequences with
     | Some (_ :: _ as ss) -> Some ss
     | Some [] | None -> None
+  in
+  let output_config =
+    match output_config with
+    | Some { format = None; effort = None } -> None
+    | _ -> output_config
   in
   {
     model;

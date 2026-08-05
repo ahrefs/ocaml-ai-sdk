@@ -6,7 +6,8 @@ open Alcotest
 
 type thinking_json = {
   type_ : string; [@json.key "type"]
-  budget_tokens : int;
+  budget_tokens : int option; [@json.default None]
+  display : string option; [@json.default None]
 }
 [@@deriving of_json]
 
@@ -147,7 +148,9 @@ let test_provider_options_flow () =
   let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
   (* Set Anthropic-specific thinking options *)
   let budget = Ai_provider_anthropic.Thinking.budget_exn 2048 in
-  let thinking : Ai_provider_anthropic.Thinking.t = { enabled = true; budget_tokens = budget } in
+  let thinking : Ai_provider_anthropic.Thinking.t =
+    Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None }
+  in
   let anthropic_opts = { Ai_provider_anthropic.Anthropic_options.default with thinking = Some thinking } in
   let provider_options = Ai_provider_anthropic.Anthropic_options.to_provider_options anthropic_opts in
   let opts = { (make_opts "Think about this") with provider_options } in
@@ -158,7 +161,7 @@ let test_provider_options_flow () =
   | None -> fail "expected thinking in request"
   | Some t ->
     (check string) "thinking type" "enabled" t.type_;
-    (check int) "budget" 2048 t.budget_tokens
+    (check (option int)) "budget" (Some 2048) t.budget_tokens
 
 (* Test 5: Middleware applies to Anthropic model *)
 let test_middleware_with_anthropic () =

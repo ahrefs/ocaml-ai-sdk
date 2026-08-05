@@ -70,11 +70,18 @@ let test_validator_caps_at_four () =
 let test_default_options () =
   let opts = Ai_provider_anthropic.Anthropic_options.default in
   (check bool) "no thinking" true (Option.is_none opts.thinking);
+  (check bool) "no effort" true (Option.is_none opts.effort);
   (check bool) "tool streaming" true opts.tool_streaming;
   match opts.structured_output_mode with
   | Ai_provider_anthropic.Anthropic_options.Auto -> ()
   | Ai_provider_anthropic.Anthropic_options.Output_format | Ai_provider_anthropic.Anthropic_options.Json_tool ->
     fail "expected Auto"
+
+let test_effort_strings () =
+  let module E = Ai_provider_anthropic.Effort in
+  List.iter
+    (fun (effort, expected) -> (check string) expected expected (E.to_string effort))
+    [ E.Low, "low"; E.Medium, "medium"; E.High, "high"; E.Xhigh, "xhigh"; E.Max, "max" ]
 
 let test_provider_options_round_trip () =
   let opts = Ai_provider_anthropic.Anthropic_options.default in
@@ -131,6 +138,7 @@ let () =
       ( "anthropic_options",
         [
           test_case "default" `Quick test_default_options;
+          test_case "effort_strings" `Quick test_effort_strings;
           test_case "round_trip" `Quick test_provider_options_round_trip;
           test_case "empty" `Quick test_provider_options_empty;
         ] );

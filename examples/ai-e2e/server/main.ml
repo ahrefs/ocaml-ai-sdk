@@ -166,7 +166,9 @@ When the user asks "what's the weather here?" or similar, use both tools.|}
 
 let anthropic_thinking_options =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 4096 in
-  let thinking : Ai_provider_anthropic.Thinking.t = { enabled = true; budget_tokens = budget } in
+  let thinking : Ai_provider_anthropic.Thinking.t =
+    Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None }
+  in
   let opts = { Ai_provider_anthropic.Anthropic_options.default with thinking = Some thinking } in
   Ai_provider_anthropic.Anthropic_options.to_provider_options opts
 

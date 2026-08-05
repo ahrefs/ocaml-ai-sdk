@@ -9,7 +9,14 @@ let budget_exn n =
 
 let to_int n = n
 
-type t = {
-  enabled : bool;
-  budget_tokens : budget_tokens;
-}
+type display =
+  | Summarized
+  | Omitted
+
+type t =
+  | Enabled of {
+      budget_tokens : budget_tokens;
+      display : display option;
+    }
+  | Adaptive of { display : display option }
+  | Disabled
