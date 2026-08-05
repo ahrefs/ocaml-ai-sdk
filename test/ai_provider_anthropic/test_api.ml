@@ -113,6 +113,7 @@ let test_messages_with_mock_fetch () =
               input = None;
               thinking = None;
               signature = None;
+              data = None;
             };
           ];
         stop_reason = Some "end_turn";

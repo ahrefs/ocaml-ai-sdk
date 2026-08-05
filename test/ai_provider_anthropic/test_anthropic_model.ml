@@ -53,6 +53,7 @@ let mock_text_response =
             input = None;
             thinking = None;
             signature = None;
+            data = None;
           };
         ];
       stop_reason = Some "end_turn";
@@ -83,6 +84,7 @@ let mock_tool_response =
             input = None;
             thinking = None;
             signature = None;
+            data = None;
           };
           {
             type_ = "tool_use";
@@ -92,6 +94,7 @@ let mock_tool_response =
             input = Some (`Assoc [ "query", `String "test" ]);
             thinking = None;
             signature = None;
+            data = None;
           };
         ];
       stop_reason = Some "tool_use";

@@ -27,7 +27,16 @@ let no_cache :
  fun u -> { u with cache_read_input_tokens = None; cache_creation_input_tokens = None }
 
 let text_block text : Ai_provider_anthropic.Convert_response.content_block_json =
-  { type_ = "text"; text = Some text; id = None; name = None; input = None; thinking = None; signature = None }
+  {
+    type_ = "text";
+    text = Some text;
+    id = None;
+    name = None;
+    input = None;
+    thinking = None;
+    signature = None;
+    data = None;
+  }
 
 let mock_response ~id ~content ~stop_reason ~input_tokens ~output_tokens =
   Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
@@ -69,6 +78,7 @@ let mock_tool_call_response =
           input = Some (`Assoc [ "city", `String "Paris" ]);
           thinking = None;
           signature = None;
+          data = None;
         };
       ]
     ~stop_reason:"tool_use" ~input_tokens:20 ~output_tokens:15
@@ -92,6 +102,7 @@ let mock_thinking_response =
           input = None;
           thinking = Some "Let me count the r's...";
           signature = Some "sig_1";
+          data = None;
         };
         text_block "There are 3 r's in strawberry.";
       ]
@@ -103,6 +114,16 @@ let mock_thinking_tool_call_response =
     ~content:
       [
         {
+          type_ = "redacted_thinking";
+          text = None;
+          id = None;
+          name = None;
+          input = None;
+          thinking = None;
+          signature = None;
+          data = Some "redacted_nonstream";
+        };
+        {
           type_ = "thinking";
           text = None;
           id = None;
@@ -110,6 +131,7 @@ let mock_thinking_tool_call_response =
           input = None;
           thinking = Some "I should check the weather.";
           signature = Some "sig_nonstream";
+          data = None;
         };
         text_block "Let me check.";
         {
@@ -120,6 +142,7 @@ let mock_thinking_tool_call_response =
           input = Some (`Assoc [ "city", `String "Paris" ]);
           thinking = None;
           signature = None;
+          data = None;
         };
       ]
     ~stop_reason:"tool_use" ~input_tokens:20 ~output_tokens:15
@@ -321,6 +344,15 @@ let make_thinking_tool_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Reasoning
+                {
+                  text = "";
+                  signature = None;
+                  provider_options =
+                    Ai_provider_anthropic.Convert_response.redacted_reasoning_provider_options "redacted_stream";
+                }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Reasoning
                 { text = ""; signature = None; provider_options = Ai_provider.Provider_options.empty }));
         push
           (Some
@@ -429,7 +461,11 @@ let test_generate_text_tool_loop_preserves_thinking_signature () =
     (match List.nth messages 1 with
     | `Assoc assistant_fields ->
       (match List.assoc "content" assistant_fields with
-      | `List (`Assoc thinking_fields :: _) ->
+      | `List (`Assoc redacted_fields :: `Assoc thinking_fields :: _) ->
+        (check string) "redacted type" "redacted_thinking"
+          (Yojson.Basic.Util.member "type" (`Assoc redacted_fields) |> Yojson.Basic.Util.to_string);
+        (check string) "redacted data" "redacted_nonstream"
+          (Yojson.Basic.Util.member "data" (`Assoc redacted_fields) |> Yojson.Basic.Util.to_string);
         (check string) "thinking type" "thinking"
           (Yojson.Basic.Util.member "type" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string);
         (check string) "thinking text" "I should check the weather."
@@ -565,7 +601,8 @@ let test_stream_tool_loop_preserves_thinking_signature () =
   match List.rev !requests with
   | _initial :: second_prompt :: _ ->
     (match Ai_provider_anthropic.Convert_prompt.convert_messages second_prompt with
-    | [ _; { content = [ A_thinking { thinking; signature }; A_tool_use _ ] }; _ ] ->
+    | [ _; { content = [ A_redacted_thinking { data }; A_thinking { thinking; signature }; A_tool_use _ ] }; _ ] ->
+      (check string) "redacted data" "redacted_stream" data;
       (check string) "thinking text" "" thinking;
       (check string) "thinking signature" "sig_stream" signature
     | _ -> fail "expected thinking and tool-use blocks in second request")

@@ -90,6 +90,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
           emit (Text_stream_part.Text_delta { id; text })
         | Reasoning { text; signature; provider_options } ->
           let reasoning_metadata = Ai_provider.Provider_options.provider_metadata provider_options in
+          let metadata_only = String.equal text "" && Option.is_none signature && Option.is_some reasoning_metadata in
           let id =
             match !current_reasoning_id with
             | Some id -> id
@@ -109,8 +110,8 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
             current_reasoning_provider_metadata := Some metadata
           | None -> ());
           emit (Text_stream_part.Reasoning_delta { id; text; provider_metadata = reasoning_metadata });
-          (* Anthropic sends signature_delta as the final event of a thinking block. *)
-          Option.iter (fun _ -> close_reasoning ()) signature
+          (* Signatures and metadata-only reasoning chunks each complete a reasoning block. *)
+          if Option.is_some signature || metadata_only then close_reasoning ()
         | Tool_call_delta { tool_call_id; tool_name; args_text_delta; _ } ->
           close_text ();
           close_reasoning ();

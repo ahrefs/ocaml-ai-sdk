@@ -15,6 +15,7 @@ type content_block_info = {
   type_ : string; [@json.key "type"]
   id : string option; [@json.default None]
   name : string option; [@json.default None]
+  data : string option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -97,6 +98,18 @@ let transform events ~warnings =
                 | Some id, Some name -> Hashtbl.replace blocks index (Tool_use_block { id; name })
                 | _ -> ())
               | "thinking" -> Hashtbl.replace blocks index Thinking_block
+              | "redacted_thinking" ->
+                Option.iter
+                  (fun data ->
+                    push
+                      (Some
+                         (Ai_provider.Stream_part.Reasoning
+                            {
+                              text = "";
+                              signature = None;
+                              provider_options = Convert_response.redacted_reasoning_provider_options data;
+                            })))
+                  content_block.data
               | _ -> ())
             | "content_block_delta" ->
               let { index; delta } = content_block_delta_event_of_json json in

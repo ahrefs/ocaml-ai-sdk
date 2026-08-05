@@ -113,6 +113,29 @@ let test_signature_delta_streaming () =
     | None -> fail "expected signature provider metadata")
   | _ -> fail "expected signature Reasoning part"
 
+let test_redacted_thinking_streaming () =
+  let events =
+    make_event_stream
+      [
+        make_sse ~event_type:"message_start"
+          ~data:{|{"id":"msg_redacted","model":"claude","usage":{"input_tokens":10,"output_tokens":0}}|};
+        make_sse ~event_type:"content_block_start"
+          ~data:{|{"index":0,"content_block":{"type":"redacted_thinking","data":"encrypted_reasoning"}}|};
+        make_sse ~event_type:"content_block_stop" ~data:{|{"index":0}|};
+        make_sse ~event_type:"message_delta" ~data:{|{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}|};
+      ]
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
+  match parts with
+  | _ :: Ai_provider.Stream_part.Reasoning { text; signature = None; provider_options } :: _ ->
+    (check string) "empty text" "" text;
+    (match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some metadata ->
+      (check string) "redacted metadata" {|{"anthropic":{"redactedData":"encrypted_reasoning"}}|}
+        (Yojson.Basic.to_string metadata)
+    | None -> fail "expected redacted thinking metadata")
+  | _ -> fail "expected redacted Reasoning part"
+
 (* Cache metrics carried on the Finish chunk: when [message_delta.usage]
    includes Anthropic's cache token fields, Convert_stream attaches them as
    [provider_metadata] on the terminal Finish chunk (matching upstream's
@@ -218,6 +241,7 @@ let () =
           test_case "tool_call" `Quick test_tool_call_streaming;
           test_case "thinking" `Quick test_thinking_streaming;
           test_case "signature_delta" `Quick test_signature_delta_streaming;
+          test_case "redacted_thinking" `Quick test_redacted_thinking_streaming;
           test_case "cache_metrics_on_finish" `Quick test_cache_metrics_on_finish;
           test_case "no_metrics_keeps_finish_clean" `Quick test_no_metrics_keeps_finish_clean;
           test_case "cache_metrics_from_message_start" `Quick test_cache_metrics_from_message_start;
