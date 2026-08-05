@@ -64,6 +64,7 @@ let test_step_construction () =
       tool_results = [];
       finish_reason = Ai_provider.Finish_reason.Stop;
       usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+      response_model = None;
       provider_metadata = None;
     }
   in

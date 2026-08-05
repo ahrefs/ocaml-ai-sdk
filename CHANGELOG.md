@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - `Ai_provider.Provider_error.t` gained `retry_after_s`. Custom providers and
   direct record constructors must set it to `None` when no server hint exists.
+- `Ai_core.Generate_text_result.step` gained `response_model`. Direct record
+  constructors must set it to `None` for steps without a provider response.
 - `Ai_provider.Stream_part.Reasoning` gained `provider_options`. Custom
   providers must set it to `Ai_provider.Provider_options.empty` when they
   have no reasoning metadata.
@@ -45,6 +47,8 @@ All notable changes to this project will be documented in this file.
   `?max_retry_delay_ms`: an ordinary backoff delay above the cap is clamped down
   to it, while an accepted hint above the cap stops retries without sleeping or
   issuing another request.
+- Generation steps expose the provider-reported `response_model`, including
+  distinct models selected on successive tool-loop calls.
 
 ### Provider errors (`ai_provider`)
 

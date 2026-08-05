@@ -36,7 +36,12 @@ let make_text_stream_model response_text =
                 provider_metadata = None;
               }));
       push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+      Lwt.return
+        {
+          Ai_provider.Stream_result.stream;
+          warnings = [];
+          raw_response = Some { id = Some "stream-1"; model = Some "actual-stream-model"; headers = []; body = `Null };
+        }
   end in
   (module M : Ai_provider.Language_model.S)
 
@@ -117,7 +122,10 @@ let test_simple_stream () =
   (check string) "text" "Hello" full_text;
   (* Check usage resolves *)
   let usage = Lwt_main.run result.usage in
-  (check int) "input" 10 usage.input_tokens
+  (check int) "input" 10 usage.input_tokens;
+  match Lwt_main.run result.steps with
+  | [ step ] -> (check (option string)) "actual response model" (Some "actual-stream-model") step.response_model
+  | _ -> fail "expected one step"
 
 let test_full_stream_events () =
   let model = make_text_stream_model "Hi" in

@@ -87,6 +87,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             tool_results = [];
             finish_reason = Ai_provider.Finish_reason.Error;
             usage = { input_tokens = 0; output_tokens = 0; total_tokens = None };
+            response_model = None;
             provider_metadata = None;
           }
       in
@@ -211,6 +212,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             tool_results;
             finish_reason = result.finish_reason;
             usage = result.usage;
+            response_model = result.response.model;
             provider_metadata =
               (match result.provider_metadata with
               | [] -> None
@@ -288,6 +290,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             tool_results = [];
             finish_reason = result.finish_reason;
             usage = result.usage;
+            response_model = result.response.model;
             provider_metadata =
               (match result.provider_metadata with
               | [] -> None
@@ -353,6 +356,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           tool_results;
           finish_reason = Ai_provider.Finish_reason.Tool_calls;
           usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+          response_model = None;
           provider_metadata = None;
         }
       in

@@ -46,9 +46,8 @@
 
     - [ai.response.timestamp]: our [Generate_result.response_info] does
       not carry timestamps.
-    - [ai.response.id], [ai.response.model] on {b stream} step spans:
-      streaming does not expose per-step response metadata (would require
-      changes to [Stream_result]).  These are emitted on generate step spans.
+    - [ai.response.id] on {b stream} step spans. [ai.response.model] is emitted
+      when the provider supplies [Stream_result.raw_response].
     - [ai.usage.inputTokenDetails.*], [ai.usage.outputTokenDetails.*]:
       our [Usage.t] only has [input_tokens], [output_tokens],
       [total_tokens].  When the provider-level type gains detail fields
