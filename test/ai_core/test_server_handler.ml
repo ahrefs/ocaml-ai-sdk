@@ -701,9 +701,7 @@ let test_parse_reasoning_provider_metadata () =
     (check string) "empty reasoning text" "" text;
     (match Ai_provider.Provider_options.provider_metadata provider_options with
     | Some metadata ->
-      (check string) "reasoning metadata"
-        {|{"anthropic":{"signature":"sig_ui"}}|}
-        (Yojson.Basic.to_string metadata)
+      (check string) "reasoning metadata" {|{"anthropic":{"signature":"sig_ui"}}|} (Yojson.Basic.to_string metadata)
     | None -> fail "expected reasoning provider metadata")
   | _ -> fail "expected assistant reasoning part"
 

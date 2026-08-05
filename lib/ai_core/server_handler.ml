@@ -153,10 +153,7 @@ let parse_assistant_part (p : parsed_part) : Ai_provider.Prompt.assistant_part o
   match part_type_of_string p.type_ with
   | Text -> Option.map (fun text -> Ai_provider.Prompt.Text { text; provider_options = empty_opts }) p.text
   | Reasoning ->
-    Option.map
-      (fun text ->
-        Ai_provider.Prompt.Reasoning { text; provider_options = provider_options_of_part p })
-      p.text
+    Option.map (fun text -> Ai_provider.Prompt.Reasoning { text; provider_options = provider_options_of_part p }) p.text
   | File ->
     Option.map
       (fun (data, media_type, filename) ->

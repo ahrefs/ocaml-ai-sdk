@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Breaking changes
+
+- `Ai_provider.Stream_part.Reasoning` gained `provider_options`. Custom
+  providers must set it to `Ai_provider.Provider_options.empty` when they
+  have no reasoning metadata.
+- `Ai_core.Text_stream_part.Reasoning_start` / `Reasoning_delta` /
+  `Reasoning_end` and the matching `Ui_message_chunk` constructors gained
+  `provider_metadata`. Custom transforms and chunk producers must set it to
+  `None` when no metadata is available.
+
 ## 0.4 — 2026-06-02
 
 ### Breaking changes

@@ -186,10 +186,8 @@ let test_reasoning_smoothing () =
   let parts =
     run_smooth
       [
-        Ai_core.Text_stream_part.Reasoning_delta
-          { id = "r1"; text = "thinking step "; provider_metadata = None };
-        Ai_core.Text_stream_part.Reasoning_delta
-          { id = "r1"; text = "by step "; provider_metadata = None };
+        Ai_core.Text_stream_part.Reasoning_delta { id = "r1"; text = "thinking step "; provider_metadata = None };
+        Ai_core.Text_stream_part.Reasoning_delta { id = "r1"; text = "by step "; provider_metadata = None };
       ]
   in
   let reasons = reasoning_deltas parts in
@@ -202,8 +200,7 @@ let test_type_switch_flushes () =
     run_smooth
       [
         Ai_core.Text_stream_part.Text_delta { id = "t1"; text = "partial" };
-        Ai_core.Text_stream_part.Reasoning_delta
-          { id = "r1"; text = "think "; provider_metadata = None };
+        Ai_core.Text_stream_part.Reasoning_delta { id = "r1"; text = "think "; provider_metadata = None };
       ]
   in
   let texts = text_deltas parts in

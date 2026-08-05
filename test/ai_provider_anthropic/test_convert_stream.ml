@@ -97,8 +97,7 @@ let test_signature_delta_streaming () =
           ~data:{|{"index":0,"delta":{"type":"signature_delta","signature":"sig_omitted"}}|};
         make_sse ~event_type:"content_block_stop" ~data:{|{"index":0}|};
         make_sse ~event_type:"content_block_start" ~data:{|{"index":1,"content_block":{"type":"text","text":""}}|};
-        make_sse ~event_type:"content_block_delta"
-          ~data:{|{"index":1,"delta":{"type":"text_delta","text":"Answer"}}|};
+        make_sse ~event_type:"content_block_delta" ~data:{|{"index":1,"delta":{"type":"text_delta","text":"Answer"}}|};
         make_sse ~event_type:"content_block_stop" ~data:{|{"index":1}|};
         make_sse ~event_type:"message_delta" ~data:{|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":20}}|};
       ]
@@ -110,9 +109,7 @@ let test_signature_delta_streaming () =
     (check (option string)) "signature" (Some "sig_omitted") signature;
     (match Ai_provider.Provider_options.provider_metadata provider_options with
     | Some metadata ->
-      (check string) "metadata"
-        {|{"anthropic":{"signature":"sig_omitted"}}|}
-        (Yojson.Basic.to_string metadata)
+      (check string) "metadata" {|{"anthropic":{"signature":"sig_omitted"}}|} (Yojson.Basic.to_string metadata)
     | None -> fail "expected signature provider metadata")
   | _ -> fail "expected signature Reasoning part"
 

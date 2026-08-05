@@ -82,11 +82,7 @@ let process_reasoning_deltas ~push ~has_encrypted_reasoning (delta : delta_json)
               push
                 (Some
                    (Ai_provider.Stream_part.Reasoning
-                      {
-                        text = summary;
-                        signature = None;
-                        provider_options = Ai_provider.Provider_options.empty;
-                      })))
+                      { text = summary; signature = None; provider_options = Ai_provider.Provider_options.empty })))
             d.summary
         | _ -> ())
       details

@@ -127,11 +127,7 @@ let transform events ~warnings =
                   push
                     (Some
                        (Ai_provider.Stream_part.Reasoning
-                          {
-                            text;
-                            signature = None;
-                            provider_options = Ai_provider.Provider_options.empty;
-                          }))
+                          { text; signature = None; provider_options = Ai_provider.Provider_options.empty }))
                 | None -> ())
               | "signature_delta" ->
                 (match delta.signature with

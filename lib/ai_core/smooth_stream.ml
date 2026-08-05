@@ -55,8 +55,7 @@ let create ?(delay_ms = 10) ?(chunking = Word) ?(sleep = Lwt_unix.sleep) () inpu
   let emit_delta active text =
     match active with
     | Active_text id -> push (Some (Text_stream_part.Text_delta { id; text }))
-    | Active_reasoning id ->
-      push (Some (Text_stream_part.Reasoning_delta { id; text; provider_metadata = None }))
+    | Active_reasoning id -> push (Some (Text_stream_part.Reasoning_delta { id; text; provider_metadata = None }))
   in
   let flush_buffer () =
     if Buffer.length buffer > 0 then (

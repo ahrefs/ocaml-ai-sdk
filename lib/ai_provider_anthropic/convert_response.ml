@@ -48,11 +48,7 @@ let parse_content_block (block : content_block_json) =
     Option.map
       (fun text ->
         Ai_provider.Content.Reasoning
-          {
-            text;
-            signature = block.signature;
-            provider_options = reasoning_provider_options block.signature;
-          })
+          { text; signature = block.signature; provider_options = reasoning_provider_options block.signature })
       block.thinking
   | _ -> None
 

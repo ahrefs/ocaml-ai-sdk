@@ -321,11 +321,7 @@ let make_thinking_tool_stream_model () =
         push
           (Some
              (Ai_provider.Stream_part.Reasoning
-                {
-                  text = "";
-                  signature = None;
-                  provider_options = Ai_provider.Provider_options.empty;
-                }));
+                { text = ""; signature = None; provider_options = Ai_provider.Provider_options.empty }));
         push
           (Some
              (Ai_provider.Stream_part.Reasoning
@@ -352,7 +348,7 @@ let make_thinking_tool_stream_model () =
                   finish_reason = Tool_calls;
                   usage = { input_tokens = 20; output_tokens = 15; total_tokens = Some 35 };
                   provider_metadata = None;
-                }));
+                }))
       end
       else begin
         push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
@@ -364,7 +360,7 @@ let make_thinking_tool_stream_model () =
                   finish_reason = Stop;
                   usage = { input_tokens = 30; output_tokens = 12; total_tokens = Some 42 };
                   provider_metadata = None;
-                }));
+                }))
       end;
       push None;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
@@ -434,7 +430,8 @@ let test_generate_text_tool_loop_preserves_thinking_signature () =
     | `Assoc assistant_fields ->
       (match List.assoc "content" assistant_fields with
       | `List (`Assoc thinking_fields :: _) ->
-        (check string) "thinking type" "thinking" (Yojson.Basic.Util.member "type" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string);
+        (check string) "thinking type" "thinking"
+          (Yojson.Basic.Util.member "type" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string);
         (check string) "thinking text" "I should check the weather."
           (Yojson.Basic.Util.member "thinking" (`Assoc thinking_fields) |> Yojson.Basic.Util.to_string);
         (check string) "thinking signature" "sig_nonstream"
@@ -643,8 +640,7 @@ let () =
           test_case "ui message chunks" `Quick test_stream_to_ui_message;
           test_case "sse format" `Quick test_stream_sse_format;
           test_case "pipeline with tools" `Quick test_stream_pipeline_with_tools;
-          test_case "tool loop preserves thinking signature" `Quick
-            test_stream_tool_loop_preserves_thinking_signature;
+          test_case "tool loop preserves thinking signature" `Quick test_stream_tool_loop_preserves_thinking_signature;
           test_case "pipeline with thinking" `Quick test_stream_pipeline_with_thinking;
           test_case "tool sse format" `Quick test_stream_tool_sse_format;
         ] );

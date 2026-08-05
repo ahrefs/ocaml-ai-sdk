@@ -78,9 +78,7 @@ let test_parse_thinking_response () =
     (check (option string)) "sig" (Some "sig_abc") signature;
     (match Ai_provider.Provider_options.provider_metadata provider_options with
     | Some metadata ->
-      (check string) "signature metadata"
-        {|{"anthropic":{"signature":"sig_abc"}}|}
-        (Yojson.Basic.to_string metadata)
+      (check string) "signature metadata" {|{"anthropic":{"signature":"sig_abc"}}|} (Yojson.Basic.to_string metadata)
     | None -> fail "expected signature metadata")
   | _ -> fail "expected Reasoning"
 

@@ -61,8 +61,7 @@ let test_reasoning_provider_metadata () =
          })
   in
   (check string) "reasoning providerMetadata"
-    {|{"type":"reasoning-delta","id":"rsn_1","delta":"","providerMetadata":{"anthropic":{"signature":"sig_1"}}}|}
-    json
+    {|{"type":"reasoning-delta","id":"rsn_1","delta":"","providerMetadata":{"anthropic":{"signature":"sig_1"}}}|} json
 
 (* Tool interaction *)
 let test_tool_input_start () =
@@ -201,9 +200,11 @@ let () =
           test_case "text_delta" `Quick test_text_delta;
           test_case "text_end" `Quick test_text_end;
         ] );
-      "reasoning",
-        [ test_case "reasoning_delta" `Quick test_reasoning_delta;
-          test_case "provider_metadata" `Quick test_reasoning_provider_metadata ];
+      ( "reasoning",
+        [
+          test_case "reasoning_delta" `Quick test_reasoning_delta;
+          test_case "provider_metadata" `Quick test_reasoning_provider_metadata;
+        ] );
       ( "tools",
         [
           test_case "input_start" `Quick test_tool_input_start;

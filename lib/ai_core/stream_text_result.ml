@@ -28,7 +28,8 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
           | Reasoning_start { id; provider_metadata } ->
             if send_reasoning then push (Some (Ui_message_chunk.Reasoning_start { id; provider_metadata }))
           | Reasoning_delta { id; text; provider_metadata } ->
-            if send_reasoning then push (Some (Ui_message_chunk.Reasoning_delta { id; delta = text; provider_metadata }))
+            if send_reasoning then
+              push (Some (Ui_message_chunk.Reasoning_delta { id; delta = text; provider_metadata }))
           | Reasoning_end { id; provider_metadata } ->
             if send_reasoning then push (Some (Ui_message_chunk.Reasoning_end { id; provider_metadata }))
           | Tool_call_delta { tool_call_id; tool_name; args_text_delta } ->

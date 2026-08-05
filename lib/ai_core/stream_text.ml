@@ -61,9 +61,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
             provider_options = !current_reasoning_provider_options;
           }
         :: !reasoning_content;
-      emit
-        (Text_stream_part.Reasoning_end
-           { id; provider_metadata = !current_reasoning_provider_metadata });
+      emit (Text_stream_part.Reasoning_end { id; provider_metadata = !current_reasoning_provider_metadata });
       current_reasoning_id := None;
       Buffer.clear current_reasoning_text;
       current_reasoning_signature := None;

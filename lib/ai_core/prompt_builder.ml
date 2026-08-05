@@ -37,8 +37,7 @@ let append_assistant_and_tool_results ~messages ~assistant_content ~tool_results
           Some
             (Ai_provider.Prompt.Tool_call
                { id = tool_call_id; name = tool_name; args = Yojson.Basic.from_string args; provider_options = po })
-        | Reasoning { text; provider_options } ->
-          Some (Ai_provider.Prompt.Reasoning { text; provider_options })
+        | Reasoning { text; provider_options } -> Some (Ai_provider.Prompt.Reasoning { text; provider_options })
         | File _ -> Some (Ai_provider.Prompt.Text { text = "[file]"; provider_options = po })
         | Source _ -> None)
       assistant_content

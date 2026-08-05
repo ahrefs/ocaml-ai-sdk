@@ -149,12 +149,7 @@ let test_reasoning_with_tool_call_round_trip () =
             [
               Ai_provider.Prompt.Reasoning { text = ""; provider_options = reasoning_options };
               Ai_provider.Prompt.Tool_call
-                {
-                  id = "tc_1";
-                  name = "search";
-                  args = `Assoc [ "query", `String "cats" ];
-                  provider_options = po;
-                };
+                { id = "tc_1"; name = "search"; args = `Assoc [ "query", `String "cats" ]; provider_options = po };
             ];
         };
     ]
@@ -169,7 +164,10 @@ let test_reasoning_with_tool_call_round_trip () =
 
 let test_missing_reasoning_signature_rejected () =
   let msgs =
-    [ Ai_provider.Prompt.Assistant { content = [ Ai_provider.Prompt.Reasoning { text = "thinking"; provider_options = po } ] } ]
+    [
+      Ai_provider.Prompt.Assistant
+        { content = [ Ai_provider.Prompt.Reasoning { text = "thinking"; provider_options = po } ] };
+    ]
   in
   try
     ignore (Ai_provider_anthropic.Convert_prompt.convert_messages msgs);
