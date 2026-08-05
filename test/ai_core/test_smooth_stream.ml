@@ -193,6 +193,23 @@ let test_reasoning_smoothing () =
   let reasons = reasoning_deltas parts in
   (check (list string)) "reasoning words" [ "thinking "; "step "; "by "; "step " ] reasons
 
+let test_reasoning_metadata_flushes_buffer () =
+  let metadata = `Assoc [ "anthropic", `Assoc [ "signature", `String "sig_1" ] ] in
+  let parts =
+    run_smooth
+      [
+        Ai_core.Text_stream_part.Reasoning_delta { id = "r1"; text = "thinking"; provider_metadata = None };
+        Ai_core.Text_stream_part.Reasoning_delta { id = "r1"; text = ""; provider_metadata = Some metadata };
+      ]
+  in
+  match parts with
+  | [
+   Ai_core.Text_stream_part.Reasoning_delta { text = "thinking"; provider_metadata = None; _ };
+   Ai_core.Text_stream_part.Reasoning_delta { text = ""; provider_metadata = Some actual; _ };
+  ] ->
+    (check bool) "metadata preserved" true (Yojson.Basic.equal metadata actual)
+  | _ -> fail "expected buffered reasoning before metadata delta"
+
 (* --- Type/ID switching --- *)
 
 let test_type_switch_flushes () =
@@ -273,6 +290,7 @@ let () =
       ( "reasoning",
         [
           test_case "smoothing" `Quick test_reasoning_smoothing;
+          test_case "metadata flushes buffer" `Quick test_reasoning_metadata_flushes_buffer;
           test_case "type_switch_flushes" `Quick test_type_switch_flushes;
           test_case "id_switch_flushes" `Quick test_id_switch_flushes;
         ] );
