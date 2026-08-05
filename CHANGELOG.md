@@ -36,8 +36,9 @@ All notable changes to this project will be documented in this file.
 
 - Retryable provider errors now wait for the greater of bounded-jitter
   exponential backoff and `retry_after_s`. `generate_text`, `stream_text`, and
-  `Server_handler.handle_chat` accept `?max_retry_delay_ms`; delays over the
-  cap stop retries without sleeping or issuing another request.
+  `Server_handler.handle_chat` accept `?max_retry_delay_ms`; ordinary backoff
+  is clamped to the cap, while a larger server hint stops retries without
+  sleeping or issuing another request.
 
 ### OpenRouter provider (`ai_provider_openrouter`)
 

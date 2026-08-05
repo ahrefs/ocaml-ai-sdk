@@ -708,7 +708,9 @@ let make_retry_model ~fail_count =
 
 let test_generate_retries_on_retryable_error () =
   let call_count, model = make_retry_model ~fail_count:1 in
-  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~max_retries:2 ~prompt:"test" ()) in
+  let result =
+    Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~max_retries:2 ~max_retry_delay_ms:0 ~prompt:"test" ())
+  in
   (check string) "recovered" "recovered" result.text;
   (check int) "called twice" 2 !call_count
 

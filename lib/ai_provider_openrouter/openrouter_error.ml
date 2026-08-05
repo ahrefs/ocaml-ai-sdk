@@ -74,7 +74,7 @@ let message_of_error_json = function
 let parse_retry_after value =
   let value = String.trim value in
   if String.length value > 0 && String.for_all (fun c -> c >= '0' && c <= '9') value then
-    Option.map Float.of_int (int_of_string_opt value)
+    Option.map (Float.min Float.max_float) (float_of_string_opt value)
   else None
 
 let of_error_json ?status ?retry_after_s error_json =

@@ -808,7 +808,7 @@ let make_stream_retry_model ~fail_count =
 
 let test_stream_retries_on_retryable_error () =
   let call_count, model = make_stream_retry_model ~fail_count:1 in
-  let result = Ai_core.Stream_text.stream_text ~model ~max_retries:2 ~prompt:"test" () in
+  let result = Ai_core.Stream_text.stream_text ~model ~max_retries:2 ~max_retry_delay_ms:0 ~prompt:"test" () in
   (* Consume the text stream to completion *)
   let%lwt texts = Lwt_stream.to_list result.text_stream in
   let text = String.concat "" texts in

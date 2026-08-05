@@ -42,6 +42,9 @@ val make_request_body :
 (** Merge extra_body key-value pairs into the serialized request JSON. *)
 val merge_extra_body : Yojson.Basic.t -> (string * Yojson.Basic.t) list -> Yojson.Basic.t
 
+(** Convert a non-successful HTTP response, preserving Retry-After metadata. *)
+val provider_error_of_http_response : body:string -> Cohttp.Response.t -> Ai_provider.Provider_error.t
+
 (** Send a request to the Chat Completions API.
     Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines).
     Checks for HTTP 200 error responses (OpenRouter returns errors with 200 status). *)

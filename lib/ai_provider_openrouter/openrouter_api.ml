@@ -128,6 +128,11 @@ let check_200_error json =
     | _ -> Lwt.return json)
   | _ -> Lwt.return json
 
+let provider_error_of_http_response ~body response =
+  let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
+  let retry_after = Cohttp.Header.get (Cohttp.Response.headers response) "retry-after" in
+  Openrouter_error.of_response_with_retry_after ~status ~body ~retry_after
+
 let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
   let body_json = merge_extra_body (request_body_to_json body) extra_body in
   match config.Config.fetch with
@@ -152,8 +157,7 @@ let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
     (match status >= 400, stream with
     | true, _ ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
-      let retry_after = Cohttp.Header.get (Cohttp.Response.headers resp) "retry-after" in
-      let err = Openrouter_error.of_response_with_retry_after ~status ~body:body_str ~retry_after in
+      let err = provider_error_of_http_response ~body:body_str resp in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
     | false, true ->
       Lwt.return
