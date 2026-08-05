@@ -71,22 +71,31 @@ let message_of_error_json = function
     than the inner provider [code]. When [status] is omitted (200-embedded,
     choice-level, and streaming errors, which carry no transport status), the
     status is derived from [error.code], defaulting to 200. *)
-let of_error_json ?status error_json =
+let parse_retry_after value =
+  let value = String.trim value in
+  if String.length value > 0 && String.for_all (fun c -> c >= '0' && c <= '9') value then
+    Option.map Float.of_int (int_of_string_opt value)
+  else None
+
+let of_error_json ?status ?retry_after_s error_json =
   let status =
     match status with
     | Some status -> status
     | None -> Option.value (code_of_error_json error_json) ~default:200
   in
   let body = message_of_error_json error_json in
-  Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body ()
+  Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body ?retry_after_s ()
 
-let of_response ~status ~body =
-  let raw_error () = Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body () in
+let of_response_with_retry_after ~status ~body ~retry_after =
+  let retry_after_s = Option.bind retry_after parse_retry_after in
+  let raw_error () = Ai_provider.Provider_error.make_api_error ~provider:"openrouter" ~status ~body ?retry_after_s () in
   try
     match Yojson.Basic.from_string body with
     | `Assoc fields ->
       (match List.assoc_opt "error" fields with
-      | Some error_json -> of_error_json ~status error_json
+      | Some error_json -> of_error_json ~status ?retry_after_s error_json
       | None -> raw_error ())
     | _ -> raw_error ()
   with Yojson.Json_error _ -> raw_error ()
+
+let of_response ~status ~body = of_response_with_retry_after ~status ~body ~retry_after:None

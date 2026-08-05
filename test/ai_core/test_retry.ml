@@ -1,16 +1,19 @@
 open Alcotest
 
 (* Helper: create a retryable Provider_error *)
-let retryable_error msg =
+let retryable_error ?retry_after_s msg =
   Ai_provider.Provider_error.Provider_error
-    { provider = "test"; kind = Api_error { status = 429; body = msg }; is_retryable = true }
+    (Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:429 ~body:msg ~is_retryable:true ?retry_after_s
+       ())
 
 (* Helper: create a non-retryable Provider_error *)
 let non_retryable_error msg =
   Ai_provider.Provider_error.Provider_error
-    { provider = "test"; kind = Api_error { status = 400; body = msg }; is_retryable = false }
+    (Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:400 ~body:msg ~is_retryable:false ())
 
 let run_lwt f () = Lwt_main.run (f ())
+let no_sleep _ = Lwt.return_unit
+let no_jitter () = 0.5
 
 (* Test: successful call is not retried *)
 let test_success_no_retry () =
@@ -31,7 +34,7 @@ let test_retryable_exhausts_retries () =
     Lwt_main.run
       (try%lwt
          let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+           Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter (fun () ->
              incr call_count;
              Lwt.fail (retryable_error "overloaded"))
          in
@@ -86,7 +89,7 @@ let test_zero_retries_no_wrap () =
 let test_succeeds_on_retry () =
   let call_count = ref 0 in
   let%lwt result =
-    Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+    Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter (fun () ->
       incr call_count;
       match !call_count with
       | 1 -> Lwt.fail (retryable_error "overloaded")
@@ -121,7 +124,7 @@ let test_non_retryable_after_retries () =
     Lwt_main.run
       (try%lwt
          let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:1 (fun () ->
+           Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter (fun () ->
              incr call_count;
              match !call_count with
              | 1 -> Lwt.fail (retryable_error "rate limit")
@@ -141,7 +144,7 @@ let test_non_retryable_after_retries () =
 let test_network_error_retried () =
   let call_count = ref 0 in
   let%lwt result =
-    Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+    Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter (fun () ->
       incr call_count;
       match !call_count with
       | 1 -> Lwt.fail (Unix.Unix_error (Unix.ECONNRESET, "connect", ""))
@@ -158,7 +161,7 @@ let test_network_error_exhausts_retries () =
     Lwt_main.run
       (try%lwt
          let%lwt _ =
-           Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 (fun () ->
+           Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter (fun () ->
              incr call_count;
              Lwt.fail (Unix.Unix_error (Unix.ECONNRESET, "connect", "")))
          in
@@ -183,7 +186,8 @@ let test_backoff_factor_affects_delay () =
   (try
      ignore
        (Lwt_main.run
-          (Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:50 ~backoff_factor:2 ~sleep (fun () ->
+          (Ai_core.Retry.with_retries ~max_retries:3 ~initial_delay_ms:50 ~backoff_factor:2 ~sleep ~random:no_jitter
+             (fun () ->
              incr call_count;
              Lwt.fail (retryable_error "overloaded")))
          : string)
@@ -191,6 +195,73 @@ let test_backoff_factor_affects_delay () =
   (check int) "called 4 times" 4 !call_count;
   let delays = List.rev !delays in
   (check (list (float 0.001))) "backoff delays" [ 0.050; 0.100; 0.200 ] delays
+
+let test_retry_after_is_minimum_delay () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:2000 ~sleep ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail (retryable_error ~retry_after_s:5.0 "overloaded")
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check int) "two attempts" 2 !call_count;
+  (check (list (float 0.001))) "server minimum" [ 5.0 ] (List.rev !delays)
+
+let test_retry_after_above_cap_stops () =
+  let call_count = ref 0 in
+  let slept = ref false in
+  let sleep _ =
+    slept := true;
+    Lwt.return_unit
+  in
+  let result =
+    try
+      ignore
+        (Lwt_main.run
+           (Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:2000 ~max_retry_delay_ms:4000 ~sleep
+              ~random:no_jitter (fun () ->
+              incr call_count;
+              Lwt.fail (retryable_error ~retry_after_s:5.0 "overloaded")))
+          : string);
+      None
+    with Ai_core.Retry.Retry_error { reason; errors; _ } -> Some (reason, errors)
+  in
+  (check int) "one attempt" 1 !call_count;
+  (check bool) "did not sleep" false !slept;
+  match result with
+  | None -> fail "expected Retry_error"
+  | Some (reason, [ Ai_provider.Provider_error.Provider_error { retry_after_s = Some delay; _ } ]) ->
+    (check string) "existing reason" "max_retries_exceeded" (Ai_core.Retry.reason_to_string reason);
+    (check (float 0.001)) "original hint retained" 5.0 delay
+  | Some _ -> fail "expected the original provider error"
+
+let test_missing_retry_after_uses_jittered_backoff () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:2000 ~sleep
+         ~random:(fun () -> 0.0)
+         (fun () ->
+           incr call_count;
+           match !call_count with
+           | 1 -> Lwt.fail (retryable_error "overloaded")
+           | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check (list (float 0.001))) "50% bounded jitter" [ 1.0 ] (List.rev !delays)
 
 (* Test: negative max_retries raises invalid_arg *)
 let test_negative_max_retries () =
@@ -203,6 +274,12 @@ let test_negative_max_retries () =
 let test_invalid_backoff_factor () =
   let caught = ref false in
   (try ignore (Lwt_main.run (Ai_core.Retry.with_retries ~backoff_factor:0 (fun () -> Lwt.return "ok")))
+   with Invalid_argument _ -> caught := true);
+  (check bool) "caught invalid_arg" true !caught
+
+let test_invalid_max_retry_delay () =
+  let caught = ref false in
+  (try ignore (Lwt_main.run (Ai_core.Retry.with_retries ~max_retry_delay_ms:(-1) (fun () -> Lwt.return "ok")) : string)
    with Invalid_argument _ -> caught := true);
   (check bool) "caught invalid_arg" true !caught
 
@@ -221,7 +298,11 @@ let () =
           test_case "network_error_retried" `Quick (run_lwt test_network_error_retried);
           test_case "network_error_exhausts" `Quick test_network_error_exhausts_retries;
           test_case "backoff_factor" `Quick test_backoff_factor_affects_delay;
+          test_case "retry_after_minimum" `Quick test_retry_after_is_minimum_delay;
+          test_case "retry_after_above_cap" `Quick test_retry_after_above_cap_stops;
+          test_case "missing_retry_after_jitter" `Quick test_missing_retry_after_uses_jittered_backoff;
           test_case "negative_max_retries" `Quick test_negative_max_retries;
           test_case "invalid_backoff_factor" `Quick test_invalid_backoff_factor;
+          test_case "invalid_max_retry_delay" `Quick test_invalid_max_retry_delay;
         ] );
     ]

@@ -681,7 +681,12 @@ let make_retry_model ~fail_count =
       if !call_count <= fail_count then
         Lwt.fail
           (Ai_provider.Provider_error.Provider_error
-             { provider = "mock"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = true })
+             {
+               provider = "mock";
+               kind = Api_error { status = 429; body = "rate limited" };
+               is_retryable = true;
+               retry_after_s = None;
+             })
       else
         Lwt.return
           {
@@ -1023,7 +1028,12 @@ let test_generate_no_retry_on_non_retryable () =
       let generate _opts =
         Lwt.fail
           (Ai_provider.Provider_error.Provider_error
-             { provider = "mock"; kind = Api_error { status = 400; body = "bad" }; is_retryable = false })
+             {
+               provider = "mock";
+               kind = Api_error { status = 400; body = "bad" };
+               is_retryable = false;
+               retry_after_s = None;
+             })
 
       let stream _opts =
         let s, p = Lwt_stream.create () in

@@ -20,9 +20,9 @@ let parse_content (content : Ai_provider.Content.t list) =
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
 let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
-  ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens
-  ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?telemetry
-  ?(pending_tool_approvals = []) () =
+  ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
+  ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
+  ?telemetry ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -119,7 +119,9 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences t
           | None -> [])
         @@ fun step_span ->
-        let%lwt result = Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.generate model opts) in
+        let%lwt result =
+          Retry.with_retries ?max_retries ?max_retry_delay_ms (fun () -> Ai_provider.Language_model.generate model opts)
+        in
         let text, reasoning, tool_calls = parse_content result.content in
         (* Add response attributes to step span *)
         (match telemetry with

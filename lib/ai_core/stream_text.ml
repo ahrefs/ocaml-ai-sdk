@@ -161,8 +161,9 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
 
 let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option)
-  ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers
-  ?provider_options ?on_step_finish ?on_chunk ?on_finish ?transform ?telemetry ?(pending_tool_approvals = []) () =
+  ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k
+  ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish ?transform ?telemetry
+  ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -391,7 +392,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             | None -> [])
           @@ fun step_span ->
           let%lwt stream_result =
-            Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
+            Retry.with_retries ?max_retries ?max_retry_delay_ms (fun () -> Ai_provider.Language_model.stream model opts)
           in
           let%lwt text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata =
             consume_provider_stream ~id_gen ~push:full_push ~on_chunk ~on_text_accumulated stream_result.stream

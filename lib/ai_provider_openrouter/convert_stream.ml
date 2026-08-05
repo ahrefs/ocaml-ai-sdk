@@ -227,6 +227,7 @@ let transform events ~warnings =
                           Ai_provider.Provider_error.provider = "openrouter";
                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
                           is_retryable = false;
+                          retry_after_s = None;
                         };
                     })))
         events

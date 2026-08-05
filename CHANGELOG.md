@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- `Ai_provider.Provider_error.t` gained `retry_after_s`. Custom providers and
+  direct record constructors must set it to `None` when no server hint exists.
 - `Ai_provider.Stream_part.Reasoning` gained `provider_options`. Custom
   providers must set it to `Ai_provider.Provider_options.empty` when they
   have no reasoning metadata.
@@ -29,6 +31,19 @@ All notable changes to this project will be documented in this file.
 - `Ai_provider_anthropic.Model_catalog.model_capabilities` replaced
   `supports_thinking` with detailed `thinking` capabilities and added
   `rejects_sampling_parameters`.
+
+### Core SDK (`ai_core`)
+
+- Retryable provider errors now wait for the greater of bounded-jitter
+  exponential backoff and `retry_after_s`. `generate_text`, `stream_text`, and
+  `Server_handler.handle_chat` accept `?max_retry_delay_ms`; delays over the
+  cap stop retries without sleeping or issuing another request.
+
+### OpenRouter provider (`ai_provider_openrouter`)
+
+- Non-2xx Cohttp responses preserve valid integer `Retry-After` delta-seconds
+  on `Provider_error.t`. The custom JSON-only `fetch` callback remains
+  unchanged and carries no retry hint.
 
 ## 0.4 — 2026-06-02
 

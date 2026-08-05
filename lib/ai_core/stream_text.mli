@@ -8,7 +8,8 @@
     failures with exponential backoff (see {!Retry.with_retries}).
 
     @param max_retries Number of additional attempts per provider call
-      (default 2). Set to 0 to disable retries. *)
+      (default 2). Set to 0 to disable retries.
+    @param max_retry_delay_ms Optional maximum delay before a retry. *)
 
 val stream_text :
   model:Ai_provider.Language_model.t ->
@@ -21,6 +22,7 @@ val stream_text :
   ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?max_steps:int ->
   ?max_retries:int ->
+  ?max_retry_delay_ms:int ->
   ?stop_when:Stop_condition.t list ->
   ?max_output_tokens:int ->
   ?temperature:float ->

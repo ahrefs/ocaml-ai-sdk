@@ -152,7 +152,8 @@ let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
     (match status >= 400, stream with
     | true, _ ->
       let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
-      let err = Openrouter_error.of_response ~status ~body:body_str in
+      let retry_after = Cohttp.Header.get (Cohttp.Response.headers resp) "retry-after" in
+      let err = Openrouter_error.of_response_with_retry_after ~status ~body:body_str ~retry_after in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
     | false, true ->
       Lwt.return

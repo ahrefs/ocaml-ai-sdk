@@ -48,6 +48,7 @@ val handle_chat :
   ?tools:(string * Core_tool.t) list ->
   ?max_steps:int ->
   ?max_retries:int ->
+  ?max_retry_delay_ms:int ->
   ?stop_when:Stop_condition.t list ->
   ?system:string ->
   ?system_provider_options:Ai_provider.Provider_options.t ->

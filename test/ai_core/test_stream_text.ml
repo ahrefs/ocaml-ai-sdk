@@ -783,7 +783,12 @@ let make_stream_retry_model ~fail_count =
       if !call_count <= fail_count then
         Lwt.fail
           (Ai_provider.Provider_error.Provider_error
-             { provider = "mock"; kind = Api_error { status = 529; body = "overloaded" }; is_retryable = true })
+             {
+               provider = "mock";
+               kind = Api_error { status = 529; body = "overloaded" };
+               is_retryable = true;
+               retry_after_s = None;
+             })
       else begin
         let stream, push = Lwt_stream.create () in
         push (Some (Ai_provider.Stream_part.Text { text = "streamed" }));

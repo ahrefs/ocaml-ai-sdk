@@ -63,6 +63,19 @@ let test_of_response_json_without_error () =
   let _status, body, _retryable = api_error_kind (E.of_response ~status:500 ~body:{|{"detail":"nope"}|}) in
   (check string) "raw body preserved" {|{"detail":"nope"}|} body
 
+let test_of_response_preserves_retry_after status () =
+  let err =
+    E.of_response_with_retry_after ~status ~body:{|{"error":{"message":"try later"}}|} ~retry_after:(Some " 5 ")
+  in
+  (check (option (float 0.001))) "retry-after preserved" (Some 5.0) err.retry_after_s
+
+let test_invalid_retry_after () =
+  List.iter
+    (fun value ->
+      let err = E.of_response_with_retry_after ~status:503 ~body:"overloaded" ~retry_after:(Some value) in
+      (check (option (float 0.001))) value None err.retry_after_s)
+    [ ""; "-1"; "+1"; "1.5"; "tomorrow"; "999999999999999999999999999999999999" ]
+
 let () =
   run "Openrouter_error"
     [
@@ -72,6 +85,9 @@ let () =
           test_case "readable_from_raw" `Quick test_readable_message_from_raw;
           test_case "non_json_body" `Quick test_of_response_non_json_body;
           test_case "json_without_error" `Quick test_of_response_json_without_error;
+          test_case "429_retry_after" `Quick (test_of_response_preserves_retry_after 429);
+          test_case "503_retry_after" `Quick (test_of_response_preserves_retry_after 503);
+          test_case "invalid_retry_after" `Quick test_invalid_retry_after;
         ] );
       ( "of_error_json",
         [
