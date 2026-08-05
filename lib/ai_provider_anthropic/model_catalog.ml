@@ -213,7 +213,7 @@ let capabilities = function
             adaptive = true;
             defaults_to_adaptive = false;
             disabled = Allowed;
-            effort_levels = effort_without_xhigh;
+            effort_levels = all_effort_levels;
             display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;

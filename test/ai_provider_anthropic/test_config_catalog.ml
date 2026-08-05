@@ -157,7 +157,7 @@ let test_capability_matrix () =
         true,
         false,
         Ai_provider_anthropic.Model_catalog.Allowed,
-        no_xhigh,
+        all_effort,
         true,
         true,
         Some "omitted" );
