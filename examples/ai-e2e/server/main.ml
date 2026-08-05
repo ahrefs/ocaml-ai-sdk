@@ -15,7 +15,7 @@ open Melange_json.Primitives
 let model_of_provider provider =
   match provider with
   | "openai" -> Ai_provider_openai.model "gpt-4o-mini"
-  | "anthropic" -> Ai_provider_anthropic.model "claude-haiku-4-5-20251001"
+  | "anthropic" -> Ai_provider_anthropic.model "claude-sonnet-4-6"
   | unknown -> failwith (Printf.sprintf "Unknown provider: %s (expected 'anthropic' or 'openai')" unknown)
 
 let provider_of_request req =

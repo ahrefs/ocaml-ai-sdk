@@ -27,7 +27,7 @@ open Ai_provider_anthropic
 
 let () =
   Lwt_main.run @@
-  let model = Anthropic.create_model "claude-sonnet-4-20250514" in
+  let model = Anthropic.create_model "claude-sonnet-4-6" in
   let%lwt result = Generate_text.generate ~model ~prompt:"Say hello" () in
   Lwt_io.printl result.text
 ```
@@ -37,7 +37,7 @@ let () =
 ```ocaml
 let () =
   Lwt_main.run @@
-  let model = Anthropic.create_model "claude-sonnet-4-20250514" in
+  let model = Anthropic.create_model "claude-sonnet-4-6" in
   let%lwt result = Stream_text.stream ~model ~prompt:"Tell me a joke" () in
   Lwt_stream.iter_s Lwt_io.printl result.text_stream
 ```
