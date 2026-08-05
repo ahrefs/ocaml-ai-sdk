@@ -48,7 +48,8 @@ All notable changes to this project will be documented in this file.
   to it, while an accepted hint above the cap stops retries without sleeping or
   issuing another request.
 - Generation steps expose the provider-reported `response_model`, including
-  distinct models selected on successive tool-loop calls.
+  distinct models selected on successive tool-loop calls and OpenRouter
+  streams.
 
 ### Provider errors (`ai_provider`)
 
@@ -70,6 +71,7 @@ All notable changes to this project will be documented in this file.
   `Openrouter_error.of_response_with_retry_after` gained an optional
   `?retry_after_ms`. The custom JSON-only `fetch` callbacks carry no headers and
   therefore no retry hint.
+- OpenRouter streaming responses preserve the reported model and serving provider.
 
 ## 0.4 — 2026-06-02
 

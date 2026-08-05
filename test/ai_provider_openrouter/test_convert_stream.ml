@@ -11,7 +11,8 @@ let test_basic_text_stream () =
   let events =
     Lwt_stream.of_list
       [
-        make_sse_event {|{"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|};
+        make_sse_event
+          {|{"id":"gen-1","model":"anthropic/claude-sonnet","provider":"Anthropic","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|};
         make_sse_event {|{"choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}|};
         make_sse_event
           {|{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}|};
@@ -20,11 +21,26 @@ let test_basic_text_stream () =
   let stream = Ai_provider_openrouter.Convert_stream.transform events ~warnings:[] in
   let parts = collect_stream stream in
   match parts with
-  | [ Stream_start _; Text { text = t1 }; Text { text = t2 }; Finish { finish_reason; _ } ] ->
+  | [ Stream_start _; Text { text = t1 }; Text { text = t2 }; Finish { finish_reason; provider_metadata; _ } ] ->
     (check string) "text1" "Hello" t1;
     (check string) "text2" " world" t2;
-    (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string finish_reason)
+    (check string) "finish" "stop" (Ai_provider.Finish_reason.to_string finish_reason);
+    let provider =
+      Option.bind provider_metadata (fun metadata ->
+        Ai_provider.Provider_options.find Ai_provider_openrouter.Convert_response.Openrouter_provider metadata)
+    in
+    (check (option string)) "serving provider" (Some "Anthropic") provider
   | _ -> fail "expected [Stream_start; Text; Text; Finish]"
+
+let test_response_info_of_event () =
+  let event =
+    make_sse_event {|{"id":"gen-1","model":"anthropic/claude-sonnet","choices":[{"index":0,"delta":{"content":"Hi"}}]}|}
+  in
+  match Ai_provider_openrouter.Convert_stream.response_info_of_event event with
+  | Some { id; model; _ } ->
+    (check (option string)) "response id" (Some "gen-1") id;
+    (check (option string)) "actual model" (Some "anthropic/claude-sonnet") model
+  | None -> fail "expected stream response metadata"
 
 let test_reasoning_stream () =
   let events =
@@ -288,6 +304,7 @@ let () =
       ( "convert_stream",
         [
           test_case "basic_text" `Quick test_basic_text_stream;
+          test_case "response_info" `Quick test_response_info_of_event;
           test_case "reasoning" `Quick test_reasoning_stream;
           test_case "tool_calls" `Quick test_tool_call_stream;
           test_case "done_signal" `Quick test_done_signal;
