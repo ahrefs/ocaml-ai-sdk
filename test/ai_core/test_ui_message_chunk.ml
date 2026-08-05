@@ -47,8 +47,21 @@ let test_text_end () =
 
 (* Reasoning *)
 let test_reasoning_delta () =
-  let json = json_str (Reasoning_delta { id = "rsn_1"; delta = "Let me think..." }) in
+  let json = json_str (Reasoning_delta { id = "rsn_1"; delta = "Let me think..."; provider_metadata = None }) in
   (check string) "reasoning-delta" {|{"type":"reasoning-delta","id":"rsn_1","delta":"Let me think..."}|} json
+
+let test_reasoning_provider_metadata () =
+  let json =
+    json_str
+      (Reasoning_delta
+         {
+           id = "rsn_1";
+           delta = "";
+           provider_metadata = Some (`Assoc [ "anthropic", `Assoc [ "signature", `String "sig_1" ] ]);
+         })
+  in
+  (check string) "reasoning providerMetadata"
+    {|{"type":"reasoning-delta","id":"rsn_1","delta":"","providerMetadata":{"anthropic":{"signature":"sig_1"}}}|} json
 
 (* Tool interaction *)
 let test_tool_input_start () =
@@ -187,7 +200,11 @@ let () =
           test_case "text_delta" `Quick test_text_delta;
           test_case "text_end" `Quick test_text_end;
         ] );
-      "reasoning", [ test_case "reasoning_delta" `Quick test_reasoning_delta ];
+      ( "reasoning",
+        [
+          test_case "reasoning_delta" `Quick test_reasoning_delta;
+          test_case "provider_metadata" `Quick test_reasoning_provider_metadata;
+        ] );
       ( "tools",
         [
           test_case "input_start" `Quick test_tool_input_start;

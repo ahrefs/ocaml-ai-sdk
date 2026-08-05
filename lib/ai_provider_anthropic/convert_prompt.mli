@@ -47,6 +47,7 @@ type anthropic_content =
       thinking : string;
       signature : string;
     }
+  | A_redacted_thinking of { data : string }
 
 type anthropic_message = {
   role : [ `User | `Assistant ];

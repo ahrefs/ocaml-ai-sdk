@@ -45,6 +45,7 @@ type anthropic_content =
       thinking : string;
       signature : string;
     }
+  | A_redacted_thinking of { data : string }
 
 type anthropic_message = {
   role : [ `User | `Assistant ];
@@ -97,14 +98,28 @@ let convert_user_part ~validator (part : Ai_provider.Prompt.user_part) : anthrop
 (* Convert an assistant part to anthropic content *)
 let convert_assistant_part ~validator (part : Ai_provider.Prompt.assistant_part) : anthropic_content =
   let cc po = Cache_control_validator.take validator (get_cc po) in
+  let reasoning_metadata_field name provider_options =
+    match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some (`Assoc fields) ->
+      (match List.assoc_opt "anthropic" fields with
+      | Some (`Assoc fields) ->
+        (match List.assoc_opt name fields with
+        | Some (`String value) when String.length value > 0 -> Some value
+        | Some _ | None -> None)
+      | Some _ | None -> None)
+    | Some _ | None -> None
+  in
   match part with
   | Text { text; provider_options } -> A_text { text; cache_control = cc provider_options }
   | File { data; media_type; provider_options; _ } ->
     A_image { source = file_data_to_image_source ~media_type data; cache_control = cc provider_options }
-  | Reasoning { text; provider_options = _ } ->
-    (* Reasoning parts become thinking blocks. Signature is not available
-       in the prompt (it comes from responses), so we use empty string. *)
-    A_thinking { thinking = text; signature = "" }
+  | Reasoning { text; provider_options } ->
+    (match
+       reasoning_metadata_field "signature" provider_options, reasoning_metadata_field "redactedData" provider_options
+     with
+    | Some signature, _ -> A_thinking { thinking = text; signature }
+    | None, Some data -> A_redacted_thinking { data }
+    | None, None -> invalid_arg "Anthropic reasoning block is missing its signature or redacted data")
   | Tool_call { id; name; args; provider_options = _ } -> A_tool_use { id; name; input = args }
 
 (* Convert a tool result to anthropic content *)
@@ -255,6 +270,12 @@ type thinking_json = {
 }
 [@@deriving to_json]
 
+type redacted_thinking_json = {
+  type_ : string; [@json.key "type"]
+  data : string;
+}
+[@@deriving to_json]
+
 let tool_result_content_to_json = function
   | Tool_text s -> text_content_json_to_json { type_ = "text"; text = s; cache_control = None }
   | Tool_image { source } ->
@@ -273,6 +294,7 @@ let anthropic_content_to_json = function
     let content_json = List.map tool_result_content_to_json content in
     tool_result_json_to_json { type_ = "tool_result"; tool_use_id; content = content_json; is_error; cache_control }
   | A_thinking { thinking; signature } -> thinking_json_to_json { type_ = "thinking"; thinking; signature }
+  | A_redacted_thinking { data } -> redacted_thinking_json_to_json { type_ = "redacted_thinking"; data }
 
 type message_json = {
   role : string;

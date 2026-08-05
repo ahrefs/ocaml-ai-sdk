@@ -25,10 +25,13 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
           | Text_start { id } -> push (Some (Ui_message_chunk.Text_start { id }))
           | Text_delta { id; text } -> push (Some (Ui_message_chunk.Text_delta { id; delta = text }))
           | Text_end { id } -> push (Some (Ui_message_chunk.Text_end { id }))
-          | Reasoning_start { id } -> if send_reasoning then push (Some (Ui_message_chunk.Reasoning_start { id }))
-          | Reasoning_delta { id; text } ->
-            if send_reasoning then push (Some (Ui_message_chunk.Reasoning_delta { id; delta = text }))
-          | Reasoning_end { id } -> if send_reasoning then push (Some (Ui_message_chunk.Reasoning_end { id }))
+          | Reasoning_start { id; provider_metadata } ->
+            if send_reasoning then push (Some (Ui_message_chunk.Reasoning_start { id; provider_metadata }))
+          | Reasoning_delta { id; text; provider_metadata } ->
+            if send_reasoning then
+              push (Some (Ui_message_chunk.Reasoning_delta { id; delta = text; provider_metadata }))
+          | Reasoning_end { id; provider_metadata } ->
+            if send_reasoning then push (Some (Ui_message_chunk.Reasoning_end { id; provider_metadata }))
           | Tool_call_delta { tool_call_id; tool_name; args_text_delta } ->
             (* Emit Tool_input_start on first delta for this tool call *)
             if not (Hashtbl.mem started_tools tool_call_id) then begin

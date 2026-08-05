@@ -20,10 +20,15 @@ let next_approval_id gen =
   Printf.sprintf "appr_%d" gen.approval_count
 
 (** Consume a provider stream for one step, emitting [Text_stream_part.t] events.
-    Returns the accumulated text, reasoning, tool calls, finish reason, and usage. *)
+    Returns the accumulated text, reasoning blocks, tool calls, finish reason, and usage. *)
 let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun (_ : string) -> ()) provider_stream =
   let text_buf = Buffer.create 256 in
   let reasoning_buf = Buffer.create 256 in
+  let current_reasoning_text = Buffer.create 256 in
+  let current_reasoning_signature = ref None in
+  let current_reasoning_provider_options = ref Ai_provider.Provider_options.empty in
+  let current_reasoning_provider_metadata = ref None in
+  let reasoning_content = ref [] in
   let current_text_id = ref None in
   let current_reasoning_id = ref None in
   (* Track tool call deltas for accumulation *)
@@ -48,8 +53,20 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
   let close_reasoning () =
     match !current_reasoning_id with
     | Some id ->
-      emit (Text_stream_part.Reasoning_end { id });
-      current_reasoning_id := None
+      reasoning_content :=
+        Ai_provider.Content.Reasoning
+          {
+            text = Buffer.contents current_reasoning_text;
+            signature = !current_reasoning_signature;
+            provider_options = !current_reasoning_provider_options;
+          }
+        :: !reasoning_content;
+      emit (Text_stream_part.Reasoning_end { id; provider_metadata = !current_reasoning_provider_metadata });
+      current_reasoning_id := None;
+      Buffer.clear current_reasoning_text;
+      current_reasoning_signature := None;
+      current_reasoning_provider_options := Ai_provider.Provider_options.empty;
+      current_reasoning_provider_metadata := None
     | None -> ()
   in
   let%lwt () =
@@ -71,19 +88,30 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
           Buffer.add_string text_buf text;
           on_text_accumulated (Buffer.contents text_buf);
           emit (Text_stream_part.Text_delta { id; text })
-        | Reasoning { text; _ } ->
+        | Reasoning { text; signature; provider_options } ->
+          let reasoning_metadata = Ai_provider.Provider_options.provider_metadata provider_options in
+          let metadata_only = String.equal text "" && Option.is_none signature && Option.is_some reasoning_metadata in
           let id =
             match !current_reasoning_id with
             | Some id -> id
             | None ->
               close_text ();
               let id = next_reasoning_id id_gen in
-              emit (Text_stream_part.Reasoning_start { id });
+              emit (Text_stream_part.Reasoning_start { id; provider_metadata = reasoning_metadata });
               current_reasoning_id := Some id;
               id
           in
           Buffer.add_string reasoning_buf text;
-          emit (Text_stream_part.Reasoning_delta { id; text })
+          Buffer.add_string current_reasoning_text text;
+          Option.iter (fun value -> current_reasoning_signature := Some value) signature;
+          (match reasoning_metadata with
+          | Some metadata ->
+            current_reasoning_provider_options := provider_options;
+            current_reasoning_provider_metadata := Some metadata
+          | None -> ());
+          emit (Text_stream_part.Reasoning_delta { id; text; provider_metadata = reasoning_metadata });
+          (* Signatures and metadata-only reasoning chunks each complete a reasoning block. *)
+          if Option.is_some signature || metadata_only then close_reasoning ()
         | Tool_call_delta { tool_call_id; tool_name; args_text_delta; _ } ->
           close_text ();
           close_reasoning ();
@@ -125,6 +153,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
   Lwt.return
     ( Buffer.contents text_buf,
       Buffer.contents reasoning_buf,
+      List.rev !reasoning_content,
       List.rev !completed_tool_calls,
       !finish_reason,
       !usage,
@@ -353,7 +382,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
             ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
         in
-        let%lwt text, reasoning, tool_calls, fr, step_usage, step_provider_metadata =
+        let%lwt text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata =
           Telemetry.maybe_span telemetry "ai.streamText.doStream" ~__FILE__ ~__LINE__ ~data:(fun () ->
             match telemetry with
             | Some t ->
@@ -364,7 +393,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           let%lwt stream_result =
             Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
           in
-          let%lwt text, reasoning, tool_calls, fr, step_usage, step_provider_metadata =
+          let%lwt text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata =
             consume_provider_stream ~id_gen ~push:full_push ~on_chunk ~on_text_accumulated stream_result.stream
           in
           (* Add response attributes to step span *)
@@ -373,7 +402,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             Trace_core.add_data_to_span step_span
               (Telemetry.step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason:fr ~usage:step_usage t)
           | _ -> ());
-          Lwt.return (text, reasoning, tool_calls, fr, step_usage, step_provider_metadata)
+          Lwt.return (text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata)
         in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
@@ -439,21 +468,18 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             | Some all_steps_so_far -> finish_stream ~finish_reason:fr ~usage:new_total ~all_steps:all_steps_so_far
             | None ->
               let assistant_content =
-                let parts = ref [] in
-                if String.length text > 0 then parts := Ai_provider.Content.Text { text } :: !parts;
-                List.iter
-                  (fun (tc : Generate_text_result.tool_call) ->
-                    parts :=
+                reasoning_content
+                @ (if String.length text > 0 then [ Ai_provider.Content.Text { text } ] else [])
+                @ List.map
+                    (fun (tc : Generate_text_result.tool_call) ->
                       Ai_provider.Content.Tool_call
                         {
                           tool_call_type = "function";
                           tool_call_id = tc.tool_call_id;
                           tool_name = tc.tool_name;
                           args = Yojson.Basic.to_string tc.args;
-                        }
-                      :: !parts)
-                  tool_calls;
-                List.rev !parts
+                        })
+                    tool_calls
               in
               let updated_messages =
                 Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content

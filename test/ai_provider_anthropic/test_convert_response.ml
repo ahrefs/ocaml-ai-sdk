@@ -73,10 +73,34 @@ let test_parse_thinking_response () =
   let result = Ai_provider_anthropic.Convert_response.parse_response json in
   (check int) "2 content" 2 (List.length result.content);
   match result.content with
-  | Ai_provider.Content.Reasoning { text; signature; _ } :: _ ->
+  | Ai_provider.Content.Reasoning { text; signature; provider_options } :: _ ->
     (check string) "thinking" "Let me reason..." text;
-    (check (option string)) "sig" (Some "sig_abc") signature
+    (check (option string)) "sig" (Some "sig_abc") signature;
+    (match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some metadata ->
+      (check string) "signature metadata" {|{"anthropic":{"signature":"sig_abc"}}|} (Yojson.Basic.to_string metadata)
+    | None -> fail "expected signature metadata")
   | _ -> fail "expected Reasoning"
+
+let test_parse_redacted_thinking_response () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+        "content": [{"type": "redacted_thinking", "data": "encrypted_reasoning"}],
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 30, "output_tokens": 25}
+      }|}
+  in
+  let result = Ai_provider_anthropic.Convert_response.parse_response json in
+  match result.content with
+  | [ Ai_provider.Content.Reasoning { text; signature = None; provider_options } ] ->
+    (check string) "empty text" "" text;
+    (match Ai_provider.Provider_options.provider_metadata provider_options with
+    | Some metadata ->
+      (check string) "redacted metadata" {|{"anthropic":{"redactedData":"encrypted_reasoning"}}|}
+        (Yojson.Basic.to_string metadata)
+    | None -> fail "expected redacted thinking metadata")
+  | _ -> fail "expected redacted Reasoning"
 
 (* Error parsing *)
 let test_error_parsing () =
@@ -143,6 +167,7 @@ let () =
           test_case "text" `Quick test_parse_text_response;
           test_case "tool_use" `Quick test_parse_tool_use_response;
           test_case "thinking" `Quick test_parse_thinking_response;
+          test_case "redacted_thinking" `Quick test_parse_redacted_thinking_response;
         ] );
       "error", [ test_case "parsing" `Quick test_error_parsing; test_case "retryable" `Quick test_is_retryable ];
       ( "usage",

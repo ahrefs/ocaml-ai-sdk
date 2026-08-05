@@ -55,7 +55,7 @@ let create ?(delay_ms = 10) ?(chunking = Word) ?(sleep = Lwt_unix.sleep) () inpu
   let emit_delta active text =
     match active with
     | Active_text id -> push (Some (Text_stream_part.Text_delta { id; text }))
-    | Active_reasoning id -> push (Some (Text_stream_part.Reasoning_delta { id; text }))
+    | Active_reasoning id -> push (Some (Text_stream_part.Reasoning_delta { id; text; provider_metadata = None }))
   in
   let flush_buffer () =
     if Buffer.length buffer > 0 then (
@@ -100,7 +100,13 @@ let create ?(delay_ms = 10) ?(chunking = Word) ?(sleep = Lwt_unix.sleep) () inpu
           (fun (part : Text_stream_part.t) ->
             match part with
             | Text_delta { id; text } -> process_smoothable ~active:(Active_text id) ~text
-            | Reasoning_delta { id; text } -> process_smoothable ~active:(Active_reasoning id) ~text
+            | Reasoning_delta { id; text; provider_metadata = None } ->
+              process_smoothable ~active:(Active_reasoning id) ~text
+            | Reasoning_delta { id; text; provider_metadata = Some provider_metadata } ->
+              flush_buffer ();
+              current := None;
+              push (Some (Text_stream_part.Reasoning_delta { id; text; provider_metadata = Some provider_metadata }));
+              Lwt.return_unit
             | other ->
               flush_buffer ();
               current := None;

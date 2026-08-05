@@ -8,6 +8,7 @@ type content_block_json = {
   input : Melange_json.t option; [@json.default None]
   thinking : string option; [@json.default None]
   signature : string option; [@json.default None]
+  data : string option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving json]
 
@@ -28,6 +29,15 @@ let map_stop_reason = function
   | Some other -> Ai_provider.Finish_reason.Other other
   | None -> Ai_provider.Finish_reason.Unknown
 
+let reasoning_provider_options = function
+  | None -> Ai_provider.Provider_options.empty
+  | Some signature ->
+    Ai_provider.Provider_options.of_provider_metadata
+      (`Assoc [ "anthropic", `Assoc [ "signature", `String signature ] ])
+
+let redacted_reasoning_provider_options data =
+  Ai_provider.Provider_options.of_provider_metadata (`Assoc [ "anthropic", `Assoc [ "redactedData", `String data ] ])
+
 let parse_content_block (block : content_block_json) =
   match block.type_ with
   | "text" -> Option.map (fun text -> Ai_provider.Content.Text { text }) block.text
@@ -42,8 +52,14 @@ let parse_content_block (block : content_block_json) =
     Option.map
       (fun text ->
         Ai_provider.Content.Reasoning
-          { text; signature = block.signature; provider_options = Ai_provider.Provider_options.empty })
+          { text; signature = block.signature; provider_options = reasoning_provider_options block.signature })
       block.thinking
+  | "redacted_thinking" ->
+    Option.map
+      (fun data ->
+        Ai_provider.Content.Reasoning
+          { text = ""; signature = None; provider_options = redacted_reasoning_provider_options data })
+      block.data
   | _ -> None
 
 let parse_response json =
