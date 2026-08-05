@@ -51,25 +51,36 @@ let normalize_sampling ~model ~known_model ~capabilities ~thinking_active (opts 
         | None -> []);
       ]
   in
-  let restriction_details =
-    if capabilities.Model_catalog.rejects_sampling_parameters then
-      Some (Printf.sprintf "not supported by %s and will be ignored" model)
-    else if thinking_active then Some "not supported when thinking is enabled"
-    else None
+  let drop field details = function
+    | Some _ -> None, [ warning field (Some details) ]
+    | None -> None, []
   in
-  let drop field value =
-    match restriction_details, value with
-    | Some details, Some _ -> None, [ warning field (Some details) ]
-    | _, _ -> value, []
+  let rejects_sampling = capabilities.Model_catalog.rejects_sampling_parameters in
+  let model_restriction = Printf.sprintf "not supported by %s and will be ignored" model in
+  let thinking_restriction = "not supported when thinking is enabled" in
+  let temperature, temperature_warnings =
+    if rejects_sampling then drop "temperature" model_restriction opts.temperature
+    else if thinking_active then drop "temperature" thinking_restriction opts.temperature
+    else opts.temperature, []
   in
-  let temperature, temperature_warnings = drop "temperature" opts.temperature in
-  let top_p, top_p_warnings = drop "top_p" opts.top_p in
-  let top_k, top_k_warnings = drop "top_k" opts.top_k in
+  let top_p, top_p_warnings =
+    if rejects_sampling then drop "top_p" model_restriction opts.top_p
+    else (
+      match thinking_active, opts.top_p with
+      | true, Some value when value < 0.95 || value > 1. ->
+        drop "top_p" "must be between 0.95 and 1 when thinking is enabled" opts.top_p
+      | _ -> opts.top_p, [])
+  in
+  let top_k, top_k_warnings =
+    if rejects_sampling then drop "top_k" model_restriction opts.top_k
+    else if thinking_active then drop "top_k" thinking_restriction opts.top_k
+    else opts.top_k, []
+  in
   let top_p, top_p_warning =
-    match restriction_details, known_model, temperature, top_p with
-    | None, true, Some _, Some _ ->
+    match known_model, temperature, top_p with
+    | true, Some _, Some _ ->
       None, [ warning "top_p" (Some "top_p is not supported when temperature is set. top_p is ignored.") ]
-    | _, _, _, _ -> top_p, []
+    | _, _, _ -> top_p, []
   in
   temperature, top_p, top_k, base_warnings @ temperature_warnings @ top_p_warnings @ top_k_warnings @ top_p_warning
 

@@ -94,12 +94,12 @@ let capabilities = function
             defaults_to_adaptive = true;
             disabled = Unsupported;
             effort_levels = all_effort_levels;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
       supports_prompt_caching = true;
-      min_cache_tokens = 1024;
+      min_cache_tokens = 512;
       supports_vision = true;
       supports_pdf = true;
     }
@@ -114,12 +114,12 @@ let capabilities = function
             defaults_to_adaptive = true;
             disabled = Unsupported;
             effort_levels = all_effort_levels;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
       supports_prompt_caching = true;
-      min_cache_tokens = 1024;
+      min_cache_tokens = 512;
       supports_vision = true;
       supports_pdf = true;
     }
@@ -134,12 +134,12 @@ let capabilities = function
             defaults_to_adaptive = true;
             disabled = Unsupported;
             effort_levels = effort_without_xhigh;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
       supports_prompt_caching = true;
-      min_cache_tokens = 1024;
+      min_cache_tokens = 2048;
       supports_vision = true;
       supports_pdf = true;
     }
@@ -154,12 +154,12 @@ let capabilities = function
             defaults_to_adaptive = true;
             disabled = Up_to_high;
             effort_levels = all_effort_levels;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
       supports_prompt_caching = true;
-      min_cache_tokens = 1024;
+      min_cache_tokens = 512;
       supports_vision = true;
       supports_pdf = true;
     }
@@ -174,7 +174,7 @@ let capabilities = function
             defaults_to_adaptive = false;
             disabled = Allowed;
             effort_levels = all_effort_levels;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
@@ -194,7 +194,7 @@ let capabilities = function
             defaults_to_adaptive = true;
             disabled = Allowed;
             effort_levels = all_effort_levels;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
@@ -214,12 +214,12 @@ let capabilities = function
             defaults_to_adaptive = false;
             disabled = Allowed;
             effort_levels = effort_without_xhigh;
-            display_default = None;
+            display_default = Some Thinking.Omitted;
           };
       rejects_sampling_parameters = true;
       supports_structured_output = true;
       supports_prompt_caching = true;
-      min_cache_tokens = 1024;
+      min_cache_tokens = 2048;
       supports_vision = true;
       supports_pdf = true;
     }
@@ -239,7 +239,7 @@ let capabilities = function
       rejects_sampling_parameters = false;
       supports_structured_output = true;
       supports_prompt_caching = true;
-      min_cache_tokens = 1024;
+      min_cache_tokens = 4096;
       supports_vision = true;
       supports_pdf = true;
     }

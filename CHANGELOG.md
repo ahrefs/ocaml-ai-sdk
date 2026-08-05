@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 - `Ai_provider_anthropic.Beta_headers.required_betas` now accepts
   `thinking:Thinking.t option`; replace the old `true` with `Some (Enabled
   ...)` and `false` with `None`.
+- `Ai_provider_anthropic.Model_catalog.model_capabilities` replaced
+  `supports_thinking` with detailed `thinking` capabilities and added
+  `rejects_sampling_parameters`.
 
 ## 0.4 — 2026-06-02
 

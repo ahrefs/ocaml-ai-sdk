@@ -86,6 +86,7 @@ let test_capability_matrix () =
     [
       ( "claude-fable-5",
         128_000,
+        512,
         false,
         true,
         true,
@@ -93,9 +94,10 @@ let test_capability_matrix () =
         all_effort,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-mythos-5",
         128_000,
+        512,
         false,
         true,
         true,
@@ -103,9 +105,10 @@ let test_capability_matrix () =
         all_effort,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-mythos-preview",
         128_000,
+        2048,
         true,
         true,
         true,
@@ -113,9 +116,10 @@ let test_capability_matrix () =
         no_xhigh,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-opus-5",
         128_000,
+        512,
         false,
         true,
         true,
@@ -123,9 +127,10 @@ let test_capability_matrix () =
         all_effort,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-opus-4-8",
         128_000,
+        1024,
         false,
         true,
         false,
@@ -133,9 +138,10 @@ let test_capability_matrix () =
         all_effort,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-sonnet-5",
         128_000,
+        1024,
         false,
         true,
         true,
@@ -143,9 +149,10 @@ let test_capability_matrix () =
         all_effort,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-opus-4-7",
         128_000,
+        2048,
         false,
         true,
         false,
@@ -153,9 +160,10 @@ let test_capability_matrix () =
         no_xhigh,
         true,
         true,
-        None );
+        Some "omitted" );
       ( "claude-opus-4-6",
         128_000,
+        4096,
         true,
         true,
         false,
@@ -166,6 +174,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-sonnet-4-6",
         128_000,
+        1024,
         true,
         true,
         false,
@@ -176,6 +185,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-haiku-4-5",
         64_000,
+        4096,
         true,
         false,
         false,
@@ -186,6 +196,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-sonnet-4-5",
         64_000,
+        1024,
         true,
         false,
         false,
@@ -196,6 +207,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-opus-4-5",
         64_000,
+        4096,
         true,
         false,
         false,
@@ -206,6 +218,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-opus-4-1",
         32_000,
+        1024,
         true,
         false,
         false,
@@ -216,6 +229,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-sonnet-4-20250514",
         64_000,
+        1024,
         true,
         false,
         false,
@@ -226,6 +240,7 @@ let test_capability_matrix () =
         Some "summarized" );
       ( "claude-opus-4-20250514",
         32_000,
+        1024,
         true,
         false,
         false,
@@ -239,6 +254,7 @@ let test_capability_matrix () =
   List.iter
     (fun ( id,
            max_tokens,
+           min_cache_tokens,
            manual,
            adaptive,
            defaults_to_adaptive,
@@ -256,6 +272,7 @@ let test_capability_matrix () =
         | None -> fail ("missing thinking for " ^ id)
       in
       (check int) (id ^ " max_tokens") max_tokens caps.max_output_tokens;
+      (check int) (id ^ " min_cache_tokens") min_cache_tokens caps.min_cache_tokens;
       (check bool) (id ^ " manual") manual thinking.manual;
       (check bool) (id ^ " adaptive") adaptive thinking.adaptive;
       (check bool) (id ^ " defaults_to_adaptive") defaults_to_adaptive thinking.defaults_to_adaptive;

@@ -22,10 +22,10 @@ type anthropic_response_json = {
 [@@json.allow_extra_fields] [@@deriving json]
 
 let map_stop_reason = function
-  | Some "end_turn" -> Ai_provider.Finish_reason.Stop
-  | Some "max_tokens" -> Ai_provider.Finish_reason.Length
+  | Some ("end_turn" | "pause_turn" | "stop_sequence") -> Ai_provider.Finish_reason.Stop
+  | Some ("max_tokens" | "model_context_window_exceeded") -> Ai_provider.Finish_reason.Length
   | Some "tool_use" -> Ai_provider.Finish_reason.Tool_calls
-  | Some "stop_sequence" -> Ai_provider.Finish_reason.Stop
+  | Some "refusal" -> Ai_provider.Finish_reason.Content_filter
   | Some other -> Ai_provider.Finish_reason.Other other
   | None -> Ai_provider.Finish_reason.Unknown
 

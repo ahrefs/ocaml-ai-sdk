@@ -364,6 +364,14 @@ let test_policy_normalizes_sampling_parameters () =
     (fun feature -> (check bool) (feature ^ " warning") true (List.mem feature features))
     [ "temperature"; "top_p"; "top_k" ]
 
+let test_policy_preserves_supported_top_p_with_thinking () =
+  let provider_options =
+    anthropic_provider_options ~thinking:(Ai_provider_anthropic.Thinking.Adaptive { display = None }) ()
+  in
+  let body, result = capture_generate ~model_id:"claude-opus-4-6" ~provider_options ~top_p:0.95 () in
+  (check (option (float 0.01))) "top_p preserved" (Some 0.95) body.top_p;
+  (check bool) "no top_p warning" false (List.mem "top_p" (warning_features result.warnings))
+
 let test_policy_lowers_disabled_effort () =
   let provider_options =
     anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled
@@ -499,6 +507,7 @@ let () =
           test_case "policy_rejects_invalid" `Quick test_policy_rejects_invalid_combinations;
           test_case "policy_rejects_forced_tool" `Quick test_policy_rejects_forced_tool_choice_with_manual_thinking;
           test_case "policy_normalizes_sampling" `Quick test_policy_normalizes_sampling_parameters;
+          test_case "policy_preserves_supported_top_p" `Quick test_policy_preserves_supported_top_p_with_thinking;
           test_case "policy_lowers_disabled_effort" `Quick test_policy_lowers_disabled_effort;
           test_case "policy_custom_passthrough" `Quick test_policy_preserves_custom_model_options;
           test_case "with_schema_tool_fallback (legacy model)" `Quick test_object_json_with_schema_tool_fallback_legacy;
