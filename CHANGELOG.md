@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
   `Reasoning_end` and the matching `Ui_message_chunk` constructors gained
   `provider_metadata`. Custom transforms and chunk producers must set it to
   `None` when no metadata is available.
+- `Ai_provider_anthropic.Convert_response.content_block_json` gained `data`.
+  Direct record constructors must set it to `None` for non-redacted blocks.
+- `Ai_provider_anthropic.Convert_prompt.anthropic_content` gained
+  `A_redacted_thinking`; exhaustive pattern matches must handle it.
 
 ## 0.4 — 2026-06-02
 
