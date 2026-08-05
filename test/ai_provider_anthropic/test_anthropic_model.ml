@@ -334,11 +334,8 @@ let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperatur
 let test_policy_rejects_invalid_combinations () =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
   let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
-  let adaptive = Ai_provider_anthropic.Thinking.Adaptive { display = None } in
   reject_options "claude-fable-5" (anthropic_provider_options ~thinking:manual ());
-  reject_options "claude-fable-5" (anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled ());
-  reject_options "claude-opus-4-5" (anthropic_provider_options ~thinking:adaptive ());
-  reject_options "claude-sonnet-4-5" (anthropic_provider_options ~effort:Ai_provider_anthropic.Effort.Low ())
+  reject_options "claude-fable-5" (anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled ())
 
 let test_policy_rejects_forced_tool_choice_with_manual_thinking () =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
@@ -441,8 +438,6 @@ let assert_fallback_path model_id () =
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   ()
 
-let test_object_json_with_schema_tool_fallback_legacy () = assert_fallback_path "claude-sonnet-4-0" ()
-
 (* Unknown / Custom model id: [Model_catalog] flags [supports_structured_output = false]
    as its safe default. This test locks that default in — if it ever flips to [true],
    calls to genuinely-unsupported models would 400 at runtime. *)
@@ -510,7 +505,6 @@ let () =
           test_case "policy_preserves_supported_top_p" `Quick test_policy_preserves_supported_top_p_with_thinking;
           test_case "policy_lowers_disabled_effort" `Quick test_policy_lowers_disabled_effort;
           test_case "policy_custom_passthrough" `Quick test_policy_preserves_custom_model_options;
-          test_case "with_schema_tool_fallback (legacy model)" `Quick test_object_json_with_schema_tool_fallback_legacy;
           test_case "with_schema_tool_fallback (custom model)" `Quick test_object_json_with_schema_tool_fallback_custom;
           test_case "preserves_existing_system" `Quick test_object_json_preserves_existing_system;
         ] );

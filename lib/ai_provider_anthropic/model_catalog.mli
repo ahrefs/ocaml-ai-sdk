@@ -28,26 +28,18 @@ type model_capabilities = {
 type known_model =
   | Claude_fable_5
   | Claude_mythos_5
-  | Claude_mythos_preview
   | Claude_opus_5
   | Claude_opus_4_8
   | Claude_sonnet_5
   | Claude_opus_4_7
   | Claude_opus_4_6
   | Claude_sonnet_4_6
-  | Claude_haiku_4_5
-  | Claude_sonnet_4_5
-  | Claude_opus_4_5
-  | Claude_opus_4_1
-  | Claude_sonnet_4
-  | Claude_opus_4
   | Custom of string
 
 (** Convert a known model to its API model ID string. *)
 val to_model_id : known_model -> string
 
-(** Parse a model ID string. Returns [Custom] for unrecognized models.
-    Accepts both dated versions and aliases. *)
+(** Parse a model ID string. Returns [Custom] for unrecognized models. *)
 val of_model_id : string -> known_model
 
 (** Get the capabilities of a model. [Custom] models get conservative defaults. *)

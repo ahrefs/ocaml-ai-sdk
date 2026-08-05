@@ -34,21 +34,19 @@ let test_model_id_opus_4_6 () =
 let test_model_id_sonnet_4_6 () =
   (check string) "sonnet 4.6" "claude-sonnet-4-6" (Ai_provider_anthropic.Model_catalog.to_model_id Claude_sonnet_4_6)
 
-let test_model_id_haiku_4_5 () =
-  (check string) "haiku 4.5" "claude-haiku-4-5-20251001"
-    (Ai_provider_anthropic.Model_catalog.to_model_id Claude_haiku_4_5)
-
 let test_of_model_id_exact () =
   let m = Ai_provider_anthropic.Model_catalog.of_model_id "claude-opus-4-6" in
   match m with
   | Ai_provider_anthropic.Model_catalog.Claude_opus_4_6 -> ()
   | _ -> fail "expected Claude_opus_4_6"
 
-let test_of_model_id_alias () =
-  let m = Ai_provider_anthropic.Model_catalog.of_model_id "claude-haiku-4-5" in
-  match m with
-  | Ai_provider_anthropic.Model_catalog.Claude_haiku_4_5 -> ()
-  | _ -> fail "expected Claude_haiku_4_5"
+let test_excluded_models_are_custom () =
+  List.iter
+    (fun id ->
+      match Ai_provider_anthropic.Model_catalog.of_model_id id with
+      | Ai_provider_anthropic.Model_catalog.Custom s -> (check string) "custom" id s
+      | _ -> fail "expected Custom")
+    [ "claude-haiku-4-5"; "claude-mythos-preview" ]
 
 let test_of_model_id_custom () =
   let m = Ai_provider_anthropic.Model_catalog.of_model_id "some-future-model" in
@@ -68,11 +66,6 @@ let test_capabilities_opus_4_6 () =
     | _ -> false);
   (check int) "max_tokens" 128_000 caps.max_output_tokens
 
-let test_capabilities_haiku_4_5 () =
-  let caps = Ai_provider_anthropic.Model_catalog.capabilities Claude_haiku_4_5 in
-  (check int) "max_tokens" 64_000 caps.max_output_tokens;
-  (check int) "min_cache" 4096 caps.min_cache_tokens
-
 let test_capabilities_custom () =
   let caps = Ai_provider_anthropic.Model_catalog.capabilities (Custom "unknown") in
   (check bool) "thinking" true (Option.is_none caps.thinking);
@@ -81,7 +74,6 @@ let test_capabilities_custom () =
 let test_capability_matrix () =
   let all_effort = [ "low"; "medium"; "high"; "xhigh"; "max" ] in
   let no_xhigh = [ "low"; "medium"; "high"; "max" ] in
-  let through_high = [ "low"; "medium"; "high" ] in
   let matrix =
     [
       ( "claude-fable-5",
@@ -103,17 +95,6 @@ let test_capability_matrix () =
         true,
         Ai_provider_anthropic.Model_catalog.Unsupported,
         all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-mythos-preview",
-        128_000,
-        2048,
-        true,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        no_xhigh,
         true,
         true,
         Some "omitted" );
@@ -183,72 +164,6 @@ let test_capability_matrix () =
         false,
         true,
         Some "summarized" );
-      ( "claude-haiku-4-5",
-        64_000,
-        4096,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        [],
-        false,
-        true,
-        Some "summarized" );
-      ( "claude-sonnet-4-5",
-        64_000,
-        1024,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        [],
-        false,
-        true,
-        Some "summarized" );
-      ( "claude-opus-4-5",
-        64_000,
-        4096,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        through_high,
-        false,
-        true,
-        Some "summarized" );
-      ( "claude-opus-4-1",
-        32_000,
-        1024,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        [],
-        false,
-        true,
-        Some "summarized" );
-      ( "claude-sonnet-4-20250514",
-        64_000,
-        1024,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        [],
-        false,
-        false,
-        Some "summarized" );
-      ( "claude-opus-4-20250514",
-        32_000,
-        1024,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        [],
-        false,
-        false,
-        Some "summarized" );
     ]
   in
   List.iter
@@ -316,12 +231,10 @@ let () =
         [
           test_case "opus_4_6" `Quick test_model_id_opus_4_6;
           test_case "sonnet_4_6" `Quick test_model_id_sonnet_4_6;
-          test_case "haiku_4_5" `Quick test_model_id_haiku_4_5;
           test_case "of_model_id_exact" `Quick test_of_model_id_exact;
-          test_case "of_model_id_alias" `Quick test_of_model_id_alias;
+          test_case "excluded_models_are_custom" `Quick test_excluded_models_are_custom;
           test_case "of_model_id_custom" `Quick test_of_model_id_custom;
           test_case "capabilities_opus_4_6" `Quick test_capabilities_opus_4_6;
-          test_case "capabilities_haiku_4_5" `Quick test_capabilities_haiku_4_5;
           test_case "capabilities_custom" `Quick test_capabilities_custom;
           test_case "capability_matrix" `Quick test_capability_matrix;
           test_case "default_max_tokens" `Quick test_default_max_tokens;
