@@ -263,6 +263,21 @@ let test_backoff_above_cap_is_clamped () =
   (check int) "two attempts" 2 !call_count;
   (check (list (float 0.001))) "clamped delay" [ 1.0 ] (List.rev !delays)
 
+let test_backoff_does_not_overflow () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  (try
+     ignore
+       (Lwt_main.run
+          (Ai_core.Retry.with_retries ~max_retries:2 ~initial_delay_ms:max_int ~backoff_factor:2 ~max_retry_delay_ms:1
+             ~sleep ~random:no_jitter (fun () -> Lwt.fail (retryable_error "overloaded")))
+         : string)
+   with Ai_core.Retry.Retry_error _ -> ());
+  (check (list (float 0.0001))) "both delays stay capped" [ 0.001; 0.001 ] (List.rev !delays)
+
 let test_missing_retry_after_uses_jittered_backoff () =
   let delays = ref [] in
   let sleep delay =
@@ -321,6 +336,7 @@ let () =
           test_case "retry_after_minimum" `Quick test_retry_after_is_minimum_delay;
           test_case "retry_after_above_cap" `Quick test_retry_after_above_cap_stops;
           test_case "backoff_above_cap_clamped" `Quick test_backoff_above_cap_is_clamped;
+          test_case "backoff_no_overflow" `Quick test_backoff_does_not_overflow;
           test_case "missing_retry_after_jitter" `Quick test_missing_retry_after_uses_jittered_backoff;
           test_case "negative_max_retries" `Quick test_negative_max_retries;
           test_case "invalid_backoff_factor" `Quick test_invalid_backoff_factor;

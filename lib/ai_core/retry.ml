@@ -80,7 +80,8 @@ let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor 
               max_retry_delay_ms
           in
           let%lwt () = sleep delay_s in
-          loop ~delay_ms:(backoff_factor * delay_ms) ~errors_rev ~i:(i + 1))
+          let next_delay_ms = if delay_ms > max_int / backoff_factor then max_int else backoff_factor * delay_ms in
+          loop ~delay_ms:next_delay_ms ~errors_rev ~i:(i + 1))
       | () when i = 1 -> Lwt.fail exn
       | () -> Lwt.fail (make_retry_error ~reason:Error_not_retryable ~errors_rev exn))
   in

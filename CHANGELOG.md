@@ -42,7 +42,7 @@ All notable changes to this project will be documented in this file.
 
 ### OpenRouter provider (`ai_provider_openrouter`)
 
-- Non-2xx Cohttp responses preserve valid integer `Retry-After` delta-seconds
+- HTTP error responses preserve valid integer `Retry-After` delta-seconds
   on `Provider_error.t`. The custom JSON-only `fetch` callback remains
   unchanged and carries no retry hint.
 
