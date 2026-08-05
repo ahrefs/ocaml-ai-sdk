@@ -11,7 +11,7 @@
       ANTHROPIC_API_KEY=$(passage get anthropic/staging/api_key) \
         dune exec examples/structured_output.exe
 
-    Exit code: 0 if both paths decode into a valid [person] record, 1 otherwise. *)
+    Exit code: 0 if the response decodes into a valid [person] record, 1 otherwise. *)
 
 open Melange_json.Primitives
 
@@ -103,7 +103,7 @@ let () =
   let ok = Lwt_main.run (run_case ~label:"Native structured outputs" ~model_id:"claude-sonnet-4-6") in
   match ok with
   | true ->
-    Printf.printf "\nAll paths OK\n";
+    Printf.printf "\nNative path OK\n";
     exit 0
   | false ->
     Printf.printf "\nFailure\n";
