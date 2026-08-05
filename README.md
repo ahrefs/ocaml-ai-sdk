@@ -7,7 +7,7 @@ Type-safe, provider-agnostic AI model abstraction for OCaml, inspired by the [Ve
 | Library | opam lib | Description |
 |---------|----------|-------------|
 | `ai_provider` | `ocaml-ai-sdk.ai_provider` | Provider abstraction — language model module types, tool definitions, prompt types, GADT-based provider options |
-| `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, full Claude model catalog |
+| `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, Claude 4.6+ model catalog |
 | `ai_provider_openai` | `ocaml-ai-sdk.ai_provider_openai` | OpenAI Chat Completions API — streaming SSE, tool calling with strict mode, GPT-4o/o1/o3/o4-mini catalog |
 | `ai_provider_openrouter` | `ocaml-ai-sdk.ai_provider_openrouter` | OpenRouter Chat Completions API — model routing, provider preferences, reasoning, web search, usage accounting, prompt caching |
 | `ai_core` | `ocaml-ai-sdk.ai_core` | Core SDK — `generate_text`, `stream_text` (with tool loops), UIMessage stream protocol, server handler, structured output |
@@ -27,7 +27,7 @@ open Ai_provider_anthropic
 
 let () =
   Lwt_main.run @@
-  let model = Anthropic.create_model "claude-sonnet-4-20250514" in
+  let model = Anthropic.create_model "claude-sonnet-4-6" in
   let%lwt result = Generate_text.generate ~model ~prompt:"Say hello" () in
   Lwt_io.printl result.text
 ```
@@ -37,7 +37,7 @@ let () =
 ```ocaml
 let () =
   Lwt_main.run @@
-  let model = Anthropic.create_model "claude-sonnet-4-20250514" in
+  let model = Anthropic.create_model "claude-sonnet-4-6" in
   let%lwt result = Stream_text.stream ~model ~prompt:"Tell me a joke" () in
   Lwt_stream.iter_s Lwt_io.printl result.text_stream
 ```
@@ -67,6 +67,17 @@ ai_provider          Provider abstraction (module types, GADT options)
 - **Prompt types** are role-constrained variants — `System` accepts only strings, `User` accepts text + files, etc.
 - **Streaming** uses `Lwt_stream.t` — `stream_text` returns synchronously with streams populated by a background Lwt task
 - **UIMessage protocol** emits SSE chunks matching the `ai@6` Zod schemas exactly, so `useChat()` works without adaptation
+
+### Anthropic thinking
+
+`Anthropic_options.thinking = None` omits the `thinking` request field. Use
+`Some Thinking.Disabled` to explicitly disable thinking on models that default
+to it; `Adaptive` and `Enabled` select the corresponding Anthropic modes.
+`effort` is independent and is serialized under `output_config`.
+
+When forwarding Anthropic reasoning blocks, preserve their provider metadata
+signature. Omitted-display thinking can have empty text, but its signature is
+required for multi-turn and tool-loop resubmission.
 
 ## AI SDK v6 compatibility
 

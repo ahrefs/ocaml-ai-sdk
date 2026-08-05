@@ -17,6 +17,15 @@ let test_stop_reason_none () =
   let r = Ai_provider_anthropic.Convert_response.map_stop_reason None in
   (check string) "unknown" "other" (Ai_provider.Finish_reason.to_string r)
 
+let test_current_stop_reasons () =
+  List.iter
+    (fun (input, expected) ->
+      let actual =
+        Ai_provider_anthropic.Convert_response.map_stop_reason (Some input) |> Ai_provider.Finish_reason.to_string
+      in
+      (check string) input expected actual)
+    [ "pause_turn", "stop"; "refusal", "content-filter"; "model_context_window_exceeded", "length" ]
+
 (* Parse response *)
 let test_parse_text_response () =
   let json =
@@ -160,6 +169,7 @@ let () =
           test_case "end_turn" `Quick test_stop_reason_end_turn;
           test_case "max_tokens" `Quick test_stop_reason_max_tokens;
           test_case "tool_use" `Quick test_stop_reason_tool_use;
+          test_case "current reasons" `Quick test_current_stop_reasons;
           test_case "none" `Quick test_stop_reason_none;
         ] );
       ( "parse_response",

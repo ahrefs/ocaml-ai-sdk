@@ -1,11 +1,11 @@
 # Upstream Dependency Update Log
 
-## Last updated: 2026-04-09
+## Last updated: 2026-08-04
 
 | Package | Version |
 |---------|---------|
-| `ai` | 6.0.154 |
-| `@ai-sdk/react` | 3.0.156 |
+| `ai` | 7.0.51 |
+| `@ai-sdk/react` | 4.0.54 |
 
 ## Update procedure
 

@@ -15,7 +15,7 @@ open Melange_json.Primitives
 let model_of_provider provider =
   match provider with
   | "openai" -> Ai_provider_openai.model "gpt-4o-mini"
-  | "anthropic" -> Ai_provider_anthropic.model "claude-haiku-4-5-20251001"
+  | "anthropic" -> Ai_provider_anthropic.model "claude-sonnet-4-6"
   | unknown -> failwith (Printf.sprintf "Unknown provider: %s (expected 'anthropic' or 'openai')" unknown)
 
 let provider_of_request req =
@@ -165,11 +165,16 @@ When the user asks "what's the weather here?" or similar, use both tools.|}
 (* --- Thinking / reasoning provider options --- *)
 
 let anthropic_thinking_options =
-  let budget = Ai_provider_anthropic.Thinking.budget_exn 4096 in
   let thinking : Ai_provider_anthropic.Thinking.t =
-    Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None }
+    Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Summarized }
   in
-  let opts = { Ai_provider_anthropic.Anthropic_options.default with thinking = Some thinking } in
+  let opts =
+    {
+      Ai_provider_anthropic.Anthropic_options.default with
+      thinking = Some thinking;
+      effort = Some Ai_provider_anthropic.Effort.High;
+    }
+  in
   Ai_provider_anthropic.Anthropic_options.to_provider_options opts
 
 (* --- Completion handler (plain text stream for useCompletion) --- *)

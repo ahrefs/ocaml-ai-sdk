@@ -15,7 +15,7 @@ type summarize_args = { summary : string } [@@deriving of_json]
 let () =
   Lwt_main.run
     begin
-      let model_id = Ai_provider_anthropic.Model_catalog.(to_model_id Claude_haiku_4_5) in
+      let model_id = Ai_provider_anthropic.Model_catalog.(to_model_id Claude_sonnet_4_6) in
       let model = Ai_provider_anthropic.model model_id in
 
       (* Define tools *)

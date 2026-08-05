@@ -1,36 +1,115 @@
-(** Check for unsupported features and emit warnings. *)
-let check_unsupported ~anthropic_opts (opts : Ai_provider.Call_options.t) =
-  List.concat
-    [
-      (match opts.frequency_penalty with
-      | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "frequency_penalty"; details = None } ]
-      | None -> []);
-      (match opts.presence_penalty with
-      | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "presence_penalty"; details = None } ]
-      | None -> []);
-      (match opts.seed with
-      | Some _ -> [ Ai_provider.Warning.Unsupported_feature { feature = "seed"; details = None } ]
-      | None -> []);
-      (* Warn if thinking is enabled with temperature *)
-      (match anthropic_opts.Anthropic_options.thinking with
-      | Some (Thinking.Enabled _ | Thinking.Adaptive _) when Option.is_some opts.temperature ->
-        [
-          Ai_provider.Warning.Unsupported_feature
-            {
-              feature = "temperature with thinking";
-              details = Some "Anthropic does not support temperature when thinking is enabled";
-            };
-        ]
-      | _ -> []);
-    ]
+let warning feature details = Ai_provider.Warning.Unsupported_feature { feature; details }
+
+let is_known_model = function
+  | Model_catalog.Custom _ -> false
+  | _ -> true
+
+let effective_thinking_active ~capabilities ~thinking =
+  match thinking with
+  | Some (Thinking.Enabled _ | Thinking.Adaptive _) -> true
+  | Some Thinking.Disabled -> false
+  | None ->
+  match capabilities.Model_catalog.thinking with
+  | Some { defaults_to_adaptive; _ } -> defaults_to_adaptive
+  | None -> false
+
+let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice =
+  (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking with
+  | Some thinking, Some (Thinking.Enabled _) when not thinking.manual ->
+    invalid_arg (Printf.sprintf "%s does not support manual thinking" model)
+  | Some thinking, Some (Thinking.Adaptive _) when not thinking.adaptive ->
+    invalid_arg (Printf.sprintf "%s does not support adaptive thinking" model)
+  | Some { disabled = Model_catalog.Unsupported; _ }, Some Thinking.Disabled ->
+    invalid_arg (Printf.sprintf "%s does not support disabled thinking" model)
+  | None, _ | _, None | Some _, Some Thinking.Disabled -> ()
+  | Some _, Some (Thinking.Enabled _ | Thinking.Adaptive _) -> ());
+  (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.effort with
+  | Some thinking, Some effort when not (List.mem effort thinking.effort_levels) ->
+    invalid_arg (Printf.sprintf "%s does not support effort '%s'" model (Effort.to_string effort))
+  | None, _ | Some _, None | Some _, Some _ -> ());
+  match anthropic_opts.Anthropic_options.thinking with
+  | Some (Thinking.Enabled _)
+    when (match tool_choice with
+           | Some (Ai_provider.Tool_choice.Required | Ai_provider.Tool_choice.Specific _) -> true
+           | None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_) -> false)
+         || Option.is_some forced_tool_choice ->
+    invalid_arg "manual thinking cannot be combined with forced tool choice"
+  | _ -> ()
+
+let normalize_sampling ~model ~known_model ~capabilities ~thinking_active (opts : Ai_provider.Call_options.t) =
+  let base_warnings =
+    List.concat
+      [
+        (match opts.frequency_penalty with
+        | Some _ -> [ warning "frequency_penalty" None ]
+        | None -> []);
+        (match opts.presence_penalty with
+        | Some _ -> [ warning "presence_penalty" None ]
+        | None -> []);
+        (match opts.seed with
+        | Some _ -> [ warning "seed" None ]
+        | None -> []);
+      ]
+  in
+  let drop field details = function
+    | Some _ -> None, [ warning field (Some details) ]
+    | None -> None, []
+  in
+  let rejects_sampling = capabilities.Model_catalog.rejects_sampling_parameters in
+  let model_restriction = Printf.sprintf "not supported by %s and will be ignored" model in
+  let thinking_restriction = "not supported when thinking is enabled" in
+  let temperature, temperature_warnings =
+    if rejects_sampling then drop "temperature" model_restriction opts.temperature
+    else if thinking_active then drop "temperature" thinking_restriction opts.temperature
+    else opts.temperature, []
+  in
+  let top_p, top_p_warnings =
+    if rejects_sampling then drop "top_p" model_restriction opts.top_p
+    else (
+      match thinking_active, opts.top_p with
+      | true, Some value when value < 0.95 || value > 1. ->
+        drop "top_p" "must be between 0.95 and 1 when thinking is enabled" opts.top_p
+      | _ -> opts.top_p, [])
+  in
+  let top_k, top_k_warnings =
+    if rejects_sampling then drop "top_k" model_restriction opts.top_k
+    else if thinking_active then drop "top_k" thinking_restriction opts.top_k
+    else opts.top_k, []
+  in
+  let top_p, top_p_warning =
+    match known_model, temperature, top_p with
+    | true, Some _, Some _ ->
+      None, [ warning "top_p" (Some "top_p is not supported when temperature is set. top_p is ignored.") ]
+    | _, _, _ -> top_p, []
+  in
+  temperature, top_p, top_k, base_warnings @ temperature_warnings @ top_p_warnings @ top_k_warnings @ top_p_warning
+
+let normalize_disabled_effort ~model ~capabilities ~anthropic_opts =
+  match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking, anthropic_opts.effort with
+  | Some { disabled = Model_catalog.Up_to_high; _ }, Some Thinking.Disabled, Some (Effort.Xhigh | Effort.Max) ->
+    ( Some Effort.High,
+      [
+        warning "providerOptions.anthropic.effort"
+          (Some (Printf.sprintf "effort is not supported by %s when thinking is disabled; lowered to 'high'" model));
+      ] )
+  | _, _, effort -> effort, []
 
 (** Prepare the request body and warnings — shared by generate and stream. *)
 let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
+  let known_model = Model_catalog.of_model_id model in
+  let capabilities = Model_catalog.capabilities known_model in
+  let known_model = is_known_model known_model in
   let anthropic_opts =
     Anthropic_options.of_provider_options opts.provider_options
     |> Stdlib.Option.value ~default:Anthropic_options.default
   in
-  let warnings = check_unsupported ~anthropic_opts opts in
+  let thinking_active = effective_thinking_active ~capabilities ~thinking:anthropic_opts.thinking in
+  let temperature, top_p, top_k, warnings =
+    normalize_sampling ~model ~known_model ~capabilities ~thinking_active opts
+  in
+  let effort, effort_warnings = normalize_disabled_effort ~model ~capabilities ~anthropic_opts in
+  let anthropic_opts = { anthropic_opts with effort } in
+  let warnings = warnings @ effort_warnings in
   (* One validator per request — shared across system, tools, and messages
      so the 4-breakpoint limit covers them all. Upstream order matches
      this: system blocks, then tools, then messages. *)
@@ -39,9 +118,7 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let system = Convert_prompt.system_to_json ~validator system_parts in
   (* Route Object_json per-model: native output_config where supported, synthetic [json]
      tool with forced tool_choice otherwise — matches upstream @ai-sdk/anthropic. *)
-  let supports_native_structured_output =
-    (Model_catalog.capabilities (Model_catalog.of_model_id model)).supports_structured_output
-  in
+  let supports_native_structured_output = capabilities.supports_structured_output in
   let output_format, fallback_tool, forced_tool_choice, extra_warnings =
     match opts.mode with
     | Regular | Object_tool _ -> None, None, None, []
@@ -62,6 +139,7 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
             };
         ] )
   in
+  validate_options ~model ~capabilities ~anthropic_opts ~tool_choice:opts.tool_choice ~forced_tool_choice;
   let output_config =
     match output_format, anthropic_opts.effort with
     | None, None -> None
@@ -87,9 +165,8 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
       | None -> Model_catalog.default_max_tokens (Model_catalog.of_model_id model))
   in
   let body =
-    Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens
-      ?temperature:opts.temperature ?top_p:opts.top_p ?top_k:opts.top_k ~stop_sequences:opts.stop_sequences
-      ?thinking:anthropic_opts.thinking ?output_config ~stream ()
+    Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens ?temperature ?top_p ?top_k
+      ~stop_sequences:opts.stop_sequences ?thinking:anthropic_opts.thinking ?output_config ~stream ()
   in
   (* Merge user headers with required beta headers — the result includes all of opts.headers
      plus a merged anthropic-beta header, so it replaces opts.headers entirely *)

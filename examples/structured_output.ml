@@ -1,8 +1,6 @@
 (** Structured output smoke test — hits the live Anthropic Messages API.
 
-    Exercises both paths of the Anthropic structured-output wiring:
-    - Native [output_config.format = json_schema] on Sonnet 4.6
-    - Synthetic [json] tool fallback on Sonnet 4.0 (no native support)
+    Exercises native [output_config.format = json_schema] on Sonnet 4.6.
 
     The schema is derived from an OCaml type via [ppx_deriving_jsonschema], and the
     provider response is decoded back into the same OCaml type via [melange-json-native]'s
@@ -13,7 +11,7 @@
       ANTHROPIC_API_KEY=$(passage get anthropic/staging/api_key) \
         dune exec examples/structured_output.exe
 
-    Exit code: 0 if both paths decode into a valid [person] record, 1 otherwise. *)
+    Exit code: 0 if the response decodes into a valid [person] record, 1 otherwise. *)
 
 open Melange_json.Primitives
 
@@ -102,17 +100,10 @@ let run_case ~label ~model_id =
     Lwt.return_false
 
 let () =
-  let ok =
-    Lwt_main.run
-      begin
-        let%lwt native_ok = run_case ~label:"Native structured outputs" ~model_id:"claude-sonnet-4-6" in
-        let%lwt fallback_ok = run_case ~label:"Tool-use fallback" ~model_id:"claude-sonnet-4-0" in
-        Lwt.return (native_ok && fallback_ok)
-      end
-  in
+  let ok = Lwt_main.run (run_case ~label:"Native structured outputs" ~model_id:"claude-sonnet-4-6") in
   match ok with
   | true ->
-    Printf.printf "\nAll paths OK\n";
+    Printf.printf "\nNative path OK\n";
     exit 0
   | false ->
     Printf.printf "\nFailure\n";
