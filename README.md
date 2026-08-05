@@ -7,7 +7,7 @@ Type-safe, provider-agnostic AI model abstraction for OCaml, inspired by the [Ve
 | Library | opam lib | Description |
 |---------|----------|-------------|
 | `ai_provider` | `ocaml-ai-sdk.ai_provider` | Provider abstraction — language model module types, tool definitions, prompt types, GADT-based provider options |
-| `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, full Claude model catalog |
+| `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, Claude 4.6+ model catalog |
 | `ai_provider_openai` | `ocaml-ai-sdk.ai_provider_openai` | OpenAI Chat Completions API — streaming SSE, tool calling with strict mode, GPT-4o/o1/o3/o4-mini catalog |
 | `ai_provider_openrouter` | `ocaml-ai-sdk.ai_provider_openrouter` | OpenRouter Chat Completions API — model routing, provider preferences, reasoning, web search, usage accounting, prompt caching |
 | `ai_core` | `ocaml-ai-sdk.ai_core` | Core SDK — `generate_text`, `stream_text` (with tool loops), UIMessage stream protocol, server handler, structured output |
