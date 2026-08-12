@@ -22,6 +22,7 @@ type t = {
   provider : string;
   kind : error_kind;
   is_retryable : bool;
+  retry_after_s : float option;
 }
 
 exception Provider_error of t
@@ -42,9 +43,9 @@ let to_string { provider; kind; _ } =
 
 let is_retryable_status status = status = 408 || status = 409 || status = 429 || status >= 500
 
-let make_api_error ~provider ~status ~body ?is_retryable () =
+let make_api_error ~provider ~status ~body ?is_retryable ?retry_after_s () =
   let is_retryable = Option.value is_retryable ~default:(is_retryable_status status) in
-  { provider; kind = Api_error { status; body }; is_retryable }
+  { provider; kind = Api_error { status; body }; is_retryable; retry_after_s }
 
 let timeout_is_retryable (phase : timeout_phase) =
   match phase with
@@ -52,7 +53,12 @@ let timeout_is_retryable (phase : timeout_phase) =
   | Stream_idle -> true
 
 let make_timeout ~provider ~phase ~elapsed_s ~limit_s =
-  { provider; kind = Timeout { phase; elapsed_s; limit_s }; is_retryable = timeout_is_retryable phase }
+  {
+    provider;
+    kind = Timeout { phase; elapsed_s; limit_s };
+    is_retryable = timeout_is_retryable phase;
+    retry_after_s = None;
+  }
 
 let () =
   Printexc.register_printer (function

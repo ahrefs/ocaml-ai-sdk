@@ -20,9 +20,9 @@ let parse_content (content : Ai_provider.Content.t list) =
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
 let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
-  ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens
-  ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?telemetry
-  ?(pending_tool_approvals = []) () =
+  ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
+  ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
+  ?telemetry ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -87,6 +87,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             tool_results = [];
             finish_reason = Ai_provider.Finish_reason.Error;
             usage = { input_tokens = 0; output_tokens = 0; total_tokens = None };
+            response_model = None;
             provider_metadata = None;
           }
       in
@@ -119,7 +120,9 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               ~current_messages ~tools ~tool_choice ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences t
           | None -> [])
         @@ fun step_span ->
-        let%lwt result = Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.generate model opts) in
+        let%lwt result =
+          Retry.with_retries ?max_retries ?max_retry_delay_ms (fun () -> Ai_provider.Language_model.generate model opts)
+        in
         let text, reasoning, tool_calls = parse_content result.content in
         (* Add response attributes to step span *)
         (match telemetry with
@@ -209,6 +212,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             tool_results;
             finish_reason = result.finish_reason;
             usage = result.usage;
+            response_model = result.response.model;
             provider_metadata =
               (match result.provider_metadata with
               | [] -> None
@@ -286,6 +290,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             tool_results = [];
             finish_reason = result.finish_reason;
             usage = result.usage;
+            response_model = result.response.model;
             provider_metadata =
               (match result.provider_metadata with
               | [] -> None
@@ -351,6 +356,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           tool_results;
           finish_reason = Ai_provider.Finish_reason.Tool_calls;
           usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+          response_model = None;
           provider_metadata = None;
         }
       in

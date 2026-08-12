@@ -34,8 +34,6 @@ type choice_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
-(* id, model, provider are present in the wire format but unused during streaming;
-   they are consumed by the non-streaming Convert_response path instead. *)
 type chunk_json = {
   id : string option; [@json.default None]
   model : string option; [@json.default None]
@@ -47,6 +45,30 @@ type chunk_json = {
 [@@json.allow_extra_fields] [@@deriving of_json]
 
 let empty_usage = { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
+
+let response_info_of_event (event : Sse.event) =
+  if String.equal event.data "[DONE]" then None
+  else (
+    try
+      let body = Yojson.Basic.from_string event.data in
+      let chunk = chunk_json_of_json body in
+      match chunk.choices, chunk.id, chunk.model with
+      | [], _, _ | _, None, None -> None
+      | _ :: _, id, model -> Some { Ai_provider.Generate_result.id; model; headers = []; body }
+    with Yojson.Json_error _ | Melange_json.Of_json_error _ -> None)
+
+let response_info events =
+  let events = Lwt_stream.clone events in
+  let rec find () =
+    let%lwt event = Lwt_stream.get events in
+    match event with
+    | None -> Lwt.return_none
+    | Some event ->
+    match response_info_of_event event with
+    | Some info -> Lwt.return_some info
+    | None -> find ()
+  in
+  find ()
 
 (** Extract an error message from a streaming error chunk and emit error + finish. *)
 let process_error_chunk ~push ~emit_finish fields =
@@ -128,6 +150,7 @@ let transform events ~warnings =
   let has_tool_calls = ref false in
   let has_encrypted_reasoning = ref false in
   let annotation_index = ref 0 in
+  let serving_provider = ref None in
   let stream, push = Lwt_stream.create () in
   let emit_start () =
     if !is_first then begin
@@ -156,7 +179,14 @@ let transform events ~warnings =
         | None -> empty_usage
       in
       let final_reason = apply_finish_overrides reason in
-      push (Some (Ai_provider.Stream_part.Finish { finish_reason = final_reason; usage; provider_metadata = None }));
+      let provider_metadata =
+        Option.map
+          (fun provider ->
+            Ai_provider.Provider_options.set Convert_response.Openrouter_provider provider
+              Ai_provider.Provider_options.empty)
+          !serving_provider
+      in
+      push (Some (Ai_provider.Stream_part.Finish { finish_reason = final_reason; usage; provider_metadata }));
       finished := true
     end
   in
@@ -181,6 +211,7 @@ let transform events ~warnings =
             | _ ->
               let chunk = chunk_json_of_json json in
               emit_start ();
+              Stdlib.Option.iter (fun provider -> serving_provider := Some provider) chunk.provider;
               Stdlib.Option.iter (fun u -> last_usage := Some u) chunk.usage;
               (* Images at chunk level *)
               List.iter
@@ -227,6 +258,7 @@ let transform events ~warnings =
                           Ai_provider.Provider_error.provider = "openrouter";
                           kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
                           is_retryable = false;
+                          retry_after_s = None;
                         };
                     })))
         events

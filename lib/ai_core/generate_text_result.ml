@@ -26,6 +26,7 @@ type step = {
   tool_results : tool_result list;
   finish_reason : Ai_provider.Finish_reason.t;
   usage : Ai_provider.Usage.t;
+  response_model : string option;
   provider_metadata : Ai_provider.Provider_options.t option;
 }
 

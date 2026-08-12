@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes
 
+- `Ai_provider.Provider_error.t` gained `retry_after_s`. Custom providers and
+  direct record constructors must set it to `None` when no server hint exists.
+- `Ai_core.Generate_text_result.step` gained `response_model`. Direct record
+  constructors must set it to `None` for steps without a provider response.
 - `Ai_provider.Stream_part.Reasoning` gained `provider_options`. Custom
   providers must set it to `Ai_provider.Provider_options.empty` when they
   have no reasoning metadata.
@@ -29,6 +33,45 @@ All notable changes to this project will be documented in this file.
 - `Ai_provider_anthropic.Model_catalog.model_capabilities` replaced
   `supports_thinking` with detailed `thinking` capabilities and added
   `rejects_sampling_parameters`.
+
+### Core SDK (`ai_core`)
+
+- Retryable provider errors now honor a server `retry_after_s` hint with
+  upstream replace semantics: an accepted hint *replaces* the exponential
+  backoff for that attempt (it can shorten as well as lengthen the delay,
+  rather than acting as a lower bound). Following upstream, a hint is accepted
+  only when reasonable — non-negative and either below 60s or below the
+  un-jittered exponential delay for the attempt; otherwise it is rejected and
+  the jittered exponential backoff is used. Jitter never applies to an accepted
+  hint. `generate_text`, `stream_text`, and `Server_handler.handle_chat` accept
+  `?max_retry_delay_ms`: an ordinary backoff delay above the cap is clamped down
+  to it, while an accepted hint above the cap stops retries without sleeping or
+  issuing another request.
+- Generation steps expose the provider-reported `response_model`, including
+  distinct models selected on successive tool-loop calls and OpenRouter
+  streams.
+
+### Provider errors (`ai_provider`)
+
+- Added `Ai_provider.Retry_after.parse`, a shared parser turning `retry-after-ms`
+  (milliseconds, more precise, used by e.g. OpenAI) and `retry-after` (fractional
+  or integer seconds) headers into `retry_after_s` seconds. `retry-after-ms`
+  takes precedence, except a non-numeric or NaN `retry-after-ms` falls through
+  to `retry-after` (matching upstream `parseFloat`). Infinite and negative
+  values yield no hint. The HTTP-date form of `retry-after` is not supported.
+
+### Provider wiring (`ai_provider_anthropic`, `ai_provider_openai`, `ai_provider_openrouter`)
+
+- Anthropic, OpenAI, and OpenRouter HTTP error responses now populate
+  `retry_after_s` from both `retry-after-ms` and `retry-after` response headers
+  via the shared parser (fractional seconds and the millisecond header are both
+  honored; previously OpenRouter parsed only integer `retry-after` seconds).
+  `Anthropic_error.of_response` and `Openai_error.of_response` gained optional
+  `?retry_after_ms` / `?retry_after` header arguments and a trailing `unit`;
+  `Openrouter_error.of_response_with_retry_after` gained an optional
+  `?retry_after_ms`. The custom JSON-only `fetch` callbacks carry no headers and
+  therefore no retry hint.
+- OpenRouter streaming responses preserve the reported model and serving provider.
 
 ## 0.4 — 2026-06-02
 

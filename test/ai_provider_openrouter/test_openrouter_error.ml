@@ -63,6 +63,54 @@ let test_of_response_json_without_error () =
   let _status, body, _retryable = api_error_kind (E.of_response ~status:500 ~body:{|{"detail":"nope"}|}) in
   (check string) "raw body preserved" {|{"detail":"nope"}|} body
 
+let test_http_response_preserves_retry_after status () =
+  let headers = Cohttp.Header.init_with "Retry-After" " 5 " in
+  let response = Cohttp.Response.make ~status:(Cohttp.Code.status_of_code status) ~headers () in
+  let err =
+    Ai_provider_openrouter.Openrouter_api.provider_error_of_http_response ~body:{|{"error":{"message":"try later"}}|}
+      response
+  in
+  (check (option (float 0.001))) "retry-after preserved" (Some 5.0) err.retry_after_s
+
+let test_large_retry_after () =
+  let value = "999999999999999999999999999999999999" in
+  let err = E.of_response_with_retry_after ~status:503 ~body:"overloaded" ~retry_after:(Some value) () in
+  match err.retry_after_s with
+  | Some delay -> (check bool) "preserved beyond OCaml int range" true (delay > Float.of_int max_int)
+  | None -> fail "expected a valid large delta-seconds value"
+
+(* Fractional seconds are now ACCEPTED under upstream parity (was rejected when
+   the parser was integer-only). "+1" parses to 1.0. *)
+let test_valid_retry_after () =
+  List.iter
+    (fun (value, expected) ->
+      let err = E.of_response_with_retry_after ~status:503 ~body:"overloaded" ~retry_after:(Some value) () in
+      (check (option (float 0.001))) value (Some expected) err.retry_after_s)
+    [ "5", 5.0; "1.5", 1.5; "+1", 1.0; " 5 ", 5.0 ]
+
+let test_invalid_retry_after () =
+  List.iter
+    (fun value ->
+      let err = E.of_response_with_retry_after ~status:503 ~body:"overloaded" ~retry_after:(Some value) () in
+      (check (option (float 0.001))) value None err.retry_after_s)
+    [ ""; "-1"; "tomorrow" ]
+
+(* retry-after-ms is milliseconds and takes precedence over retry-after. *)
+let test_retry_after_ms_precedence () =
+  let err =
+    E.of_response_with_retry_after ~retry_after_ms:(Some "200") ~status:429 ~body:"slow down" ~retry_after:(Some "5") ()
+  in
+  (check (option (float 0.001))) "ms wins, converted to seconds" (Some 0.2) err.retry_after_s
+
+let test_http_response_reads_retry_after_ms () =
+  let headers = Cohttp.Header.init_with "retry-after-ms" "1500" in
+  let response = Cohttp.Response.make ~status:(Cohttp.Code.status_of_code 429) ~headers () in
+  let err =
+    Ai_provider_openrouter.Openrouter_api.provider_error_of_http_response ~body:{|{"error":{"message":"try later"}}|}
+      response
+  in
+  (check (option (float 0.001))) "retry-after-ms preserved" (Some 1.5) err.retry_after_s
+
 let () =
   run "Openrouter_error"
     [
@@ -72,6 +120,13 @@ let () =
           test_case "readable_from_raw" `Quick test_readable_message_from_raw;
           test_case "non_json_body" `Quick test_of_response_non_json_body;
           test_case "json_without_error" `Quick test_of_response_json_without_error;
+          test_case "429_retry_after" `Quick (test_http_response_preserves_retry_after 429);
+          test_case "503_retry_after" `Quick (test_http_response_preserves_retry_after 503);
+          test_case "large_retry_after" `Quick test_large_retry_after;
+          test_case "valid_retry_after" `Quick test_valid_retry_after;
+          test_case "invalid_retry_after" `Quick test_invalid_retry_after;
+          test_case "retry_after_ms_precedence" `Quick test_retry_after_ms_precedence;
+          test_case "http_reads_retry_after_ms" `Quick test_http_response_reads_retry_after_ms;
         ] );
       ( "of_error_json",
         [

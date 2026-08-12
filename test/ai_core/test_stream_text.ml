@@ -36,7 +36,12 @@ let make_text_stream_model response_text =
                 provider_metadata = None;
               }));
       push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+      Lwt.return
+        {
+          Ai_provider.Stream_result.stream;
+          warnings = [];
+          raw_response = Some { id = Some "stream-1"; model = Some "actual-stream-model"; headers = []; body = `Null };
+        }
   end in
   (module M : Ai_provider.Language_model.S)
 
@@ -117,7 +122,10 @@ let test_simple_stream () =
   (check string) "text" "Hello" full_text;
   (* Check usage resolves *)
   let usage = Lwt_main.run result.usage in
-  (check int) "input" 10 usage.input_tokens
+  (check int) "input" 10 usage.input_tokens;
+  match Lwt_main.run result.steps with
+  | [ step ] -> (check (option string)) "actual response model" (Some "actual-stream-model") step.response_model
+  | _ -> fail "expected one step"
 
 let test_full_stream_events () =
   let model = make_text_stream_model "Hi" in
@@ -783,7 +791,12 @@ let make_stream_retry_model ~fail_count =
       if !call_count <= fail_count then
         Lwt.fail
           (Ai_provider.Provider_error.Provider_error
-             { provider = "mock"; kind = Api_error { status = 529; body = "overloaded" }; is_retryable = true })
+             {
+               provider = "mock";
+               kind = Api_error { status = 529; body = "overloaded" };
+               is_retryable = true;
+               retry_after_s = None;
+             })
       else begin
         let stream, push = Lwt_stream.create () in
         push (Some (Ai_provider.Stream_part.Text { text = "streamed" }));
@@ -803,7 +816,7 @@ let make_stream_retry_model ~fail_count =
 
 let test_stream_retries_on_retryable_error () =
   let call_count, model = make_stream_retry_model ~fail_count:1 in
-  let result = Ai_core.Stream_text.stream_text ~model ~max_retries:2 ~prompt:"test" () in
+  let result = Ai_core.Stream_text.stream_text ~model ~max_retries:2 ~max_retry_delay_ms:0 ~prompt:"test" () in
   (* Consume the text stream to completion *)
   let%lwt texts = Lwt_stream.to_list result.text_stream in
   let text = String.concat "" texts in

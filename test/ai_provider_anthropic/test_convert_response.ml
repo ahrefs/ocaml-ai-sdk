@@ -115,7 +115,7 @@ let test_parse_redacted_thinking_response () =
 let test_error_parsing () =
   let err =
     Ai_provider_anthropic.Anthropic_error.of_response ~status:401
-      ~body:{|{"error":{"type":"authentication_error","message":"Invalid API key"}}|}
+      ~body:{|{"error":{"type":"authentication_error","message":"Invalid API key"}}|} ()
   in
   (check string) "provider" "anthropic" err.provider;
   match err.kind with

@@ -172,8 +172,9 @@ let create ~config ~model =
       match response with
       | `Stream line_stream ->
         let sse_events = Sse.parse_events line_stream in
+        let%lwt raw_response = Convert_stream.response_info sse_events in
         let parts = Convert_stream.transform sse_events ~warnings in
-        Lwt.return { Ai_provider.Stream_result.stream = parts; warnings; raw_response = None }
+        Lwt.return { Ai_provider.Stream_result.stream = parts; warnings; raw_response }
       | `Json _ -> Lwt.fail_with "unexpected non-streaming response for streaming request"
   end in
   (module M : Ai_provider.Language_model.S)

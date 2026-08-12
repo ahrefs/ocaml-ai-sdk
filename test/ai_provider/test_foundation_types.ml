@@ -42,27 +42,42 @@ let test_warning_other () =
 (* Provider_error tests *)
 let test_provider_error_api () =
   let e : Ai_provider.Provider_error.t =
-    { provider = "test"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = false }
+    {
+      provider = "test";
+      kind = Api_error { status = 429; body = "rate limited" };
+      is_retryable = false;
+      retry_after_s = None;
+    }
   in
   let s = Ai_provider.Provider_error.to_string e in
   (check bool) "contains status" true (String.length s > 0)
 
 let test_provider_error_exception () =
   let e : Ai_provider.Provider_error.t =
-    { provider = "test"; kind = Network_error { message = "timeout" }; is_retryable = false }
+    { provider = "test"; kind = Network_error { message = "timeout" }; is_retryable = false; retry_after_s = None }
   in
   check_raises "raises Provider_error" (Ai_provider.Provider_error.Provider_error e) (fun () ->
     raise (Ai_provider.Provider_error.Provider_error e))
 
 let test_provider_error_retryable () =
   let e : Ai_provider.Provider_error.t =
-    { provider = "test"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = true }
+    {
+      provider = "test";
+      kind = Api_error { status = 429; body = "rate limited" };
+      is_retryable = true;
+      retry_after_s = None;
+    }
   in
   (check bool) "is retryable" true e.is_retryable
 
 let test_provider_error_not_retryable () =
   let e : Ai_provider.Provider_error.t =
-    { provider = "test"; kind = Api_error { status = 400; body = "bad request" }; is_retryable = false }
+    {
+      provider = "test";
+      kind = Api_error { status = 400; body = "bad request" };
+      is_retryable = false;
+      retry_after_s = None;
+    }
   in
   (check bool) "not retryable" false e.is_retryable
 
@@ -90,6 +105,12 @@ let test_make_api_error_400_default_not_retryable () =
 let test_make_api_error_override () =
   let e = Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:500 ~body:"error" ~is_retryable:false () in
   (check bool) "override to non-retryable" false e.is_retryable
+
+let test_make_api_error_retry_after () =
+  let e =
+    Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:503 ~body:"overloaded" ~retry_after_s:5.0 ()
+  in
+  (check (option (float 0.001))) "retry hint" (Some 5.0) e.retry_after_s
 
 let test_timeout_request_headers_not_retryable () =
   let e =
@@ -154,6 +175,7 @@ let () =
           test_case "409_default_retryable" `Quick test_make_api_error_409_default_retryable;
           test_case "400_default_not_retryable" `Quick test_make_api_error_400_default_not_retryable;
           test_case "override" `Quick test_make_api_error_override;
+          test_case "retry_after" `Quick test_make_api_error_retry_after;
           test_case "timeout request_headers not retryable" `Quick test_timeout_request_headers_not_retryable;
           test_case "timeout stream_idle retryable" `Quick test_timeout_stream_idle_retryable;
           test_case "timeout to_string formats all fields" `Quick test_timeout_to_string_formats_all_fields;

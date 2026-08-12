@@ -74,6 +74,7 @@ let run_case ~label ~model_id =
       tool_results = [];
       finish_reason = result.finish_reason;
       usage = result.usage;
+      response_model = result.response.model;
       provider_metadata = None;
     }
   in

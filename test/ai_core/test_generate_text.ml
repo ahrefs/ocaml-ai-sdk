@@ -58,7 +58,7 @@ let make_tool_model () =
             warnings = [];
             provider_metadata = Ai_provider.Provider_options.empty;
             request = { body = `Null };
-            response = { id = Some "r1"; model = Some "mock-tool"; headers = []; body = `Null };
+            response = { id = Some "r1"; model = Some "actual-step-1"; headers = []; body = `Null };
           }
       else
         Lwt.return
@@ -69,7 +69,7 @@ let make_tool_model () =
             warnings = [];
             provider_metadata = Ai_provider.Provider_options.empty;
             request = { body = `Null };
-            response = { id = Some "r2"; model = Some "mock-tool"; headers = []; body = `Null };
+            response = { id = Some "r2"; model = Some "actual-step-2"; headers = []; body = `Null };
           }
 
     let stream _opts =
@@ -120,6 +120,11 @@ let test_tool_loop () =
   (check string) "final text" "Let me search.\nFound the answer!" result.text;
   (check int) "1 tool call" 1 (List.length result.tool_calls);
   (check int) "1 tool result" 1 (List.length result.tool_results);
+  (check (list (option string)))
+    "actual model per step"
+    [ Some "actual-step-1"; Some "actual-step-2" ]
+    (List.map (fun (step : Ai_core.Generate_text_result.step) -> step.response_model) result.steps);
+  (check (option string)) "aggregate keeps final model" (Some "actual-step-2") result.response.model;
   (* Usage should be aggregated *)
   (check int) "total input" 30 result.usage.input_tokens;
   (check int) "total output" 25 result.usage.output_tokens
@@ -681,7 +686,12 @@ let make_retry_model ~fail_count =
       if !call_count <= fail_count then
         Lwt.fail
           (Ai_provider.Provider_error.Provider_error
-             { provider = "mock"; kind = Api_error { status = 429; body = "rate limited" }; is_retryable = true })
+             {
+               provider = "mock";
+               kind = Api_error { status = 429; body = "rate limited" };
+               is_retryable = true;
+               retry_after_s = None;
+             })
       else
         Lwt.return
           {
@@ -703,7 +713,9 @@ let make_retry_model ~fail_count =
 
 let test_generate_retries_on_retryable_error () =
   let call_count, model = make_retry_model ~fail_count:1 in
-  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~max_retries:2 ~prompt:"test" ()) in
+  let result =
+    Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~max_retries:2 ~max_retry_delay_ms:0 ~prompt:"test" ())
+  in
   (check string) "recovered" "recovered" result.text;
   (check int) "called twice" 2 !call_count
 
@@ -1023,7 +1035,12 @@ let test_generate_no_retry_on_non_retryable () =
       let generate _opts =
         Lwt.fail
           (Ai_provider.Provider_error.Provider_error
-             { provider = "mock"; kind = Api_error { status = 400; body = "bad" }; is_retryable = false })
+             {
+               provider = "mock";
+               kind = Api_error { status = 400; body = "bad" };
+               is_retryable = false;
+               retry_after_s = None;
+             })
 
       let stream _opts =
         let s, p = Lwt_stream.create () in

@@ -161,8 +161,9 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
 
 let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option)
-  ?(max_steps = 1) ?max_retries ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers
-  ?provider_options ?on_step_finish ?on_chunk ?on_finish ?transform ?telemetry ?(pending_tool_approvals = []) () =
+  ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k
+  ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish ?transform ?telemetry
+  ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -382,7 +383,8 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
             ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
         in
-        let%lwt text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata =
+        let%lwt
+          text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_response_model, step_provider_metadata =
           Telemetry.maybe_span telemetry "ai.streamText.doStream" ~__FILE__ ~__LINE__ ~data:(fun () ->
             match telemetry with
             | Some t ->
@@ -391,8 +393,9 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             | None -> [])
           @@ fun step_span ->
           let%lwt stream_result =
-            Retry.with_retries ?max_retries (fun () -> Ai_provider.Language_model.stream model opts)
+            Retry.with_retries ?max_retries ?max_retry_delay_ms (fun () -> Ai_provider.Language_model.stream model opts)
           in
+          let response_model = Option.bind stream_result.raw_response (fun response -> response.model) in
           let%lwt text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata =
             consume_provider_stream ~id_gen ~push:full_push ~on_chunk ~on_text_accumulated stream_result.stream
           in
@@ -400,9 +403,11 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           (match telemetry with
           | Some t when Telemetry.enabled t ->
             Trace_core.add_data_to_span step_span
-              (Telemetry.step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason:fr ~usage:step_usage t)
+              (Telemetry.step_response_attrs ~text ~reasoning ~tool_calls ~finish_reason:fr ~usage:step_usage
+                 ?response_model t)
           | _ -> ());
-          Lwt.return (text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_provider_metadata)
+          Lwt.return
+            (text, reasoning, reasoning_content, tool_calls, fr, step_usage, response_model, step_provider_metadata)
         in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
@@ -440,6 +445,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
               tool_results;
               finish_reason = fr;
               usage = step_usage;
+              response_model = step_response_model;
               provider_metadata = step_provider_metadata;
             }
           in
@@ -498,6 +504,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
               tool_results = [];
               finish_reason = fr;
               usage = step_usage;
+              response_model = step_response_model;
               provider_metadata = step_provider_metadata;
             }
           in
@@ -560,6 +567,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
               tool_results;
               finish_reason = Ai_provider.Finish_reason.Tool_calls;
               usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+              response_model = None;
               provider_metadata = None;
             }
           in

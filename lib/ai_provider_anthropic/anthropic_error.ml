@@ -38,7 +38,7 @@ let is_retryable = function
   | Invalid_request_error | Authentication_error | Permission_error | Not_found_error | Api_error | Unknown_error _ ->
     false
 
-let of_response ~status ~body =
+let of_response ?(retry_after_ms = None) ?(retry_after = None) ~status ~body () =
   let error_type, message =
     try
       let json = Yojson.Basic.from_string body in
@@ -49,4 +49,5 @@ let of_response ~status ~body =
     | Melange_json.Of_json_error _ -> None, body
   in
   let is_retryable = Option.map is_retryable error_type in
-  Ai_provider.Provider_error.make_api_error ~provider:"anthropic" ~status ~body:message ?is_retryable ()
+  let retry_after_s = Ai_provider.Retry_after.parse ~retry_after_ms ~retry_after in
+  Ai_provider.Provider_error.make_api_error ~provider:"anthropic" ~status ~body:message ?is_retryable ?retry_after_s ()

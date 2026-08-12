@@ -2,6 +2,7 @@
  (names
   test_provider_options
   test_foundation_types
+  test_retry_after
   test_prompt
   test_tool_mode_content
   test_call_options

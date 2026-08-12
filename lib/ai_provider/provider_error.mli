@@ -24,6 +24,7 @@ type t = {
   provider : string;
   kind : error_kind;
   is_retryable : bool;
+  retry_after_s : float option;
 }
 
 exception Provider_error of t
@@ -33,7 +34,8 @@ exception Provider_error of t
     When [is_retryable] is omitted, defaults to the upstream status-code
     heuristic: 408, 409, 429, or any 5xx are retryable. Providers may
     override this when they can parse the error type from the response body. *)
-val make_api_error : provider:string -> status:int -> body:string -> ?is_retryable:bool -> unit -> t
+val make_api_error :
+  provider:string -> status:int -> body:string -> ?is_retryable:bool -> ?retry_after_s:float -> unit -> t
 
 (** Construct a timeout error. [is_retryable] is derived from [phase]:
     [Request_headers] is not retryable (server may already be processing
