@@ -8,7 +8,8 @@
 
     @param max_retries Number of additional attempts per provider call
       (default 2). Set to 0 to disable retries.
-    @param max_retry_delay_ms Optional maximum delay before a retry. *)
+    @param max_retry_delay_ms Caps backoff; a server [Retry-After] above it
+      stops retries instead of sleeping. Uncapped by default. *)
 
 val generate_text :
   model:Ai_provider.Language_model.t ->
