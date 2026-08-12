@@ -196,7 +196,9 @@ let test_backoff_factor_affects_delay () =
   let delays = List.rev !delays in
   (check (list (float 0.001))) "backoff delays" [ 0.050; 0.100; 0.200 ] delays
 
-let test_retry_after_is_minimum_delay () =
+(* An accepted hint REPLACES the exponential backoff delay (not max). A 5s hint
+   with a 2s backoff yields a 5s sleep. *)
+let test_retry_after_replaces_backoff () =
   let delays = ref [] in
   let sleep delay =
     delays := delay :: !delays;
@@ -213,7 +215,137 @@ let test_retry_after_is_minimum_delay () =
   in
   (check string) "result" "ok" result;
   (check int) "two attempts" 2 !call_count;
-  (check (list (float 0.001))) "server minimum" [ 5.0 ] (List.rev !delays)
+  (check (list (float 0.001))) "hint replaces backoff" [ 5.0 ] (List.rev !delays)
+
+(* The key replace-vs-max case: a hint SHORTER than the backoff must WIN, proving
+   the delay is replaced, not maxed. 0.2s hint against a 2s backoff -> 0.2s. *)
+let test_retry_after_shortens_backoff () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:2000 ~sleep ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail (retryable_error ~retry_after_s:0.2 "overloaded")
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check (list (float 0.001))) "sub-backoff hint shortens delay" [ 0.2 ] (List.rev !delays)
+
+(* A hint >= 60s AND >= the un-jittered backoff is UNREASONABLE -> rejected,
+   falls back to jittered exponential backoff. *)
+let test_retry_after_over_60s_rejected_falls_back () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:2000 ~sleep ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail (retryable_error ~retry_after_s:70.0 "overloaded")
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (* no_jitter = 0.5 -> jitter factor 1.0 -> backoff = 2.0s *)
+  (check (list (float 0.001))) "rejected hint falls back to backoff" [ 2.0 ] (List.rev !delays)
+
+(* A hint >= 60s but < the un-jittered backoff is still ACCEPTED (second clause of
+   the reasonableness filter). Backoff is un-jittered 120s, hint 70s -> 70s. *)
+let test_retry_after_over_60s_but_under_backoff_accepted () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:120000 ~sleep ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail (retryable_error ~retry_after_s:70.0 "overloaded")
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check (list (float 0.001))) "large-but-under-backoff hint accepted" [ 70.0 ] (List.rev !delays)
+
+(* An accepted hint above the cap STOPS retrying (no sleep), but a hint that
+   FAILS the reasonableness filter is rejected first, so the backoff branch runs
+   and is CLAMPED to the cap instead of stopping. 70s hint, 2s backoff, cap 4s ->
+   hint rejected -> backoff 2s <= cap -> sleeps 2s, keeps retrying. *)
+let test_unreasonable_hint_above_cap_clamps_not_stops () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:2000 ~max_retry_delay_ms:4000 ~sleep
+         ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail (retryable_error ~retry_after_s:70.0 "overloaded")
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check int) "two attempts (did not stop)" 2 !call_count;
+  (check (list (float 0.001))) "rejected hint uses clamped backoff" [ 2.0 ] (List.rev !delays)
+
+(* A hint >= 60s is accepted when it is below the (saturated) un-jittered backoff.
+   With initial_delay_ms = max_int the backoff dwarfs any real hint, so a 70s hint
+   is ACCEPTED and replaces it. Exercises Float.of_int max_int in the comparison. *)
+let test_retry_after_accepted_below_saturated_backoff () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:max_int ~sleep ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail (retryable_error ~retry_after_s:70.0 "overloaded")
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check (list (float 0.001))) "hint accepted below saturated backoff" [ 70.0 ] (List.rev !delays)
+
+(* retry-after-ms precise sub-backoff value replaces the backoff directly. *)
+let test_retry_after_ms_precise_sub_backoff () =
+  let delays = ref [] in
+  let sleep delay =
+    delays := delay :: !delays;
+    Lwt.return_unit
+  in
+  let call_count = ref 0 in
+  let err_with_ms =
+    Ai_provider.Provider_error.Provider_error
+      (Ai_provider.Provider_error.make_api_error ~provider:"test" ~status:429 ~body:"slow down" ~is_retryable:true
+         ~retry_after_s:0.15 ())
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Retry.with_retries ~max_retries:1 ~initial_delay_ms:2000 ~sleep ~random:no_jitter (fun () ->
+         incr call_count;
+         match !call_count with
+         | 1 -> Lwt.fail err_with_ms
+         | _ -> Lwt.return "ok"))
+  in
+  (check string) "result" "ok" result;
+  (check (list (float 0.001))) "precise sub-backoff hint" [ 0.15 ] (List.rev !delays)
 
 let test_retry_after_above_cap_stops () =
   let call_count = ref 0 in
@@ -333,7 +465,15 @@ let () =
           test_case "network_error_retried" `Quick (run_lwt test_network_error_retried);
           test_case "network_error_exhausts" `Quick test_network_error_exhausts_retries;
           test_case "backoff_factor" `Quick test_backoff_factor_affects_delay;
-          test_case "retry_after_minimum" `Quick test_retry_after_is_minimum_delay;
+          test_case "retry_after_replaces_backoff" `Quick test_retry_after_replaces_backoff;
+          test_case "retry_after_shortens_backoff" `Quick test_retry_after_shortens_backoff;
+          test_case "retry_after_over_60s_rejected" `Quick test_retry_after_over_60s_rejected_falls_back;
+          test_case "retry_after_over_60s_under_backoff_accepted" `Quick
+            test_retry_after_over_60s_but_under_backoff_accepted;
+          test_case "unreasonable_hint_above_cap_clamps" `Quick test_unreasonable_hint_above_cap_clamps_not_stops;
+          test_case "retry_after_accepted_below_saturated_backoff" `Quick
+            test_retry_after_accepted_below_saturated_backoff;
+          test_case "retry_after_ms_precise_sub_backoff" `Quick test_retry_after_ms_precise_sub_backoff;
           test_case "retry_after_above_cap" `Quick test_retry_after_above_cap_stops;
           test_case "backoff_above_cap_clamped" `Quick test_backoff_above_cap_is_clamped;
           test_case "backoff_no_overflow" `Quick test_backoff_does_not_overflow;

@@ -26,9 +26,19 @@ val reason_to_string : retry_reason -> string
       Set to 0 to disable retries (only the initial call is made).
     @param initial_delay_ms Initial delay in milliseconds (default 2000).
     @param backoff_factor Multiplier applied to delay after each retry (default 2).
-    @param max_retry_delay_ms Optional maximum retry sleep. Ordinary backoff is
-      clamped to this limit; a server Retry-After above it stops retrying without
-      sleeping.
+
+    A server [retry_after_s] hint on the error, when present and reasonable,
+    REPLACES the exponential backoff for that attempt (it may shorten as well as
+    lengthen the delay — it is not a lower bound). Following upstream, a hint of
+    [ms] milliseconds is reasonable iff [ms >= 0] and either [ms < 60000] or
+    [ms] is below the un-jittered exponential delay for this attempt. Rejected
+    hints fall back to the jittered exponential backoff. Jitter never applies to
+    an accepted hint.
+
+    @param max_retry_delay_ms Optional maximum retry sleep. An ordinary (backoff)
+      delay above this limit is clamped down to it; an accepted server hint above
+      this limit instead stops retrying immediately, without sleeping or issuing
+      another request.
     @param sleep Function called to sleep between retries (default [Lwt_unix.sleep]).
     @param random Random source in [[0, 1)] used for bounded jitter. *)
 val with_retries :

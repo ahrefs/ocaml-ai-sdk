@@ -66,22 +66,41 @@ let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor 
       | () when max_retries = 0 -> Lwt.fail exn
       | () when i > max_retries -> Lwt.fail (make_retry_error ~reason:Max_retries_exceeded ~errors_rev exn)
       | () when is_retryable_error exn ->
+        (* Un-jittered exponential delay for this attempt, in ms. The hint's
+           reasonableness is judged against this deterministic value (matching
+           upstream's [delayInMs]); jitter applies only to the backoff branch. *)
+        let unjittered_delay_ms = Float.of_int delay_ms in
+        (* A hint (seconds) is accepted iff its ms value is non-negative and
+           either below 60s or below the un-jittered backoff. An accepted hint
+           REPLACES the backoff; a rejected one falls back to jittered backoff. *)
+        let accepted_hint_s =
+          match retry_after_s exn with
+          | Some hint_s when hint_s *. 1000.0 < 60_000.0 || hint_s *. 1000.0 < unjittered_delay_ms -> Some hint_s
+          | Some _ | None -> None
+        in
         let jitter = 0.5 +. Float.max 0.0 (Float.min 1.0 (random ())) in
-        let backoff_s = Float.of_int delay_ms *. jitter /. 1000.0 in
-        let retry_after_s = retry_after_s exn in
-        (match max_retry_delay_ms, retry_after_s with
-        | Some max_ms, Some retry_after_s when retry_after_s *. 1000.0 > Float.of_int max_ms ->
+        let backoff_s = unjittered_delay_ms *. jitter /. 1000.0 in
+        let advance () =
+          let next_delay_ms = if delay_ms > max_int / backoff_factor then max_int else backoff_factor * delay_ms in
+          loop ~delay_ms:next_delay_ms ~errors_rev ~i:(i + 1)
+        in
+        (* Selected delay: accepted hint or jittered backoff. The cap then acts
+           differently by source: an accepted hint above the cap STOPS retrying
+           without sleeping; a backoff above the cap is CLAMPED and retried. *)
+        (match accepted_hint_s, max_retry_delay_ms with
+        | Some hint_s, Some max_ms when hint_s *. 1000.0 > Float.of_int max_ms ->
           Lwt.fail (make_retry_error ~reason:Max_retries_exceeded ~errors_rev exn)
-        | _ ->
-          let delay_s = Option.fold ~none:backoff_s ~some:(Float.max backoff_s) retry_after_s in
+        | Some hint_s, _ ->
+          let%lwt () = sleep hint_s in
+          advance ()
+        | None, _ ->
           let delay_s =
-            Option.fold ~none:delay_s
-              ~some:(fun max_ms -> Float.min delay_s (Float.of_int max_ms /. 1000.0))
+            Option.fold ~none:backoff_s
+              ~some:(fun max_ms -> Float.min backoff_s (Float.of_int max_ms /. 1000.0))
               max_retry_delay_ms
           in
           let%lwt () = sleep delay_s in
-          let next_delay_ms = if delay_ms > max_int / backoff_factor then max_int else backoff_factor * delay_ms in
-          loop ~delay_ms:next_delay_ms ~errors_rev ~i:(i + 1))
+          advance ())
       | () when i = 1 -> Lwt.fail exn
       | () -> Lwt.fail (make_retry_error ~reason:Error_not_retryable ~errors_rev exn))
   in

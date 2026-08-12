@@ -15,8 +15,16 @@ type anthropic_error = {
   message : string;
 }
 
-(** Parse an Anthropic error HTTP response. *)
-val of_response : status:int -> body:string -> Ai_provider.Provider_error.t
+(** Parse an Anthropic error HTTP response. Optional [retry_after_ms] and
+    [retry_after] response headers populate [retry_after_s] on the result;
+    [retry_after_ms] takes precedence (see {!Ai_provider.Retry_after.parse}). *)
+val of_response :
+  ?retry_after_ms:string option ->
+  ?retry_after:string option ->
+  status:int ->
+  body:string ->
+  unit ->
+  Ai_provider.Provider_error.t
 
 (** [Rate_limit_error] and [Overloaded_error] are retryable. *)
 val is_retryable : anthropic_error_type -> bool
