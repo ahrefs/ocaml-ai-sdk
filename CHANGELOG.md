@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.6 — 2026-08-12
+
 ### Breaking changes
 
 - `Ai_provider.Provider_error.t` gained `retry_after_s`. Custom providers and
@@ -72,6 +74,21 @@ All notable changes to this project will be documented in this file.
   `?retry_after_ms`. The custom JSON-only `fetch` callbacks carry no headers and
   therefore no retry hint.
 - OpenRouter streaming responses preserve the reported model and serving provider.
+
+## 0.5 — 2026-07-06
+
+### OpenRouter provider (`ai_provider_openrouter`)
+
+- **Error handling hardened.** Completions with `finish_reason = "error"` now
+  map to `Finish_reason.Error`, and error-shaped completion bodies (top-level
+  or per-choice `error` objects) raise a `Provider_error` instead of being
+  reduced to empty output. The error body is a human-readable message
+  (upstream provider name, the most specific upstream message from
+  `error.metadata.raw`, and the `error_type` suffix) rather than a raw JSON
+  dump. Retryability now keys off the real HTTP status on the transport error
+  path (an inner provider `error.code` no longer overrides a 5xx gateway
+  status), and 200-embedded / streaming errors derive their status from
+  `error.code`, tolerating string and float encodings.
 
 ## 0.4 — 2026-06-02
 
@@ -142,21 +159,6 @@ constructors (`Core_tool.create`, `Prompt_builder.resolve_messages`,
   into provider metadata as `cache_read_tokens` and `cache_write_tokens`.
   Added `examples/openrouter_prompt_caching` to demonstrate both top-level
   automatic caching and explicit breakpoint mode.
-
-## 0.5 — 2026-07-06
-
-### OpenRouter provider (`ai_provider_openrouter`)
-
-- **Error handling hardened.** Completions with `finish_reason = "error"` now
-  map to `Finish_reason.Error`, and error-shaped completion bodies (top-level
-  or per-choice `error` objects) raise a `Provider_error` instead of being
-  reduced to empty output. The error body is a human-readable message
-  (upstream provider name, the most specific upstream message from
-  `error.metadata.raw`, and the `error_type` suffix) rather than a raw JSON
-  dump. Retryability now keys off the real HTTP status on the transport error
-  path (an inner provider `error.code` no longer overrides a 5xx gateway
-  status), and 200-embedded / streaming errors derive their status from
-  `error.code`, tolerating string and float encodings.
 
 ## 0.3 — 2026-04-20
 
