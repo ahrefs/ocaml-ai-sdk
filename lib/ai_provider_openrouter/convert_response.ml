@@ -39,7 +39,9 @@ type choice_message_json = {
   reasoning : string option; [@json.default None]
   reasoning_details : reasoning_detail_json list; [@json.default []]
   tool_calls : tool_call_json list; [@json.default []]
-  annotations : annotation_json list; [@json.default []]
+  (* option, not bare list: some OpenAI-compatible servers (e.g. vLLM) send an
+     explicit [null] here; OpenAI's own client types it Optional[List[...]]. *)
+  annotations : annotation_json list option; [@json.default None]
   images : image_json list; [@json.default []]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
@@ -190,7 +192,9 @@ let parse_response json =
           message.tool_calls
       in
       let source_content =
-        message.annotations |> List.mapi (fun i a -> convert_annotation ~index:i a) |> List.filter_map Fun.id
+        Option.value ~default:[] message.annotations
+        |> List.mapi (fun i a -> convert_annotation ~index:i a)
+        |> List.filter_map Fun.id
       in
       let image_content = List.filter_map convert_image message.images in
       reasoning_content @ text_content @ tool_content @ source_content @ image_content
