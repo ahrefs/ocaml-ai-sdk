@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.6.1 — 2026-08-13
+
+### Breaking changes
+
+- `Ai_provider_anthropic.Model_catalog.known_model` dropped `Claude_opus_4_7`,
+  `Claude_opus_4_6`, and `Claude_sonnet_4_6`. These model ids still work through
+  the `Custom` pass-through, but they no longer resolve to a known constructor,
+  so they lose catalog-backed capabilities (`Custom` reports no thinking support,
+  no structured output, and no prompt caching). Exhaustive matches over
+  `known_model` must drop the removed arms.
+
+### Anthropic provider (`ai_provider_anthropic`)
+
+- **Restored `Claude_haiku_4_5`**, dropped from the catalog in 0.6 by oversight.
+  `to_model_id` returns the pinned `claude-haiku-4-5-20251001`, and `of_model_id`
+  accepts both `claude-haiku-4-5` and the dated id. Capabilities follow
+  `docs/plans/2026-08-03-adaptive-thinking-support.md`: manual budgeted thinking
+  only (no adaptive), no effort levels, `Summarized` display default, explicit
+  disable allowed, 64k max output tokens, and a 4096-token cache minimum. It
+  accepts sampling parameters, unlike the 5-series models.
+
 ## 0.6 — 2026-08-12
 
 ### Breaking changes
