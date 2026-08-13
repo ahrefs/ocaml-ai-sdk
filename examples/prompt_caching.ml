@@ -20,7 +20,7 @@ let cache_po =
   Ai_provider_anthropic.Cache_control_options.with_cache_control
     ~cache_control:Ai_provider_anthropic.Cache_control.ephemeral Ai_provider.Provider_options.empty
 
-let model () = Ai_provider_anthropic.model (Ai_provider_anthropic.Model_catalog.to_model_id Claude_sonnet_4_6)
+let model () = Ai_provider_anthropic.model (Ai_provider_anthropic.Model_catalog.to_model_id Claude_sonnet_5)
 
 let print_metrics label ~input ~output pm =
   let cache = Option.bind pm Ai_provider_anthropic.Convert_usage.of_provider_metadata in

@@ -29,9 +29,7 @@ type known_model =
   | Claude_opus_5
   | Claude_opus_4_8
   | Claude_sonnet_5
-  | Claude_opus_4_7
-  | Claude_opus_4_6
-  | Claude_sonnet_4_6
+  | Claude_haiku_4_5
   | Custom of string
 
 let to_model_id = function
@@ -40,9 +38,7 @@ let to_model_id = function
   | Claude_opus_5 -> "claude-opus-5"
   | Claude_opus_4_8 -> "claude-opus-4-8"
   | Claude_sonnet_5 -> "claude-sonnet-5"
-  | Claude_opus_4_7 -> "claude-opus-4-7"
-  | Claude_opus_4_6 -> "claude-opus-4-6"
-  | Claude_sonnet_4_6 -> "claude-sonnet-4-6"
+  | Claude_haiku_4_5 -> "claude-haiku-4-5-20251001"
   | Custom s -> s
 
 let of_model_id = function
@@ -51,14 +47,11 @@ let of_model_id = function
   | "claude-opus-5" -> Claude_opus_5
   | "claude-opus-4-8" -> Claude_opus_4_8
   | "claude-sonnet-5" -> Claude_sonnet_5
-  | "claude-opus-4-7" -> Claude_opus_4_7
-  | "claude-opus-4-6" -> Claude_opus_4_6
-  | "claude-sonnet-4-6" -> Claude_sonnet_4_6
+  | "claude-haiku-4-5-20251001" | "claude-haiku-4-5" -> Claude_haiku_4_5
   | s -> Custom s
 
 let all_effort_levels = [ Effort.Low; Effort.Medium; Effort.High; Effort.Xhigh; Effort.Max ]
 
-let effort_without_xhigh = [ Effort.Low; Effort.Medium; Effort.High; Effort.Max ]
 let capabilities = function
   | Claude_fable_5 ->
     {
@@ -160,63 +153,25 @@ let capabilities = function
       supports_vision = true;
       supports_pdf = true;
     }
-  | Claude_opus_4_7 ->
+  | Claude_haiku_4_5 ->
+    (* Pre-adaptive model: manual budgeted thinking only, no effort levels.
+       See docs/plans/2026-08-03-adaptive-thinking-support.md. *)
     {
-      max_output_tokens = 128_000;
-      thinking =
-        Some
-          {
-            manual = false;
-            adaptive = true;
-            defaults_to_adaptive = false;
-            disabled = Allowed;
-            effort_levels = all_effort_levels;
-            display_default = Some Thinking.Omitted;
-          };
-      rejects_sampling_parameters = true;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 2048;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_opus_4_6 ->
-    {
-      max_output_tokens = 128_000;
+      max_output_tokens = 64_000;
       thinking =
         Some
           {
             manual = true;
-            adaptive = true;
+            adaptive = false;
             defaults_to_adaptive = false;
             disabled = Allowed;
-            effort_levels = effort_without_xhigh;
+            effort_levels = [];
             display_default = Some Thinking.Summarized;
           };
       rejects_sampling_parameters = false;
       supports_structured_output = true;
       supports_prompt_caching = true;
       min_cache_tokens = 4096;
-      supports_vision = true;
-      supports_pdf = true;
-    }
-  | Claude_sonnet_4_6 ->
-    {
-      max_output_tokens = 128_000;
-      thinking =
-        Some
-          {
-            manual = true;
-            adaptive = true;
-            defaults_to_adaptive = false;
-            disabled = Allowed;
-            effort_levels = effort_without_xhigh;
-            display_default = Some Thinking.Summarized;
-          };
-      rejects_sampling_parameters = false;
-      supports_structured_output = true;
-      supports_prompt_caching = true;
-      min_cache_tokens = 1024;
       supports_vision = true;
       supports_pdf = true;
     }

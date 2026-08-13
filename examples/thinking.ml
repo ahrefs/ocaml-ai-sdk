@@ -11,7 +11,7 @@ let () =
     begin
       (* Use Model_catalog to pick a model that supports thinking *)
     let open Ai_provider_anthropic.Model_catalog in
-    let model = Claude_sonnet_4_6 in
+    let model = Claude_sonnet_5 in
     let caps = capabilities model in
     assert (
       match caps.thinking with

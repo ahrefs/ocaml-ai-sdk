@@ -31,9 +31,7 @@ type known_model =
   | Claude_opus_5
   | Claude_opus_4_8
   | Claude_sonnet_5
-  | Claude_opus_4_7
-  | Claude_opus_4_6
-  | Claude_sonnet_4_6
+  | Claude_haiku_4_5
   | Custom of string
 
 (** Convert a known model to its API model ID string. *)

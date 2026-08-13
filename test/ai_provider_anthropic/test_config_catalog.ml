@@ -28,17 +28,27 @@ let test_config_headers () =
 
 (* Model_catalog tests *)
 
-let test_model_id_opus_4_6 () =
-  (check string) "opus 4.6" "claude-opus-4-6" (Ai_provider_anthropic.Model_catalog.to_model_id Claude_opus_4_6)
+let test_model_id_opus_4_8 () =
+  (check string) "opus 4.8" "claude-opus-4-8" (Ai_provider_anthropic.Model_catalog.to_model_id Claude_opus_4_8)
 
-let test_model_id_sonnet_4_6 () =
-  (check string) "sonnet 4.6" "claude-sonnet-4-6" (Ai_provider_anthropic.Model_catalog.to_model_id Claude_sonnet_4_6)
+let test_model_id_haiku_4_5 () =
+  (check string) "haiku 4.5" "claude-haiku-4-5-20251001"
+    (Ai_provider_anthropic.Model_catalog.to_model_id Claude_haiku_4_5)
 
 let test_of_model_id_exact () =
-  let m = Ai_provider_anthropic.Model_catalog.of_model_id "claude-opus-4-6" in
+  let m = Ai_provider_anthropic.Model_catalog.of_model_id "claude-opus-4-8" in
   match m with
-  | Ai_provider_anthropic.Model_catalog.Claude_opus_4_6 -> ()
-  | _ -> fail "expected Claude_opus_4_6"
+  | Ai_provider_anthropic.Model_catalog.Claude_opus_4_8 -> ()
+  | _ -> fail "expected Claude_opus_4_8"
+
+(* Both the dated and undated Haiku 4.5 ids resolve to the known constructor. *)
+let test_of_model_id_haiku_aliases () =
+  List.iter
+    (fun id ->
+      match Ai_provider_anthropic.Model_catalog.of_model_id id with
+      | Ai_provider_anthropic.Model_catalog.Claude_haiku_4_5 -> ()
+      | _ -> fail "expected Claude_haiku_4_5")
+    [ "claude-haiku-4-5"; "claude-haiku-4-5-20251001" ]
 
 let test_excluded_models_are_custom () =
   List.iter
@@ -46,7 +56,7 @@ let test_excluded_models_are_custom () =
       match Ai_provider_anthropic.Model_catalog.of_model_id id with
       | Ai_provider_anthropic.Model_catalog.Custom s -> (check string) "custom" id s
       | _ -> fail "expected Custom")
-    [ "claude-haiku-4-5"; "claude-mythos-preview" ]
+    [ "claude-sonnet-4-6"; "claude-mythos-preview" ]
 
 let test_of_model_id_custom () =
   let m = Ai_provider_anthropic.Model_catalog.of_model_id "some-future-model" in
@@ -54,17 +64,22 @@ let test_of_model_id_custom () =
   | Ai_provider_anthropic.Model_catalog.Custom s -> (check string) "custom" "some-future-model" s
   | _ -> fail "expected Custom"
 
-let test_capabilities_opus_4_6 () =
-  let caps = Ai_provider_anthropic.Model_catalog.capabilities Claude_opus_4_6 in
+let test_capabilities_haiku_4_5 () =
+  let caps = Ai_provider_anthropic.Model_catalog.capabilities Claude_haiku_4_5 in
   (check bool) "manual thinking" true
     (match caps.thinking with
     | Some { manual = true; _ } -> true
     | _ -> false);
-  (check bool) "adaptive thinking" true
+  (* Haiku 4.5 predates adaptive thinking and exposes no effort levels. *)
+  (check bool) "not adaptive" true
     (match caps.thinking with
-    | Some { adaptive = true; _ } -> true
+    | Some { adaptive = false; _ } -> true
     | _ -> false);
-  (check int) "max_tokens" 128_000 caps.max_output_tokens
+  (check bool) "no effort levels" true
+    (match caps.thinking with
+    | Some { effort_levels = []; _ } -> true
+    | _ -> false);
+  (check int) "max_tokens" 64_000 caps.max_output_tokens
 
 let test_capabilities_custom () =
   let caps = Ai_provider_anthropic.Model_catalog.capabilities (Custom "unknown") in
@@ -73,7 +88,6 @@ let test_capabilities_custom () =
 
 let test_capability_matrix () =
   let all_effort = [ "low"; "medium"; "high"; "xhigh"; "max" ] in
-  let no_xhigh = [ "low"; "medium"; "high"; "max" ] in
   let matrix =
     [
       ( "claude-fable-5",
@@ -131,36 +145,14 @@ let test_capability_matrix () =
         true,
         true,
         Some "omitted" );
-      ( "claude-opus-4-7",
-        128_000,
-        2048,
-        false,
-        true,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-opus-4-6",
-        128_000,
+      ( "claude-haiku-4-5",
+        64_000,
         4096,
         true,
-        true,
+        false,
         false,
         Ai_provider_anthropic.Model_catalog.Allowed,
-        no_xhigh,
-        false,
-        true,
-        Some "summarized" );
-      ( "claude-sonnet-4-6",
-        128_000,
-        1024,
-        true,
-        true,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        no_xhigh,
+        [],
         false,
         true,
         Some "summarized" );
@@ -213,8 +205,8 @@ let test_capability_matrix () =
     matrix
 
 let test_default_max_tokens () =
-  (check int) "opus 4.6" 128_000 (Ai_provider_anthropic.Model_catalog.default_max_tokens Claude_opus_4_6);
-  (check int) "sonnet 4.6" 128_000 (Ai_provider_anthropic.Model_catalog.default_max_tokens Claude_sonnet_4_6)
+  (check int) "opus 4.8" 128_000 (Ai_provider_anthropic.Model_catalog.default_max_tokens Claude_opus_4_8);
+  (check int) "haiku 4.5" 64_000 (Ai_provider_anthropic.Model_catalog.default_max_tokens Claude_haiku_4_5)
 
 let () =
   run "Config_and_Catalog"
@@ -229,12 +221,13 @@ let () =
         ] );
       ( "model_catalog",
         [
-          test_case "opus_4_6" `Quick test_model_id_opus_4_6;
-          test_case "sonnet_4_6" `Quick test_model_id_sonnet_4_6;
+          test_case "opus_4_8" `Quick test_model_id_opus_4_8;
+          test_case "haiku_4_5" `Quick test_model_id_haiku_4_5;
           test_case "of_model_id_exact" `Quick test_of_model_id_exact;
+          test_case "of_model_id_haiku_aliases" `Quick test_of_model_id_haiku_aliases;
           test_case "excluded_models_are_custom" `Quick test_excluded_models_are_custom;
           test_case "of_model_id_custom" `Quick test_of_model_id_custom;
-          test_case "capabilities_opus_4_6" `Quick test_capabilities_opus_4_6;
+          test_case "capabilities_haiku_4_5" `Quick test_capabilities_haiku_4_5;
           test_case "capabilities_custom" `Quick test_capabilities_custom;
           test_case "capability_matrix" `Quick test_capability_matrix;
           test_case "default_max_tokens" `Quick test_default_max_tokens;

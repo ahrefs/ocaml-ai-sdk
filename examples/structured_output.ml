@@ -101,7 +101,7 @@ let run_case ~label ~model_id =
     Lwt.return_false
 
 let () =
-  let ok = Lwt_main.run (run_case ~label:"Native structured outputs" ~model_id:"claude-sonnet-4-6") in
+  let ok = Lwt_main.run (run_case ~label:"Native structured outputs" ~model_id:"claude-sonnet-5") in
   match ok with
   | true ->
     Printf.printf "\nNative path OK\n";

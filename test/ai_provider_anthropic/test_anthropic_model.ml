@@ -56,7 +56,7 @@ let mock_text_response =
   Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
     {
       id = Some "msg_test";
-      model = Some "claude-sonnet-4-6";
+      model = Some "claude-sonnet-5";
       content =
         [
           {
@@ -87,7 +87,7 @@ let mock_tool_response =
   Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
     {
       id = Some "msg_tool";
-      model = Some "claude-sonnet-4-6";
+      model = Some "claude-sonnet-5";
       content =
         [
           {
@@ -138,7 +138,7 @@ let make_opts ?(prompt_text = "Hello") () =
 
 let test_generate_text () =
   let config = make_config mock_text_response in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts = make_opts () in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (match result.content with
@@ -149,7 +149,7 @@ let test_generate_text () =
 
 let test_generate_tool_call () =
   let config = make_config mock_tool_response in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts = make_opts () in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check int) "2 content" 2 (List.length result.content);
@@ -166,7 +166,7 @@ let test_generate_with_system () =
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts =
     Ai_provider.Call_options.default
       ~prompt:
@@ -191,12 +191,12 @@ let test_object_json_no_schema () =
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts = { (make_opts ()) with mode = Object_json None } in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check bool) "warning emitted" true (List.length result.warnings > 0)
 
-(* Object_json (Some schema) on a native-capable model (Sonnet 4.6): send output_config.format,
+(* Object_json (Some schema) on a native-capable model (Sonnet 5): send output_config.format,
    do not touch the system prompt or add a fallback tool. *)
 let test_object_json_with_schema_native () =
   let schema_json =
@@ -224,7 +224,7 @@ let test_object_json_with_schema_native () =
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts = { (make_opts ()) with mode = Object_json (Some schema) } in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   ()
@@ -238,7 +238,7 @@ let test_provider_options_request_body () =
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let thinking = Ai_provider_anthropic.Thinking.Adaptive { display = Some Ai_provider_anthropic.Thinking.Summarized } in
   let anthropic_opts =
     {
@@ -262,7 +262,7 @@ let test_provider_options_request_body () =
   let expected =
     `Assoc
       [
-        "model", `String "claude-sonnet-4-6";
+        "model", `String "claude-sonnet-5";
         ( "messages",
           `List
             [
@@ -341,7 +341,7 @@ let test_policy_rejects_forced_tool_choice_with_manual_thinking () =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
   let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
   let config = make_config mock_text_response in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-opus-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-haiku-4-5" in
   let opts =
     {
       (make_opts ()) with
@@ -362,10 +362,15 @@ let test_policy_normalizes_sampling_parameters () =
     [ "temperature"; "top_p"; "top_k" ]
 
 let test_policy_preserves_supported_top_p_with_thinking () =
+  (* Haiku 4.5 accepts sampling parameters and supports manual thinking only. *)
   let provider_options =
-    anthropic_provider_options ~thinking:(Ai_provider_anthropic.Thinking.Adaptive { display = None }) ()
+    anthropic_provider_options
+      ~thinking:
+        (Ai_provider_anthropic.Thinking.Enabled
+           { budget_tokens = Ai_provider_anthropic.Thinking.budget_exn 1024; display = None })
+      ()
   in
-  let body, result = capture_generate ~model_id:"claude-opus-4-6" ~provider_options ~top_p:0.95 () in
+  let body, result = capture_generate ~model_id:"claude-haiku-4-5" ~provider_options ~top_p:0.95 () in
   (check (option (float 0.01))) "top_p preserved" (Some 0.95) body.top_p;
   (check bool) "no top_p warning" false (List.mem "top_p" (warning_features result.warnings))
 
@@ -453,7 +458,7 @@ let test_object_json_preserves_existing_system () =
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts =
     {
       (Ai_provider.Call_options.default
@@ -472,16 +477,16 @@ let test_object_json_preserves_existing_system () =
 
 let test_warns_frequency_penalty () =
   let config = make_config mock_text_response in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   let opts = { (make_opts ()) with frequency_penalty = Some 0.5 } in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (check bool) "has warnings" true (List.length result.warnings > 0)
 
 let test_model_accessors () =
   let config = make_config mock_text_response in
-  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
   (check string) "provider" "anthropic" (Ai_provider.Language_model.provider model);
-  (check string) "model_id" "claude-sonnet-4-6" (Ai_provider.Language_model.model_id model);
+  (check string) "model_id" "claude-sonnet-5" (Ai_provider.Language_model.model_id model);
   (check string) "spec" "V3" (Ai_provider.Language_model.specification_version model)
 
 let () =

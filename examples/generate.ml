@@ -8,7 +8,7 @@ let () =
   Lwt_main.run
     begin
       (* Model_catalog provides type-safe model selection with capabilities *)
-    let model_id = Ai_provider_anthropic.Model_catalog.(to_model_id Claude_sonnet_4_6) in
+    let model_id = Ai_provider_anthropic.Model_catalog.(to_model_id Claude_sonnet_5) in
     let model = Ai_provider_anthropic.model model_id in
     let%lwt result =
       Ai_core.Generate_text.generate_text ~model ~system:"You are a helpful assistant. Be concise."

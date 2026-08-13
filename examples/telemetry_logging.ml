@@ -115,7 +115,7 @@ let () =
   Fun.protect ~finally:Trace_core.shutdown (fun () ->
     Lwt_main.run
       begin
-        let model = Ai_provider_anthropic.model Ai_provider_anthropic.Model_catalog.(to_model_id Claude_sonnet_4_6) in
+        let model = Ai_provider_anthropic.model Ai_provider_anthropic.Model_catalog.(to_model_id Claude_sonnet_5) in
 
         (* In a real app, the frontend's OTel SDK (or fetch instrumentation)
           generates this header automatically.  Here we simulate it with

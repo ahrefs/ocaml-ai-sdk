@@ -10,7 +10,7 @@ let () =
     begin
       (* Create a model using the Model_catalog for type-safe model selection *)
     let open Ai_provider_anthropic.Model_catalog in
-    let claude = Ai_provider_anthropic.model (to_model_id Claude_sonnet_4_6) in
+    let claude = Ai_provider_anthropic.model (to_model_id Claude_sonnet_5) in
 
     (* Build the prompt with type-safe message construction *)
     let opts =
