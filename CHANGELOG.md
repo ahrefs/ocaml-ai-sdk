@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.6.2 — 2026-08-19
+
+### OpenRouter provider (`ai_provider_openrouter`)
+
+- The `annotations` field on chat messages and stream deltas now decodes an
+  explicit JSON `null`. Some OpenAI-compatible servers (vLLM) serialize an
+  absent `annotations` as `null` on every response, which previously failed
+  with "expected array but got null". This matches OpenAI's own client, which
+  types the field as optional. A malformed non-null value is still rejected,
+  and the remaining array fields keep the strict spec shape.
+
 ## 0.6.1 — 2026-08-13
 
 ### Breaking changes
