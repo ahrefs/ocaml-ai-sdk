@@ -304,6 +304,54 @@ let test_annotations_stream () =
     (check (option string)) "title" (Some "Example") title
   | _ -> fail "expected one Source part"
 
+(* OpenAI-compatible servers (e.g. vLLM) send an explicit [null] for an absent
+   [annotations]; upstream types it [.nullish()]. *)
+let test_null_annotations_stream () =
+  let events =
+    Lwt_stream.of_list
+      [
+        make_sse_event
+          {|{"id":"gen-null","model":"local/model","choices":[{"index":0,"delta":{"content":"Hi","annotations":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}|};
+      ]
+  in
+  let stream = Ai_provider_openrouter.Convert_stream.transform events ~warnings:[] in
+  let parts = collect_stream stream in
+  let sources =
+    List.filter
+      (function
+        | Ai_provider.Stream_part.Source _ -> true
+        | _ -> false)
+      parts
+  in
+  (check int) "no sources" 0 (List.length sources);
+  (* Response info must still be read from a chunk carrying [annotations: null]. *)
+  match parts with
+  | Stream_start _ :: Text { text } :: _ -> (check string) "text preserved" "Hi" text
+  | _ -> fail "expected Stream_start then Text"
+
+(* The source index is a cross-delta counter: a null delta must not advance it. *)
+let test_null_annotations_do_not_advance_source_index () =
+  let events =
+    Lwt_stream.of_list
+      [
+        make_sse_event
+          {|{"choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url":"https://a.com"}]},"finish_reason":null}]}|};
+        make_sse_event {|{"choices":[{"index":0,"delta":{"content":"mid","annotations":null},"finish_reason":null}]}|};
+        make_sse_event
+          {|{"choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url":"https://b.com"}]},"finish_reason":"stop"}]}|};
+      ]
+  in
+  let stream = Ai_provider_openrouter.Convert_stream.transform events ~warnings:[] in
+  let parts = collect_stream stream in
+  let ids =
+    List.filter_map
+      (function
+        | Ai_provider.Stream_part.Source { id; _ } -> Some id
+        | _ -> None)
+      parts
+  in
+  (check (list string)) "consecutive source ids" [ "source-0"; "source-1" ] ids
+
 let () =
   run "Convert_stream"
     [
@@ -321,5 +369,7 @@ let () =
           test_case "finish_override_encrypted_tools" `Quick test_finish_reason_override_encrypted_tool_calls_stream;
           test_case "accumulated_finish_reason" `Quick test_accumulated_finish_reason_on_done;
           test_case "annotations" `Quick test_annotations_stream;
+          test_case "annotations_null" `Quick test_null_annotations_stream;
+          test_case "annotations_null_source_index" `Quick test_null_annotations_do_not_advance_source_index;
         ] );
     ]
