@@ -23,7 +23,9 @@ type delta_json = {
   reasoning : string option; [@json.default None]
   reasoning_details : Convert_response.reasoning_detail_json list; [@json.default []]
   tool_calls : delta_tool_call_json list; [@json.default []]
-  annotations : Convert_response.annotation_json list; [@json.default []]
+  (* option, not bare list: some OpenAI-compatible servers (e.g. vLLM) send an
+     explicit [null] here; OpenAI's own client types it Optional[List[...]]. *)
+  annotations : Convert_response.annotation_json list option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -239,7 +241,7 @@ let transform events ~warnings =
                     | Some (Ai_provider.Content.Source { source_type; id; url; title; provider_options }) ->
                       push (Some (Ai_provider.Stream_part.Source { source_type; id; url; title; provider_options }))
                     | Some _ | None -> ())
-                  delta.annotations;
+                  (Option.value ~default:[] delta.annotations);
                 (* Finish reason -- store and emit *)
                 Stdlib.Option.iter
                   (fun reason ->

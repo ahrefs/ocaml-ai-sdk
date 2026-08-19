@@ -385,6 +385,53 @@ let test_parse_response_with_annotations () =
     (check (option string)) "title2" None t2
   | _ -> fail "expected two Source parts"
 
+(* OpenAI-compatible servers (e.g. vLLM) send an explicit [null] for an absent
+   [annotations]; upstream types it [.nullish()]. *)
+let test_parse_response_with_null_annotations () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+        "id": "gen-null-ann",
+        "model": "local/model",
+        "choices": [{
+          "index": 0,
+          "message": {"role": "assistant", "content": "Hello!", "annotations": null},
+          "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+      }|}
+  in
+  let result = Ai_provider_openrouter.Convert_response.parse_response json in
+  let sources =
+    List.filter
+      (function
+        | Ai_provider.Content.Source _ -> true
+        | _ -> false)
+      result.content
+  in
+  (check int) "no sources" 0 (List.length sources);
+  match result.content with
+  | [ Text { text } ] -> (check string) "text preserved" "Hello!" text
+  | _ -> fail "expected a single Text part"
+
+let test_parse_response_with_malformed_annotations () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+        "id": "gen-bad-ann",
+        "model": "local/model",
+        "choices": [{
+          "index": 0,
+          "message": {"role": "assistant", "content": "Hi", "annotations": "nope"},
+          "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+      }|}
+  in
+  check_raises "non-null malformed annotations still rejected"
+    (Melange_json.Of_json_error (Json_error {|expected array but got string: "nope"|})) (fun () ->
+    ignore (Ai_provider_openrouter.Convert_response.parse_response json : Ai_provider.Generate_result.t))
+
 let test_reasoning_details_in_provider_metadata () =
   let json =
     Yojson.Basic.from_string
@@ -471,6 +518,8 @@ let () =
           test_case "finish_reason_override_other" `Quick test_finish_reason_override_other_tool_calls;
           test_case "provider_field" `Quick test_provider_field_extracted;
           test_case "annotations" `Quick test_parse_response_with_annotations;
+          test_case "annotations_null" `Quick test_parse_response_with_null_annotations;
+          test_case "annotations_malformed" `Quick test_parse_response_with_malformed_annotations;
           test_case "reasoning_details_metadata" `Quick test_reasoning_details_in_provider_metadata;
           test_case "images" `Quick test_parse_response_with_images;
         ] );
