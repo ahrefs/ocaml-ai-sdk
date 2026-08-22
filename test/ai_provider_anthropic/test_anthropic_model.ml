@@ -16,6 +16,7 @@ type output_config_json = {
 type thinking_json = {
   type_ : string; [@json.key "type"]
   display : string option; [@json.default None]
+  budget_tokens : int option; [@json.default None]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -464,6 +465,22 @@ let test_policy_lowers_disabled_effort () =
   (check bool) "normalization warning" true
     (List.mem "providerOptions.anthropic.effort" (warning_features result.warnings))
 
+let test_policy_preserves_custom_model_manual_thinking () =
+  (* A custom model id has unknown capabilities, so manual budgets pass through
+     rather than being rejected the way a known adaptive model rejects them. *)
+  let budget = Ai_provider_anthropic.Thinking.budget_exn 2048 in
+  let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
+  let body, _result =
+    capture_generate ~model_id:"my-anthropic-compatible-model"
+      ~provider_options:(anthropic_provider_options ~thinking:manual ())
+      ()
+  in
+  match body.thinking with
+  | Some thinking ->
+    (check string) "thinking" "enabled" thinking.type_;
+    (check (option int)) "budget" (Some 2048) thinking.budget_tokens
+  | None -> fail "expected manual thinking to pass through"
+
 let test_policy_preserves_custom_model_options () =
   let provider_options =
     anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled
@@ -592,6 +609,7 @@ let () =
           test_case "policy_preserves_supported_top_p" `Quick test_policy_preserves_supported_top_p_with_thinking;
           test_case "policy_lowers_disabled_effort" `Quick test_policy_lowers_disabled_effort;
           test_case "policy_custom_passthrough" `Quick test_policy_preserves_custom_model_options;
+          test_case "policy_custom_manual_thinking" `Quick test_policy_preserves_custom_model_manual_thinking;
           test_case "with_schema_tool_fallback (custom model)" `Quick test_object_json_with_schema_tool_fallback_custom;
           test_case "preserves_existing_system" `Quick test_object_json_preserves_existing_system;
         ] );

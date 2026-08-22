@@ -25,19 +25,20 @@ type display =
 
     Leaving thinking unset is not the same as [Disabled]. Whether omission
     leaves thinking on depends on the model: Fable 5, Mythos 5, Opus 5, and
-    Sonnet 5 think by default, while Opus 4.8 does not. Only [Disabled] asks
-    for thinking to be turned off explicitly. *)
+    Sonnet 5 think by default, while Opus 4.8 and Haiku 4.5 do not. Only
+    [Disabled] asks for thinking to be turned off explicitly. *)
 type t =
   | Enabled of {
       budget_tokens : budget_tokens;
       display : display option;
     }
-    (** Manual thinking with an explicit token budget. Accepted only by
-          pre-adaptive models, of which Claude Haiku 4.5 is the only one left
-          in the catalog. Adaptive-generation models (Fable 5, Mythos 5, Opus 5,
-          Opus 4.8, Sonnet 5) reject it; use [Adaptive] with an effort level
-          there. Manual thinking also cannot be combined with a forced tool
-          choice. *)
+    (** Manual thinking with an explicit token budget. Among the models the
+          catalog knows, only pre-adaptive ones accept it, and Claude Haiku 4.5
+          is the last of those; the adaptive generation (Fable 5, Mythos 5,
+          Opus 5, Opus 4.8, Sonnet 5) rejects it, so use [Adaptive] with an
+          effort level there. A custom model id has unknown capabilities, so
+          the SDK passes manual budgets through untouched and the API decides.
+          Manual thinking also cannot be combined with a forced tool choice. *)
   | Adaptive of { display : display option }
     (** Adaptive thinking: the model decides how much to think, and
           [Anthropic_options.effort] sets how hard. This pair is the successor

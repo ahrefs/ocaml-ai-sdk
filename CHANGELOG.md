@@ -13,12 +13,17 @@ All notable changes to this project will be documented in this file.
   explains that the caller picks the effort level because no faithful budget-to-effort
   mapping exists. The adaptive, disabled-thinking, and forced-tool-choice rejections
   got the same treatment. Which inputs are rejected has not changed.
-- The effort rejection says outright that the model accepts no effort levels, which is
-  the only case it can reach today (Claude Haiku 4.5 is the one such model).
+- The effort rejection now names the levels the model does accept, falling back to
+  "accepts no effort levels" only when the list is genuinely empty. Every catalog
+  model with effort support currently accepts all five levels or none, so today this
+  reads the same; it stays correct if a partial-effort model is added.
+- `Effort.equal` is now exposed, replacing a polymorphic comparison in the effort check.
 - `Thinking.t` in the mli now documents which models accept each constructor, that
   `Adaptive` with an effort level replaces `Enabled`'s budgets, that `Disabled` is not
   universally supported, and that omitting thinking is not the same as disabling it
-  (Opus 4.8 does not think by default, the other adaptive-generation models do).
+  (Opus 4.8 and Haiku 4.5 do not think by default, the other adaptive-generation
+  models do). It also records that a custom model id has unknown capabilities, so
+  manual budgets pass through to the API untouched instead of being rejected.
 
 ## 0.6.2 — 2026-08-19
 
