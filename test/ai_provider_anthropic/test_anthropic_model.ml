@@ -403,6 +403,30 @@ let test_effort_message_on_model_without_effort () =
   in
   check_message_contains message [ "claude-haiku-4-5"; "effort 'high'"; "no effort levels" ]
 
+(* Fixture for the partial-effort wording. No catalog model has a partial
+   effort list, so this drives the message builder directly; the empty-list
+   case below is cross-checked against the message [create] really raises,
+   which keeps the fixture honest about production wording. *)
+let test_effort_message_names_accepted_levels () =
+  let module M = Ai_provider_anthropic.Anthropic_model in
+  let module E = Ai_provider_anthropic.Effort in
+  let message =
+    M.unsupported_effort_message ~model:"claude-partial-effort" ~effort:E.Xhigh
+      ~accepted:[ E.Low; E.Medium; E.High; E.Max ]
+  in
+  check_message_contains message [ "claude-partial-effort"; "effort 'xhigh'"; "low, medium, high, max" ];
+  (check bool)
+    (Printf.sprintf "does not claim zero levels: %s" message)
+    false
+    (contains ~needle:"no effort levels" message)
+
+let test_effort_message_builder_matches_raised_message () =
+  let module M = Ai_provider_anthropic.Anthropic_model in
+  let module E = Ai_provider_anthropic.Effort in
+  let built = M.unsupported_effort_message ~model:"claude-haiku-4-5" ~effort:E.High ~accepted:[] in
+  let raised = reject_options_message "claude-haiku-4-5" (anthropic_provider_options ~effort:E.High ()) in
+  (check string) "builder matches production message" built raised
+
 let test_disabled_thinking_message_points_at_effort () =
   let message =
     reject_options_message "claude-fable-5"
@@ -602,6 +626,9 @@ let () =
           test_case "adaptive_thinking_message_points_at_manual_budget" `Quick
             test_adaptive_thinking_message_points_at_manual_budget;
           test_case "effort_message_on_model_without_effort" `Quick test_effort_message_on_model_without_effort;
+          test_case "effort_message_names_accepted_levels" `Quick test_effort_message_names_accepted_levels;
+          test_case "effort_message_builder_matches_raised_message" `Quick
+            test_effort_message_builder_matches_raised_message;
           test_case "disabled_thinking_message_points_at_effort" `Quick test_disabled_thinking_message_points_at_effort;
           test_case "forced_tool_choice_message_names_alternative" `Quick
             test_forced_tool_choice_message_names_alternative;

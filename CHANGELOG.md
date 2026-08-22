@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
   model with effort support currently accepts all five levels or none, so today this
   reads the same; it stays correct if a partial-effort model is added.
 - `Effort.equal` is now exposed, replacing a polymorphic comparison in the effort check.
+- `Anthropic_model.unsupported_effort_message` is exposed so a test can pin the
+  partial-effort wording. No catalog model has a partial `effort_levels` list, so that
+  branch cannot be reached through `create`; the test drives the builder directly and
+  cross-checks the empty-list case against the message `create` actually raises.
 - `Thinking.t` in the mli now documents which models accept each constructor, that
   `Adaptive` with an effort level replaces `Enabled`'s budgets, that `Disabled` is not
   universally supported, and that omitting thinking is not the same as disabling it

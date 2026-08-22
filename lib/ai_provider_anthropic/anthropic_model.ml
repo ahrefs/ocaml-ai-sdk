@@ -13,6 +13,14 @@ let effective_thinking_active ~capabilities ~thinking =
   | Some { defaults_to_adaptive; _ } -> defaults_to_adaptive
   | None -> false
 
+(* Named so a test can exercise the partial-effort wording: no catalog model has
+   a partial effort list today, so driving this through [create] cannot reach it. *)
+let unsupported_effort_message ~model ~effort ~accepted =
+  Printf.sprintf "%s does not support effort '%s'; %s" model (Effort.to_string effort)
+    (match accepted with
+    | [] -> "this model accepts no effort levels"
+    | levels -> Printf.sprintf "this model accepts %s" (String.concat ", " (List.map Effort.to_string levels)))
+
 let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice =
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking with
   | Some thinking, Some (Thinking.Enabled _) when not thinking.manual ->
@@ -36,10 +44,7 @@ let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_t
   | Some _, Some (Thinking.Enabled _ | Thinking.Adaptive _) -> ());
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.effort with
   | Some thinking, Some effort when not (List.exists (Effort.equal effort) thinking.effort_levels) ->
-    Printf.ksprintf invalid_arg "%s does not support effort '%s'; %s" model (Effort.to_string effort)
-      (match thinking.effort_levels with
-      | [] -> "this model accepts no effort levels"
-      | levels -> Printf.sprintf "this model accepts %s" (String.concat ", " (List.map Effort.to_string levels)))
+    invalid_arg (unsupported_effort_message ~model ~effort ~accepted:thinking.effort_levels)
   | None, _ | Some _, None | Some _, Some _ -> ());
   match anthropic_opts.Anthropic_options.thinking with
   | Some (Thinking.Enabled _)
