@@ -23,17 +23,18 @@ type display =
     passing an unsupported one raises [Invalid_argument] before the request is
     sent, mirroring the 400 the API would return.
 
-    Leaving thinking unset is not the same as [Disabled]. Adaptive-generation
-    models think by default, so omitting the option leaves thinking on; only
-    [Disabled] asks for it to be turned off. *)
+    Leaving thinking unset is not the same as [Disabled]. Whether omission
+    leaves thinking on depends on the model: Fable 5, Mythos 5, Opus 5, and
+    Sonnet 5 think by default, while Opus 4.8 does not. Only [Disabled] asks
+    for thinking to be turned off explicitly. *)
 type t =
   | Enabled of {
       budget_tokens : budget_tokens;
       display : display option;
     }
     (** Manual thinking with an explicit token budget. Accepted only by
-          pre-adaptive models — Claude Haiku 4.5 is the only one left in the
-          catalog. Adaptive-generation models (Fable 5, Mythos 5, Opus 5,
+          pre-adaptive models, of which Claude Haiku 4.5 is the only one left
+          in the catalog. Adaptive-generation models (Fable 5, Mythos 5, Opus 5,
           Opus 4.8, Sonnet 5) reject it; use [Adaptive] with an effort level
           there. Manual thinking also cannot be combined with a forced tool
           choice. *)
@@ -45,5 +46,6 @@ type t =
           the SDK guessing one. Pre-adaptive models reject [Adaptive]. *)
   | Disabled
     (** Turn thinking off. Not universally accepted: some models always
-          think and reject it outright, and Claude Opus 5 accepts it only at
-          effort [High] or below. *)
+          think and reject it outright. On Claude Opus 5 it is accepted at any
+          effort, but pairing it with [Xhigh] or [Max] lowers the effort to
+          [High] and emits a warning rather than raising. *)

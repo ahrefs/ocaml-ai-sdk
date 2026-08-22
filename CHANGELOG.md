@@ -17,8 +17,8 @@ All notable changes to this project will be documented in this file.
   levels at all (Claude Haiku 4.5) say so rather than trailing an empty list.
 - `Thinking.t` in the mli now documents which models accept each constructor, that
   `Adaptive` with an effort level replaces `Enabled`'s budgets, that `Disabled` is not
-  universally supported (Opus 5 takes it only at effort `High` or below), and that
-  omitting thinking is not the same as disabling it.
+  universally supported, and that omitting thinking is not the same as disabling it
+  (Opus 4.8 does not think by default, the other adaptive-generation models do).
 
 ## 0.6.2 — 2026-08-19
 
