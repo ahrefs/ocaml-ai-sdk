@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Anthropic provider (`ai_provider_anthropic`)
+
+- The `Invalid_argument` raised for an unsupported thinking or effort setting now
+  says what to use instead. Passing `Thinking.Enabled` to an adaptive-generation
+  model (Fable 5, Mythos 5, Opus 5, Opus 4.8, Sonnet 5) names `Thinking.Adaptive`
+  plus `Anthropic_options.effort` as the successor to manual token budgets, and
+  explains that the caller picks the effort level because no faithful budget-to-effort
+  mapping exists. The adaptive, disabled-thinking, and forced-tool-choice rejections
+  got the same treatment. Which inputs are rejected has not changed.
+- The effort rejection now names the levels the model does accept, falling back to
+  "accepts no effort levels" only when the list is genuinely empty. Every catalog
+  model with effort support currently accepts all five levels or none, so today this
+  reads the same; it stays correct if a partial-effort model is added.
+- `Effort.equal` is now exposed, replacing a polymorphic comparison in the effort check.
+- `Anthropic_model.unsupported_effort_message` is exposed so a test can pin the
+  partial-effort wording. No catalog model has a partial `effort_levels` list, so that
+  branch cannot be reached through `create`; the test drives the builder directly and
+  cross-checks the empty-list case against the message `create` actually raises.
+- `Thinking.t` in the mli now documents which models accept each constructor, that
+  `Adaptive` with an effort level replaces `Enabled`'s budgets, that `Disabled` is not
+  universally supported, and that omitting thinking is not the same as disabling it
+  (Opus 4.8 and Haiku 4.5 do not think by default, the other adaptive-generation
+  models do). It also records that a custom model id has unknown capabilities, so
+  manual budgets pass through to the API untouched instead of being rejected.
+
 ## 0.6.2 — 2026-08-19
 
 ### OpenRouter provider (`ai_provider_openrouter`)
