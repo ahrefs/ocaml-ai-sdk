@@ -299,6 +299,37 @@ let reject_options model_id provider_options =
   let opts = { (make_opts ()) with provider_options } in
   assert_invalid_argument (fun () -> ignore (Lwt_main.run (Ai_provider.Language_model.generate model opts)))
 
+let contains ~needle haystack =
+  let n = String.length needle in
+  let limit = String.length haystack - n in
+  let rec scan i =
+    match i > limit with
+    | true -> false
+    | false ->
+    match String.equal (String.sub haystack i n) needle with
+    | true -> true
+    | false -> scan (i + 1)
+  in
+  scan 0
+
+let invalid_argument_message f =
+  try
+    f ();
+    fail "expected Invalid_argument"
+  with Invalid_argument message -> message
+
+let reject_options_message model_id provider_options =
+  let config = make_config mock_text_response in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:model_id in
+  let opts = { (make_opts ()) with provider_options } in
+  invalid_argument_message (fun () -> ignore (Lwt_main.run (Ai_provider.Language_model.generate model opts)))
+
+let check_message_contains message needles =
+  List.iter
+    (fun needle ->
+      (check bool) (Printf.sprintf "message mentions %S: %s" needle message) true (contains ~needle message))
+    needles
+
 let warning_features warnings =
   List.filter_map
     (function
@@ -350,6 +381,54 @@ let test_policy_rejects_forced_tool_choice_with_manual_thinking () =
     }
   in
   assert_invalid_argument (fun () -> ignore (Lwt_main.run (Ai_provider.Language_model.generate model opts)))
+
+let test_manual_thinking_message_points_at_effort () =
+  let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
+  let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
+  List.iter
+    (fun model_id ->
+      let message = reject_options_message model_id (anthropic_provider_options ~thinking:manual ()) in
+      check_message_contains message [ model_id; "manual thinking"; "Thinking.Adaptive"; "Anthropic_options.effort" ])
+    [ "claude-sonnet-5"; "claude-opus-5" ]
+
+let test_adaptive_thinking_message_points_at_manual_budget () =
+  let adaptive = Ai_provider_anthropic.Thinking.Adaptive { display = None } in
+  let message = reject_options_message "claude-haiku-4-5" (anthropic_provider_options ~thinking:adaptive ()) in
+  check_message_contains message [ "claude-haiku-4-5"; "adaptive thinking"; "Thinking.Enabled"; "token budget" ]
+
+let test_effort_message_without_supported_levels () =
+  let message =
+    reject_options_message "claude-haiku-4-5" (anthropic_provider_options ~effort:Ai_provider_anthropic.Effort.High ())
+  in
+  check_message_contains message [ "claude-haiku-4-5"; "effort 'high'"; "no effort levels" ];
+  (check bool)
+    (Printf.sprintf "no dangling level list: %s" message)
+    false
+    (contains ~needle:"supported levels:" message)
+
+let test_disabled_thinking_message_points_at_effort () =
+  let message =
+    reject_options_message "claude-fable-5"
+      (anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled ())
+  in
+  check_message_contains message [ "claude-fable-5"; "Thinking.Disabled"; "Anthropic_options.effort" ]
+
+let test_forced_tool_choice_message_names_alternative () =
+  let budget = Ai_provider_anthropic.Thinking.budget_exn 1024 in
+  let manual = Ai_provider_anthropic.Thinking.Enabled { budget_tokens = budget; display = None } in
+  let config = make_config mock_text_response in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-haiku-4-5" in
+  let opts =
+    {
+      (make_opts ()) with
+      provider_options = anthropic_provider_options ~thinking:manual ();
+      tool_choice = Some (Ai_provider.Tool_choice.Specific { tool_name = "search" });
+    }
+  in
+  let message =
+    invalid_argument_message (fun () -> ignore (Lwt_main.run (Ai_provider.Language_model.generate model opts)))
+  in
+  check_message_contains message [ "manual thinking"; "forced tool choice"; "Tool_choice.Auto" ]
 
 let test_policy_normalizes_sampling_parameters () =
   let body, result = capture_generate ~temperature:0.3 ~top_p:0.8 ~top_k:10 () in
@@ -506,6 +585,13 @@ let () =
           test_case "provider_options_request_body" `Quick test_provider_options_request_body;
           test_case "policy_rejects_invalid" `Quick test_policy_rejects_invalid_combinations;
           test_case "policy_rejects_forced_tool" `Quick test_policy_rejects_forced_tool_choice_with_manual_thinking;
+          test_case "manual_thinking_message_points_at_effort" `Quick test_manual_thinking_message_points_at_effort;
+          test_case "adaptive_thinking_message_points_at_manual_budget" `Quick
+            test_adaptive_thinking_message_points_at_manual_budget;
+          test_case "effort_message_without_supported_levels" `Quick test_effort_message_without_supported_levels;
+          test_case "disabled_thinking_message_points_at_effort" `Quick test_disabled_thinking_message_points_at_effort;
+          test_case "forced_tool_choice_message_names_alternative" `Quick
+            test_forced_tool_choice_message_names_alternative;
           test_case "policy_normalizes_sampling" `Quick test_policy_normalizes_sampling_parameters;
           test_case "policy_preserves_supported_top_p" `Quick test_policy_preserves_supported_top_p_with_thinking;
           test_case "policy_lowers_disabled_effort" `Quick test_policy_lowers_disabled_effort;

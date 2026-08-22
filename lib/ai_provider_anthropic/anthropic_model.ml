@@ -16,16 +16,32 @@ let effective_thinking_active ~capabilities ~thinking =
 let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice =
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking with
   | Some thinking, Some (Thinking.Enabled _) when not thinking.manual ->
-    invalid_arg (Printf.sprintf "%s does not support manual thinking" model)
+    Printf.ksprintf invalid_arg
+      "%s does not accept manual thinking budgets (Thinking.Enabled). The API rejects them with a 400 on this model. \
+       Use Thinking.Adaptive together with Anthropic_options.effort instead: adaptive thinking with an effort level \
+       replaces manual token budgets. Pick the effort level yourself, since no faithful mapping from a token budget to \
+       an effort level exists."
+      model
   | Some thinking, Some (Thinking.Adaptive _) when not thinking.adaptive ->
-    invalid_arg (Printf.sprintf "%s does not support adaptive thinking" model)
+    Printf.ksprintf invalid_arg
+      "%s does not support adaptive thinking (Thinking.Adaptive). This is a pre-adaptive model: use Thinking.Enabled \
+       with an explicit token budget, or omit thinking entirely."
+      model
   | Some { disabled = Model_catalog.Unsupported; _ }, Some Thinking.Disabled ->
-    invalid_arg (Printf.sprintf "%s does not support disabled thinking" model)
+    Printf.ksprintf invalid_arg
+      "%s cannot turn thinking off (Thinking.Disabled). This model always thinks; control how much it thinks with \
+       Anthropic_options.effort instead."
+      model
   | None, _ | _, None | Some _, Some Thinking.Disabled -> ()
   | Some _, Some (Thinking.Enabled _ | Thinking.Adaptive _) -> ());
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.effort with
   | Some thinking, Some effort when not (List.mem effort thinking.effort_levels) ->
-    invalid_arg (Printf.sprintf "%s does not support effort '%s'" model (Effort.to_string effort))
+    let supported =
+      match thinking.effort_levels with
+      | [] -> "this model accepts no effort levels"
+      | levels -> Printf.sprintf "supported levels: %s" (String.concat ", " (List.map Effort.to_string levels))
+    in
+    Printf.ksprintf invalid_arg "%s does not support effort '%s' (%s)" model (Effort.to_string effort) supported
   | None, _ | Some _, None | Some _, Some _ -> ());
   match anthropic_opts.Anthropic_options.thinking with
   | Some (Thinking.Enabled _)
@@ -33,7 +49,9 @@ let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_t
            | Some (Ai_provider.Tool_choice.Required | Ai_provider.Tool_choice.Specific _) -> true
            | None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_) -> false)
          || Option.is_some forced_tool_choice ->
-    invalid_arg "manual thinking cannot be combined with forced tool choice"
+    invalid_arg
+      "manual thinking (Thinking.Enabled) cannot be combined with a forced tool choice (Tool_choice.Required or \
+       Tool_choice.Specific). Use Tool_choice.Auto, or drop the manual thinking budget."
   | _ -> ()
 
 let normalize_sampling ~model ~known_model ~capabilities ~thinking_active (opts : Ai_provider.Call_options.t) =

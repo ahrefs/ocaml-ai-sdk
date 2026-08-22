@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Anthropic provider (`ai_provider_anthropic`)
+
+- The `Invalid_argument` raised for an unsupported thinking or effort setting now
+  says what to use instead. Passing `Thinking.Enabled` to an adaptive-generation
+  model (Fable 5, Mythos 5, Opus 5, Opus 4.8, Sonnet 5) names `Thinking.Adaptive`
+  plus `Anthropic_options.effort` as the successor to manual token budgets, and
+  explains that the caller picks the effort level because no faithful budget-to-effort
+  mapping exists. The adaptive, disabled-thinking, and forced-tool-choice rejections
+  got the same treatment. Which inputs are rejected has not changed.
+- The effort rejection lists the levels the model does accept. Models with no effort
+  levels at all (Claude Haiku 4.5) say so rather than trailing an empty list.
+- `Thinking.t` in the mli now documents which models accept each constructor, that
+  `Adaptive` with an effort level replaces `Enabled`'s budgets, that `Disabled` is not
+  universally supported (Opus 5 takes it only at effort `High` or below), and that
+  omitting thinking is not the same as disabling it.
+
 ## 0.6.2 — 2026-08-19
 
 ### OpenRouter provider (`ai_provider_openrouter`)
