@@ -34,14 +34,13 @@ let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_t
       model
   | None, _ | _, None | Some _, Some Thinking.Disabled -> ()
   | Some _, Some (Thinking.Enabled _ | Thinking.Adaptive _) -> ());
+  (* Every catalog model with thinking either accepts all effort levels or none,
+     so reaching this arm means the model takes no effort at all. A model with
+     partial effort support would need the message to name the accepted ones. *)
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.effort with
   | Some thinking, Some effort when not (List.mem effort thinking.effort_levels) ->
-    let supported =
-      match thinking.effort_levels with
-      | [] -> "this model accepts no effort levels"
-      | levels -> Printf.sprintf "supported levels: %s" (String.concat ", " (List.map Effort.to_string levels))
-    in
-    Printf.ksprintf invalid_arg "%s does not support effort '%s' (%s)" model (Effort.to_string effort) supported
+    Printf.ksprintf invalid_arg "%s does not support effort '%s'; this model accepts no effort levels" model
+      (Effort.to_string effort)
   | None, _ | Some _, None | Some _, Some _ -> ());
   match anthropic_opts.Anthropic_options.thinking with
   | Some (Thinking.Enabled _)

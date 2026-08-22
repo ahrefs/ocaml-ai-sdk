@@ -396,15 +396,11 @@ let test_adaptive_thinking_message_points_at_manual_budget () =
   let message = reject_options_message "claude-haiku-4-5" (anthropic_provider_options ~thinking:adaptive ()) in
   check_message_contains message [ "claude-haiku-4-5"; "adaptive thinking"; "Thinking.Enabled"; "token budget" ]
 
-let test_effort_message_without_supported_levels () =
+let test_effort_message_on_model_without_effort () =
   let message =
     reject_options_message "claude-haiku-4-5" (anthropic_provider_options ~effort:Ai_provider_anthropic.Effort.High ())
   in
-  check_message_contains message [ "claude-haiku-4-5"; "effort 'high'"; "no effort levels" ];
-  (check bool)
-    (Printf.sprintf "no dangling level list: %s" message)
-    false
-    (contains ~needle:"supported levels:" message)
+  check_message_contains message [ "claude-haiku-4-5"; "effort 'high'"; "no effort levels" ]
 
 let test_disabled_thinking_message_points_at_effort () =
   let message =
@@ -588,7 +584,7 @@ let () =
           test_case "manual_thinking_message_points_at_effort" `Quick test_manual_thinking_message_points_at_effort;
           test_case "adaptive_thinking_message_points_at_manual_budget" `Quick
             test_adaptive_thinking_message_points_at_manual_budget;
-          test_case "effort_message_without_supported_levels" `Quick test_effort_message_without_supported_levels;
+          test_case "effort_message_on_model_without_effort" `Quick test_effort_message_on_model_without_effort;
           test_case "disabled_thinking_message_points_at_effort" `Quick test_disabled_thinking_message_points_at_effort;
           test_case "forced_tool_choice_message_names_alternative" `Quick
             test_forced_tool_choice_message_names_alternative;

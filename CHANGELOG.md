@@ -13,8 +13,8 @@ All notable changes to this project will be documented in this file.
   explains that the caller picks the effort level because no faithful budget-to-effort
   mapping exists. The adaptive, disabled-thinking, and forced-tool-choice rejections
   got the same treatment. Which inputs are rejected has not changed.
-- The effort rejection lists the levels the model does accept. Models with no effort
-  levels at all (Claude Haiku 4.5) say so rather than trailing an empty list.
+- The effort rejection says outright that the model accepts no effort levels, which is
+  the only case it can reach today (Claude Haiku 4.5 is the one such model).
 - `Thinking.t` in the mli now documents which models accept each constructor, that
   `Adaptive` with an effort level replaces `Enabled`'s budgets, that `Disabled` is not
   universally supported, and that omitting thinking is not the same as disabling it
