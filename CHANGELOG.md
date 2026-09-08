@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.6.3 — 2026-09-08
+
 ### Anthropic provider (`ai_provider_anthropic`)
 
 - The `Invalid_argument` raised for an unsupported thinking or effort setting now
