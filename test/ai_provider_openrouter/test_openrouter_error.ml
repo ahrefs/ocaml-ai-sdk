@@ -63,9 +63,12 @@ let test_of_response_json_without_error () =
   let _status, body, _retryable = api_error_kind (E.of_response ~status:500 ~body:{|{"detail":"nope"}|}) in
   (check string) "raw body preserved" {|{"detail":"nope"}|} body
 
+let response_with ~status header =
+  Ai_provider.Http_client.response_of_chunks ~timeouts:Ai_provider.Http_timeouts.default ~provider:"openrouter" ~status
+    ~headers:[ header ] (Lwt_stream.of_list [])
+
 let test_http_response_preserves_retry_after status () =
-  let headers = Cohttp.Header.init_with "Retry-After" " 5 " in
-  let response = Cohttp.Response.make ~status:(Cohttp.Code.status_of_code status) ~headers () in
+  let response = response_with ~status ("Retry-After", " 5 ") in
   let err =
     Ai_provider_openrouter.Openrouter_api.provider_error_of_http_response ~body:{|{"error":{"message":"try later"}}|}
       response
@@ -103,8 +106,7 @@ let test_retry_after_ms_precedence () =
   (check (option (float 0.001))) "ms wins, converted to seconds" (Some 0.2) err.retry_after_s
 
 let test_http_response_reads_retry_after_ms () =
-  let headers = Cohttp.Header.init_with "retry-after-ms" "1500" in
-  let response = Cohttp.Response.make ~status:(Cohttp.Code.status_of_code 429) ~headers () in
+  let response = response_with ~status:429 ("retry-after-ms", "1500") in
   let err =
     Ai_provider_openrouter.Openrouter_api.provider_error_of_http_response ~body:{|{"error":{"message":"try later"}}|}
       response

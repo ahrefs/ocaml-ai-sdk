@@ -7,7 +7,6 @@
   ai_provider_anthropic
   lwt
   lwt.unix
-  cohttp-lwt-unix
   yojson
   melange-json-native
   base64)

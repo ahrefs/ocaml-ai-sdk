@@ -78,8 +78,10 @@
    (>= 2.0))
   (cohttp-lwt-unix
    (>= 5.3))
-  (lwt_ssl
-   (>= 1.2))
+  (curl
+   (>= 0.10.0))
+  (curl_lwt
+   (>= 0.10.0))
   (base64
    (>= 1.3))
   (ppx_deriving

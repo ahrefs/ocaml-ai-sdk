@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Provider HTTP client (`ai_provider`)
+
+- Provider requests now go through libcurl (`curl` and `curl_lwt`) instead of
+  cohttp. A system libcurl is required, and `lwt_ssl` is no longer a dependency.
+  The chat server handler in `ai_core` still uses cohttp.
+- `Http_client` has a new API. `post` takes a string URL, header pairs and a
+  string body, and returns an abstract `response` read with `status`, `header`
+  (case-insensitive), `body_string` and `body_lines`. `body_lines` replaces
+  `wrap_body_with_idle_timeout`, and `response_of_chunks` builds a response from
+  in-memory chunks for tests.
+- Transport failures now fail with `Provider_error` `Network_error` (carrying
+  libcurl's message) instead of `Unix.Unix_error`. DNS, connect, TLS handshake,
+  send, receive, empty-reply, truncated-body and HTTP/2 failures are marked
+  retryable.
+- libcurl honours the `http_proxy`, `https_proxy`, `all_proxy` and `no_proxy`
+  environment variables, so provider requests now go through a configured
+  proxy. cohttp ignored them.
+- `stream_idle_timeout` now also bounds non-streaming response bodies, which
+  previously could hang on a stalled connection.
+
+### OpenRouter provider (`ai_provider_openrouter`)
+
+- `Openrouter_api.provider_error_of_http_response` takes an
+  `Http_client.response` instead of a `Cohttp.Response.t`.
+
 ## 0.6.3 — 2026-09-08
 
 ### Anthropic provider (`ai_provider_anthropic`)

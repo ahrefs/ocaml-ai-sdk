@@ -11,6 +11,6 @@
   test_http_client
   test_sse)
  (package ocaml-ai-sdk)
- (libraries ai_provider alcotest cohttp-lwt lwt lwt.unix)
+ (libraries ai_provider alcotest lwt lwt.unix)
  (preprocess
   (pps lwt_ppx)))

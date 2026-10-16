@@ -1,4 +1,5 @@
 open Melange_json.Primitives
+module Http_client = Ai_provider.Http_client
 
 type stream_options = { include_usage : bool } [@@deriving to_json]
 
@@ -105,30 +106,21 @@ let chat_completions ~config ~body ~extra_headers ~stream =
     let%lwt json = fetch ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str in
     Lwt.return (`Json json)
   | None ->
-    let url = config.base_url ^ "/chat/completions" in
-    let uri = Uri.of_string url in
     let headers = make_headers ~config ~extra_headers in
-    let cohttp_headers = Cohttp.Header.of_list headers in
-    let body_str = Yojson.Basic.to_string body_json in
-    let cohttp_body = Cohttp_lwt.Body.of_string body_str in
-    let%lwt resp, resp_body =
-      Ai_provider.Http_client.post ~timeouts:config.timeouts ~provider:"openai" ~headers:cohttp_headers
-        ~body:cohttp_body uri
+    let body = Yojson.Basic.to_string body_json in
+    let%lwt response =
+      Http_client.post ~timeouts:config.timeouts ~provider:"openai" ~headers ~body
+        (config.base_url ^ "/chat/completions")
     in
-    let status = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+    let status = Http_client.status response in
     (match status >= 400, stream with
     | true, _ ->
-      let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
-      let resp_headers = Cohttp.Response.headers resp in
-      let retry_after_ms = Cohttp.Header.get resp_headers "retry-after-ms" in
-      let retry_after = Cohttp.Header.get resp_headers "retry-after" in
-      let err = Openai_error.of_response ~retry_after_ms ~retry_after ~status ~body:body_str () in
+      let%lwt body = Http_client.body_string response in
+      let retry_after_ms = Http_client.header response "retry-after-ms" in
+      let retry_after = Http_client.header response "retry-after" in
+      let err = Openai_error.of_response ~retry_after_ms ~retry_after ~status ~body () in
       Lwt.fail (Ai_provider.Provider_error.Provider_error err)
-    | false, true ->
-      Lwt.return
-        (`Stream
-           (Ai_provider.Http_client.wrap_body_with_idle_timeout ~timeouts:config.timeouts ~provider:"openai" resp_body))
+    | false, true -> Lwt.return (`Stream (Http_client.body_lines response))
     | false, false ->
-      let%lwt body_str = Cohttp_lwt.Body.to_string resp_body in
-      let json = Yojson.Basic.from_string body_str in
-      Lwt.return (`Json json))
+      let%lwt body = Http_client.body_string response in
+      Lwt.return (`Json (Yojson.Basic.from_string body)))

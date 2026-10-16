@@ -91,6 +91,7 @@ All chunk types are supported: text, reasoning, tool call (start/delta/result), 
 ## Requirements
 
 - OCaml >= 4.14
+- libcurl (the system package; opam installs it through `conf-libcurl`)
 - For Melange bindings: `melange` >= 4.0.0
 
 ## Development
