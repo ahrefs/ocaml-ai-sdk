@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.7 — 2026-10-19
+
 ### Provider HTTP client (`ai_provider`)
 
 - Provider requests now go through libcurl (`curl` and `curl_lwt`) instead of
