@@ -232,6 +232,22 @@ let test_malformed_event_emits_error () =
   in
   (check bool) "has error" true has_error
 
+let test_transport_error_emits_error () =
+  let chunks, push = Lwt_stream.create () in
+  push
+    (Some
+       "event: message_start\n\
+        data: {\"id\":\"msg_1\",\"model\":\"claude\",\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}\n\n");
+  let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:0.1 () in
+  let response =
+    Ai_provider.Http_client.response_of_chunks ~timeouts ~provider:"anthropic" ~status:200 ~headers:[] chunks
+  in
+  let events = Ai_provider_anthropic.Sse.parse_events (Ai_provider.Http_client.body_lines response) in
+  let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in
+  match parts with
+  | [ Ai_provider.Stream_part.Stream_start _; Error { error = { kind = Timeout { phase = Stream_idle; _ }; _ } } ] -> ()
+  | _ -> fail "expected Stream_start then a Stream_idle error"
+
 let () =
   run "Convert_stream"
     [
@@ -246,5 +262,6 @@ let () =
           test_case "no_metrics_keeps_finish_clean" `Quick test_no_metrics_keeps_finish_clean;
           test_case "cache_metrics_from_message_start" `Quick test_cache_metrics_from_message_start;
           test_case "malformed_event" `Quick test_malformed_event_emits_error;
+          test_case "transport_error" `Quick test_transport_error_emits_error;
         ] );
     ]

@@ -193,48 +193,63 @@ let transfer_result r =
   let%lwt code = r.pending.transfer in
   if succeeded code then Lwt.return_unit else Lwt.fail (network_error ~provider:r.provider r.pending code)
 
-let iter_chunks r ~f =
-  let rec loop () =
+let read_chunk r =
+  let read () =
     match%lwt next_chunk r with
-    | `Chunk (Some chunk) ->
-      f chunk;
-      loop ()
-    | `Chunk None -> transfer_result r
+    | `Chunk (Some chunk) -> Lwt.return_some chunk
+    | `Chunk None ->
+      let%lwt () = transfer_result r in
+      Lwt.return_none
     | `Idle ->
       let limit_s = r.timeouts.stream_idle_timeout in
       let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
       Lwt.fail (Provider_error.Provider_error err)
   in
-  try%lwt loop ()
+  try%lwt read ()
   with exn ->
     Lwt.cancel r.pending.transfer;
     Lwt.fail exn
 
 let body_string r =
   let buf = Buffer.create 4096 in
-  let%lwt () = iter_chunks r ~f:(Buffer.add_string buf) in
-  Lwt.return (Buffer.contents buf)
+  let rec loop () =
+    match%lwt read_chunk r with
+    | Some chunk ->
+      Buffer.add_string buf chunk;
+      loop ()
+    | None -> Lwt.return (Buffer.contents buf)
+  in
+  loop ()
 
-let split_on_newlines buf chunk push =
+let split_on_newlines buf chunk emit =
   String.iter
     (function
       | '\n' ->
-        push (Some (Buffer.contents buf));
+        emit (Buffer.contents buf);
         Buffer.clear buf
       | '\r' -> ()
       | c -> Buffer.add_char buf c)
     chunk
 
 let body_lines r =
-  let buf = Buffer.create 256 in
-  let lines, push = Lwt_stream.create () in
-  Lwt.async (fun () ->
-    try%lwt
-      let%lwt () = iter_chunks r ~f:(fun chunk -> split_on_newlines buf chunk push) in
-      if Buffer.length buf > 0 then push (Some (Buffer.contents buf));
-      push None;
-      Lwt.return_unit
-    with exn ->
-      push None;
-      Lwt.fail exn);
-  lines
+  let partial = Buffer.create 256 in
+  let ready = Queue.create () in
+  let reading = ref true in
+  let rec next_line () =
+    match Queue.take_opt ready, !reading with
+    | Some line, (true | false) -> Lwt.return_some line
+    | None, false -> Lwt.return_none
+    | None, true ->
+    match%lwt read_chunk r with
+    | Some chunk ->
+      split_on_newlines partial chunk (fun line -> Queue.add line ready);
+      next_line ()
+    | None ->
+      reading := false;
+      if Buffer.length partial > 0 then Queue.add (Buffer.contents partial) ready;
+      next_line ()
+    | exception exn ->
+      reading := false;
+      Lwt.fail exn
+  in
+  Lwt_stream.from next_line

@@ -6,27 +6,31 @@ let lines ~stream_idle_timeout chunks =
   let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout () in
   Ai_provider.Http_client.(body_lines (response_of_chunks ~timeouts ~provider:"test" ~status:200 ~headers:[] chunks))
 
-(* Build a body whose stream emits each chunk after [delay] seconds, then
-   never produces another chunk (the final [Lwt_stream.get] blocks forever).
-   This lets us drive the idle-timeout race inside [body_lines] without any I/O. *)
+(* A body whose stream emits each chunk after [delay] seconds, then ends. *)
 let timed_chunks ~delay chunks =
   let pending = ref chunks in
   Lwt_stream.from (fun () ->
     match !pending with
-    | [] ->
-      let%lwt () = Lwt_unix.sleep 3600.0 in
-      Lwt.return None
+    | [] -> Lwt.return None
     | c :: rest ->
       pending := rest;
       let%lwt () = Lwt_unix.sleep delay in
       Lwt.return (Some c))
 
-(* Stream-idle timeout closes the consumer stream cleanly after the first
-   chunk when no further chunk arrives within [stream_idle_timeout]. *)
+(* An idle timeout fails the pending read with a Stream_idle error, then the
+   stream ends. *)
 let test_stream_idle_fires () =
-  let lines = lines ~stream_idle_timeout:0.2 (timed_chunks ~delay:0.0 [ "data: first\n" ]) in
+  let stalled, push = Lwt_stream.create () in
+  push (Some "data: first\n");
+  let lines = lines ~stream_idle_timeout:0.2 stalled in
   let%lwt first = Lwt_stream.get lines in
   (check (option string)) "first line" (Some "data: first") first;
+  let%lwt () =
+    match%lwt Lwt_stream.get lines with
+    | _ -> fail "expected a Stream_idle timeout"
+    | exception Ai_provider.Provider_error.Provider_error { kind = Timeout { phase = Stream_idle; _ }; _ } ->
+      Lwt.return_unit
+  in
   let%lwt next = Lwt_stream.get lines in
   (check (option string)) "end of stream after idle" None next;
   Lwt.return_unit
@@ -60,10 +64,6 @@ let test_timeout_phase_retryability () =
   (check bool) "Stream_idle retryable" true idle.is_retryable
 
 let () =
-  (* The library re-raises idle-timeout errors to Lwt.async_exception_hook
-     (which would otherwise exit the process). This binary runs only these
-     tests, so a global override is fine — no restore needed. *)
-  (Lwt.async_exception_hook := fun _ -> ());
   run "Http_client"
     [
       ( "idle_timeout",

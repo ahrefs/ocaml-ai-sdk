@@ -28,14 +28,11 @@ val header : response -> string -> string option
     [timeouts.stream_idle_timeout]; both abort the transfer. *)
 val body_string : response -> string Lwt.t
 
-(** The body as lines (split on LF, CR stripped), with the same idle timer as
-    [body_string]. The returned stream:
-    - Emits one line per LF-terminated segment.
-    - Flushes any trailing buffered data on normal end-of-stream.
-    - Is cleanly closed on idle timeout, transport failure, or normal
-      completion, so no consumer hangs.
-    - On failure, re-raises the error to [Lwt.async_exception_hook] after the
-      stream is closed, and aborts the transfer. *)
+(** The body as lines (split on LF, CR stripped), read on demand. The idle timer
+    runs only while a read waits for the next chunk, so a stream nobody reads is
+    never timed out or aborted. A trailing line without LF is
+    emitted at end of body. A read fails with the same errors as [body_string];
+    the transfer is then aborted and later reads return [None]. *)
 val body_lines : response -> string Lwt_stream.t
 
 (** A response whose body comes from in-memory chunks; [body_string] and

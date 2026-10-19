@@ -146,7 +146,9 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
           (match pm with
           | None -> ()
           | Some _ -> provider_metadata := pm)
-        | Error { error } -> emit (Text_stream_part.Error { error = Ai_provider.Provider_error.to_string error })
+        | Error { error } ->
+          finish_reason := Ai_provider.Finish_reason.Error;
+          emit (Text_stream_part.Error { error = Ai_provider.Provider_error.to_string error })
         | File _ | Source _ -> ())
       provider_stream
   in

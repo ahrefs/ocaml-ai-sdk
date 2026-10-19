@@ -11,8 +11,8 @@ type t = private {
           handshake, request body write, and the server's processing time
           before it starts the response. Default: [600.0] (10 minutes). *)
   stream_idle_timeout : float;
-    (** Seconds allowed between consecutive response body chunks. Resets
-          on each chunk. Default: [300.0] (5 minutes). *)
+    (** Seconds a body read may wait for the next chunk. Resets on each
+          chunk. Default: [300.0] (5 minutes). *)
 }
 
 (** [request_timeout = 600.0; stream_idle_timeout = 300.0]. *)

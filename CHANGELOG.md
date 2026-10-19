@@ -23,6 +23,18 @@ All notable changes to this project will be documented in this file.
   proxy. cohttp ignored them.
 - `stream_idle_timeout` now also bounds non-streaming response bodies, which
   previously could hang on a stalled connection.
+- A stream that fails partway through (idle timeout, dropped or truncated
+  connection) now ends with a `Stream_part.Error` carrying the
+  `Provider_error`. It used to close silently and re-raise to
+  `Lwt.async_exception_hook`, whose default handler exits the process.
+  `body_lines` and `Sse.parse_events` read on demand, and a failed read fails
+  with the error. The idle timer runs only while a read is waiting, so a
+  `body_lines` stream that nobody reads is no longer timed out.
+
+### Core SDK (`ai_core`)
+
+- `stream_text` reports finish reason `error` for a step whose provider stream
+  emitted an error, matching upstream `streamText`. It used to report `other`.
 
 ### OpenRouter provider (`ai_provider_openrouter`)
 
