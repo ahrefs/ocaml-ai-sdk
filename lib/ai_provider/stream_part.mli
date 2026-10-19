@@ -36,3 +36,8 @@ type t =
               [finish] LanguageModelV4StreamPart. *)
     }
   | Error of { error : Provider_error.t }
+
+(** [pump ~push f events] runs [f] on each event in the background, then closes
+    the output with [push None], whatever happens. A [Provider_error] raised by
+    [events] is first pushed as an [Error] part. *)
+val pump : push:(t option -> unit) -> ('a -> unit) -> 'a Lwt_stream.t -> unit

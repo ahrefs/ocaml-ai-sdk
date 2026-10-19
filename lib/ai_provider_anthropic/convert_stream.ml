@@ -73,172 +73,157 @@ let transform events ~warnings =
      omits the cache fields, mirroring upstream @ai-sdk/anthropic. *)
   let start_usage : Convert_usage.anthropic_usage option ref = ref None in
   let stream, push = Lwt_stream.create () in
-  Lwt.async (fun () ->
-    Lwt.finalize
-      (fun () ->
-        try%lwt
-          Lwt_stream.iter
-            (fun (evt : Sse.event) ->
-              try
-                let json = Yojson.Basic.from_string evt.data in
-                match evt.event_type with
-                | "message_start" ->
-                  (try
-                     let evt = message_start_event_of_json json in
-                     start_usage := evt.message.usage
-                   with Melange_json.Of_json_error _ -> ());
-                  if !is_first then begin
-                    push (Some (Ai_provider.Stream_part.Stream_start { warnings }));
-                    is_first := false
-                  end
-                | "content_block_start" ->
-                  let { index; content_block } = content_block_start_event_of_json json in
-                  (match content_block.type_ with
-                  | "text" -> Hashtbl.replace blocks index Text_block
-                  | "tool_use" ->
-                    (match content_block.id, content_block.name with
-                    | Some id, Some name -> Hashtbl.replace blocks index (Tool_use_block { id; name })
-                    | _ -> ())
-                  | "thinking" -> Hashtbl.replace blocks index Thinking_block
-                  | "redacted_thinking" ->
-                    Option.iter
-                      (fun data ->
-                        push
-                          (Some
-                             (Ai_provider.Stream_part.Reasoning
-                                {
-                                  text = "";
-                                  signature = None;
-                                  provider_options = Convert_response.redacted_reasoning_provider_options data;
-                                })))
-                      content_block.data
-                  | _ -> ())
-                | "content_block_delta" ->
-                  let { index; delta } = content_block_delta_event_of_json json in
-                  (match delta.type_ with
-                  | "text_delta" ->
-                    (match delta.text with
-                    | Some text -> push (Some (Ai_provider.Stream_part.Text { text }))
-                    | None -> ())
-                  | "input_json_delta" ->
-                    (match delta.partial_json with
-                    | Some partial ->
-                      (match Hashtbl.find_opt blocks index with
-                      | Some (Tool_use_block { id; name }) ->
-                        push
-                          (Some
-                             (Ai_provider.Stream_part.Tool_call_delta
-                                {
-                                  tool_call_type = "function";
-                                  tool_call_id = id;
-                                  tool_name = name;
-                                  args_text_delta = partial;
-                                }))
-                      | _ -> ())
-                    | None -> ())
-                  | "thinking_delta" ->
-                    (match delta.thinking with
-                    | Some text ->
-                      push
-                        (Some
-                           (Ai_provider.Stream_part.Reasoning
-                              { text; signature = None; provider_options = Ai_provider.Provider_options.empty }))
-                    | None -> ())
-                  | "signature_delta" ->
-                    (match delta.signature with
-                    | Some signature ->
-                      push
-                        (Some
-                           (Ai_provider.Stream_part.Reasoning
-                              {
-                                text = "";
-                                signature = Some signature;
-                                provider_options = Convert_response.reasoning_provider_options (Some signature);
-                              }))
-                    | None -> ())
-                  | _ -> ())
-                | "content_block_stop" ->
-                  let { index } = content_block_stop_event_of_json json in
-                  (match Hashtbl.find_opt blocks index with
-                  | Some (Tool_use_block { id; _ }) ->
-                    push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = id }))
-                  | _ -> ());
-                  Hashtbl.remove blocks index
-                | "message_delta" ->
-                  let { delta; usage } = message_delta_event_of_json json in
-                  let has_cache_signal (u : Convert_usage.anthropic_usage) =
-                    Option.is_some u.cache_read_input_tokens
-                    || Option.is_some u.cache_creation_input_tokens
-                    || Option.is_some u.cache_creation
-                  in
-                  (* Delta carries the final output_tokens; start carries the cache
+  Ai_provider.Stream_part.pump ~push
+    (fun (evt : Sse.event) ->
+      try
+        let json = Yojson.Basic.from_string evt.data in
+        match evt.event_type with
+        | "message_start" ->
+          (try
+             let evt = message_start_event_of_json json in
+             start_usage := evt.message.usage
+           with Melange_json.Of_json_error _ -> ());
+          if !is_first then begin
+            push (Some (Ai_provider.Stream_part.Stream_start { warnings }));
+            is_first := false
+          end
+        | "content_block_start" ->
+          let { index; content_block } = content_block_start_event_of_json json in
+          (match content_block.type_ with
+          | "text" -> Hashtbl.replace blocks index Text_block
+          | "tool_use" ->
+            (match content_block.id, content_block.name with
+            | Some id, Some name -> Hashtbl.replace blocks index (Tool_use_block { id; name })
+            | _ -> ())
+          | "thinking" -> Hashtbl.replace blocks index Thinking_block
+          | "redacted_thinking" ->
+            Option.iter
+              (fun data ->
+                push
+                  (Some
+                     (Ai_provider.Stream_part.Reasoning
+                        {
+                          text = "";
+                          signature = None;
+                          provider_options = Convert_response.redacted_reasoning_provider_options data;
+                        })))
+              content_block.data
+          | _ -> ())
+        | "content_block_delta" ->
+          let { index; delta } = content_block_delta_event_of_json json in
+          (match delta.type_ with
+          | "text_delta" ->
+            (match delta.text with
+            | Some text -> push (Some (Ai_provider.Stream_part.Text { text }))
+            | None -> ())
+          | "input_json_delta" ->
+            (match delta.partial_json with
+            | Some partial ->
+              (match Hashtbl.find_opt blocks index with
+              | Some (Tool_use_block { id; name }) ->
+                push
+                  (Some
+                     (Ai_provider.Stream_part.Tool_call_delta
+                        { tool_call_type = "function"; tool_call_id = id; tool_name = name; args_text_delta = partial }))
+              | _ -> ())
+            | None -> ())
+          | "thinking_delta" ->
+            (match delta.thinking with
+            | Some text ->
+              push
+                (Some
+                   (Ai_provider.Stream_part.Reasoning
+                      { text; signature = None; provider_options = Ai_provider.Provider_options.empty }))
+            | None -> ())
+          | "signature_delta" ->
+            (match delta.signature with
+            | Some signature ->
+              push
+                (Some
+                   (Ai_provider.Stream_part.Reasoning
+                      {
+                        text = "";
+                        signature = Some signature;
+                        provider_options = Convert_response.reasoning_provider_options (Some signature);
+                      }))
+            | None -> ())
+          | _ -> ())
+        | "content_block_stop" ->
+          let { index } = content_block_stop_event_of_json json in
+          (match Hashtbl.find_opt blocks index with
+          | Some (Tool_use_block { id; _ }) ->
+            push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = id }))
+          | _ -> ());
+          Hashtbl.remove blocks index
+        | "message_delta" ->
+          let { delta; usage } = message_delta_event_of_json json in
+          let has_cache_signal (u : Convert_usage.anthropic_usage) =
+            Option.is_some u.cache_read_input_tokens
+            || Option.is_some u.cache_creation_input_tokens
+            || Option.is_some u.cache_creation
+          in
+          (* Delta carries the final output_tokens; start carries the cache
                  fields. When delta lacks cache signal, overlay it onto start
                  so the Finish chunk reports both accurately. *)
-                  let anthropic_usage =
-                    match usage, !start_usage with
-                    | None, _ -> !start_usage
-                    | Some u, _ when has_cache_signal u -> Some u
-                    | Some u, None -> Some u
-                    | Some u, Some s -> Some { s with output_tokens = u.output_tokens }
-                  in
-                  let usage_ai =
-                    match anthropic_usage with
-                    | Some u -> Convert_usage.to_usage u
-                    | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
-                  in
-                  (* Surface Anthropic cache token metrics to streaming consumers, matching
+          let anthropic_usage =
+            match usage, !start_usage with
+            | None, _ -> !start_usage
+            | Some u, _ when has_cache_signal u -> Some u
+            | Some u, None -> Some u
+            | Some u, Some s -> Some { s with output_tokens = u.output_tokens }
+          in
+          let usage_ai =
+            match anthropic_usage with
+            | Some u -> Convert_usage.to_usage u
+            | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
+          in
+          (* Surface Anthropic cache token metrics to streaming consumers, matching
                  the non-streaming path. Upstream attaches providerMetadata to the
                  [finish] LanguageModelV4 stream part rather than emitting it as a
                  separate chunk. *)
-                  let provider_metadata =
-                    match anthropic_usage with
-                    | Some u when has_cache_signal u -> Some (Convert_usage.to_provider_metadata u)
-                    | _ -> None
-                  in
-                  push
-                    (Some
-                       (Ai_provider.Stream_part.Finish
-                          {
-                            finish_reason = Convert_response.map_stop_reason delta.stop_reason;
-                            usage = usage_ai;
-                            provider_metadata;
-                          }))
-                | "message_stop" | "ping" -> ()
-                | "error" ->
-                  let error_type, message =
-                    try
-                      let { error = { type_; message } } = error_event_of_json json in
-                      type_, message
-                    with Melange_json.Of_json_error _ -> "unknown", evt.data
-                  in
-                  push
-                    (Some
-                       (Ai_provider.Stream_part.Error
-                          {
-                            error =
-                              Ai_provider.Provider_error.make_api_error ~provider:"anthropic" ~status:0
-                                ~body:(Printf.sprintf "%s: %s" error_type message)
-                                ~is_retryable:false ();
-                          }))
-                | _ -> ()
-              with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
-                push
-                  (Some
-                     (Ai_provider.Stream_part.Error
-                        {
-                          error =
-                            {
-                              Ai_provider.Provider_error.provider = "anthropic";
-                              kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
-                              is_retryable = false;
-                              retry_after_s = None;
-                            };
-                        })))
-            events
-        with Ai_provider.Provider_error.Provider_error error ->
-          push (Some (Ai_provider.Stream_part.Error { error }));
-          Lwt.return_unit)
-      (fun () ->
-        push None;
-        Lwt.return_unit));
+          let provider_metadata =
+            match anthropic_usage with
+            | Some u when has_cache_signal u -> Some (Convert_usage.to_provider_metadata u)
+            | _ -> None
+          in
+          push
+            (Some
+               (Ai_provider.Stream_part.Finish
+                  {
+                    finish_reason = Convert_response.map_stop_reason delta.stop_reason;
+                    usage = usage_ai;
+                    provider_metadata;
+                  }))
+        | "message_stop" | "ping" -> ()
+        | "error" ->
+          let error_type, message =
+            try
+              let { error = { type_; message } } = error_event_of_json json in
+              type_, message
+            with Melange_json.Of_json_error _ -> "unknown", evt.data
+          in
+          push
+            (Some
+               (Ai_provider.Stream_part.Error
+                  {
+                    error =
+                      Ai_provider.Provider_error.make_api_error ~provider:"anthropic" ~status:0
+                        ~body:(Printf.sprintf "%s: %s" error_type message)
+                        ~is_retryable:false ();
+                  }))
+        | _ -> ()
+      with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
+        push
+          (Some
+             (Ai_provider.Stream_part.Error
+                {
+                  error =
+                    {
+                      Ai_provider.Provider_error.provider = "anthropic";
+                      kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
+                      is_retryable = false;
+                      retry_after_s = None;
+                    };
+                })))
+    events;
   stream

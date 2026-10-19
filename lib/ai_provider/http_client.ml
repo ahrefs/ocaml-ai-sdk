@@ -13,16 +13,11 @@ type header_line =
   | Field of (string * string)
   | Ignored
 
-type pending = {
-  transfer : Curl.curlCode Lwt.t;
-  head_ready : (head, Curl.curlCode) result Lwt_mvar.t;
-  chunks : string Lwt_stream.t;
-  error_detail : string ref;
-}
-
 type response = {
   head : head;
-  pending : pending;
+  transfer : Curl.curlCode Lwt.t;
+  chunks : string Lwt_stream.t;
+  error_detail : string ref;
   timeouts : Http_timeouts.t;
   provider : string;
 }
@@ -85,7 +80,7 @@ let on_header_line ~handle ~state ~head_ready line =
   | _informational -> state := Collecting []);
   String.length line
 
-let header_line (name, value) =
+let format_request_header (name, value) =
   match value with
   | "" -> name ^ ";"
   | value -> Printf.sprintf "%s: %s" name value
@@ -95,7 +90,7 @@ let configure handle ~url ~headers ~body ~error_detail ~on_header ~on_chunk =
   Curl.set_postfields handle body;
   Curl.set_postfieldsize handle (String.length body);
   (* An empty Expect header stops libcurl from waiting for 100-continue on large bodies. *)
-  Curl.set_httpheader handle (List.map header_line headers @ [ "Expect:" ]);
+  Curl.set_httpheader handle (List.map format_request_header headers @ [ "Expect:" ]);
   Curl.set_nosignal handle true;
   Curl.set_errorbuffer handle error_detail;
   Curl.set_headerfunction handle on_header;
@@ -130,11 +125,11 @@ let start ~url ~headers ~body =
         release ();
         deliver ~state ~head_ready (Error (if succeeded code then Curl.CURLE_GOT_NOTHING else code)))
       (fun (_ : exn) -> release ());
-    { transfer; head_ready; chunks; error_detail }
+    head_ready, transfer, chunks, error_detail
 
-let network_error ~provider (pending : pending) code =
+let network_error ~provider ~detail code =
   let message =
-    match !(pending.error_detail) with
+    match detail with
     | "" -> Curl.strerror code
     | detail -> detail
   in
@@ -149,52 +144,53 @@ let outside_curl_callback promise =
   let%lwt () = Lwt.pause () in
   Lwt.return value
 
-let await_head ~(timeouts : Http_timeouts.t) ~provider (pending : pending) =
-  let started = Unix.gettimeofday () in
-  match%lwt
-    outside_curl_callback (Lwt_unix.with_timeout timeouts.request_timeout (fun () -> Lwt_mvar.take pending.head_ready))
-  with
-  | Ok head -> Lwt.return head
-  | Error code -> Lwt.fail (network_error ~provider pending code)
-  | exception Lwt_unix.Timeout ->
-    Lwt.cancel pending.transfer;
-    let elapsed_s = Unix.gettimeofday () -. started in
-    let err =
-      Provider_error.make_timeout ~provider ~phase:Request_headers ~elapsed_s ~limit_s:timeouts.request_timeout
-    in
-    Lwt.fail (Provider_error.Provider_error err)
-  | exception exn ->
-    Lwt.cancel pending.transfer;
+let cancel_on_failure transfer f =
+  try%lwt f ()
+  with exn ->
+    Lwt.cancel transfer;
     Lwt.fail exn
 
+let await_head ~(timeouts : Http_timeouts.t) ~provider ~transfer ~error_detail head_ready =
+  let started = Unix.gettimeofday () in
+  cancel_on_failure transfer (fun () ->
+    match%lwt
+      outside_curl_callback (Lwt_unix.with_timeout timeouts.request_timeout (fun () -> Lwt_mvar.take head_ready))
+    with
+    | Ok head -> Lwt.return head
+    | Error code -> Lwt.fail (network_error ~provider ~detail:!error_detail code)
+    | exception Lwt_unix.Timeout ->
+      let elapsed_s = Unix.gettimeofday () -. started in
+      let err =
+        Provider_error.make_timeout ~provider ~phase:Request_headers ~elapsed_s ~limit_s:timeouts.request_timeout
+      in
+      Lwt.fail (Provider_error.Provider_error err))
+
 let post ~timeouts ~provider ~headers ~body url =
-  let%lwt pending = Lwt.wrap (fun () -> start ~url ~headers ~body) in
-  let%lwt head = await_head ~timeouts ~provider pending in
-  Lwt.return { head; pending; timeouts; provider }
+  let%lwt head_ready, transfer, chunks, error_detail = Lwt.wrap (fun () -> start ~url ~headers ~body) in
+  let%lwt head = await_head ~timeouts ~provider ~transfer ~error_detail head_ready in
+  Lwt.return { head; transfer; chunks; error_detail; timeouts; provider }
 
 let response_of_chunks ~timeouts ~provider ~status ~headers chunks =
   let headers = List.map (fun (name, value) -> String.lowercase_ascii name, value) headers in
-  let pending =
-    { transfer = Lwt.return Curl.CURLE_OK; head_ready = Lwt_mvar.create_empty (); chunks; error_detail = ref "" }
-  in
-  { head = { status; headers }; pending; timeouts; provider }
+  { head = { status; headers }; transfer = Lwt.return Curl.CURLE_OK; chunks; error_detail = ref ""; timeouts; provider }
 
 let next_chunk r =
   outside_curl_callback
     (Lwt.pick
        [
-         (let%lwt chunk = Lwt_stream.get r.pending.chunks in
+         (let%lwt chunk = Lwt_stream.get r.chunks in
           Lwt.return (`Chunk chunk));
          (let%lwt () = Lwt_unix.sleep r.timeouts.stream_idle_timeout in
           Lwt.return `Idle);
        ])
 
 let transfer_result r =
-  let%lwt code = r.pending.transfer in
-  if succeeded code then Lwt.return_unit else Lwt.fail (network_error ~provider:r.provider r.pending code)
+  let%lwt code = r.transfer in
+  if succeeded code then Lwt.return_unit
+  else Lwt.fail (network_error ~provider:r.provider ~detail:!(r.error_detail) code)
 
 let read_chunk r =
-  let read () =
+  cancel_on_failure r.transfer (fun () ->
     match%lwt next_chunk r with
     | `Chunk (Some chunk) -> Lwt.return_some chunk
     | `Chunk None ->
@@ -203,12 +199,7 @@ let read_chunk r =
     | `Idle ->
       let limit_s = r.timeouts.stream_idle_timeout in
       let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
-      Lwt.fail (Provider_error.Provider_error err)
-  in
-  try%lwt read ()
-  with exn ->
-    Lwt.cancel r.pending.transfer;
-    Lwt.fail exn
+      Lwt.fail (Provider_error.Provider_error err))
 
 let body_string r =
   let buf = Buffer.create 4096 in
@@ -246,8 +237,10 @@ let body_lines r =
       next_line ()
     | None ->
       reading := false;
-      if Buffer.length partial > 0 then Queue.add (Buffer.contents partial) ready;
-      next_line ()
+      Lwt.return
+        (match Buffer.contents partial with
+        | "" -> None
+        | line -> Some line)
     | exception exn ->
       reading := false;
       Lwt.fail exn

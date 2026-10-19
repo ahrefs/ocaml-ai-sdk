@@ -30,3 +30,15 @@ type t =
       provider_metadata : Provider_options.t option;
     }
   | Error of { error : Provider_error.t }
+
+let pump ~push f events =
+  Lwt.async (fun () ->
+    Lwt.finalize
+      (fun () ->
+        try%lwt Lwt_stream.iter f events
+        with Provider_error.Provider_error error ->
+          push (Some (Error { error }));
+          Lwt.return_unit)
+      (fun () ->
+        push None;
+        Lwt.return_unit))

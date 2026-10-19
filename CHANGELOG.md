@@ -30,6 +30,10 @@ All notable changes to this project will be documented in this file.
   `body_lines` and `Sse.parse_events` read on demand, and a failed read fails
   with the error. The idle timer runs only while a read is waiting, so a
   `body_lines` stream that nobody reads is no longer timed out.
+- New `Stream_part.pump` runs a provider's per-event converter in the
+  background, turns a `Provider_error` from the event stream into an `Error`
+  part, and always closes the output. The Anthropic, OpenAI and OpenRouter
+  converters use it.
 
 ### Core SDK (`ai_core`)
 
