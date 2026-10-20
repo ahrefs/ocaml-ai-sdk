@@ -66,10 +66,10 @@ All notable changes to this project will be documented in this file.
   calling `on_step_finish`, as upstream does. It used to call
   `on_step_finish` first. An exception from `on_finish` is ignored, since the
   streams and promises have already settled by then.
-- Breaking for direct callers: `Core_tool.execute_tool` takes
-  `?abort_signal` and a final `()`. It fails with `Aborted` without running
-  the tool once the signal has fired. `generate_text` and `stream_text` run
-  every tool through it.
+- New `Core_tool.execute_tool_unless_aborted`, which fails with `Aborted`
+  without running the tool once the signal has fired. `generate_text` and
+  `stream_text` run every tool through it. `Core_tool.execute_tool` is
+  unchanged.
 - `Stream_text_result.to_ui_message_stream` turns the `Abort` part into the
   `{"type":"abort"}` chunk, with no `finish` chunk after it.
 - `Ui_message_stream_writer.create_ui_message_stream` passes

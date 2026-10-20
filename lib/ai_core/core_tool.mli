@@ -56,19 +56,25 @@ val safe_parse_json_args : string -> Yojson.Basic.t
 val denied_result : Yojson.Basic.t
 
 (** Execute a tool by name from the tools list.
-    Returns an error result if the tool is not found, is client-side only, or throws.
-
-    Fails with [Ai_provider.Abort_signal.Aborted], without running the tool,
-    when [abort_signal] has already fired. [generate_text] and [stream_text]
-    run every tool through this function, so neither starts a tool after an
-    abort. The tool itself does not get the signal. *)
+    Returns an error result if the tool is not found, is client-side only, or throws. *)
 val execute_tool :
-  ?abort_signal:Ai_provider.Abort_signal.t ->
   tools:(string * t) list ->
   tool_call_id:string ->
   tool_name:string ->
   args:Yojson.Basic.t ->
-  unit ->
+  Generate_text_result.tool_result Lwt.t
+
+(** {!execute_tool}, except that it fails with
+    [Ai_provider.Abort_signal.Aborted], without running the tool, when the
+    signal has already fired. [generate_text] and [stream_text] run every tool
+    through this function, so neither starts a tool after an abort. The tool
+    itself does not get the signal. *)
+val execute_tool_unless_aborted :
+  Ai_provider.Abort_signal.t option ->
+  tools:(string * t) list ->
+  tool_call_id:string ->
+  tool_name:string ->
+  args:Yojson.Basic.t ->
   Generate_text_result.tool_result Lwt.t
 
 (** Partition tool calls into [(blocked, executable)].
