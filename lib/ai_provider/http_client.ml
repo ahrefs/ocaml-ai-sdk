@@ -89,6 +89,17 @@ let format_request_header (name, value) =
 
 let max_connect_timeout_ms = 2147483647.
 
+let env_path name =
+  match Sys.getenv_opt name with
+  | None | Some "" -> None
+  | Some path -> Some path
+
+(* libcurl verifies against its compiled-in CA bundle and ignores OpenSSL's
+   SSL_CERT_FILE and SSL_CERT_DIR, so pass them on as the curl tool does. *)
+let configure_ca_from_env handle =
+  Option.iter (Curl.set_cainfo handle) (env_path "SSL_CERT_FILE");
+  Option.iter (Curl.set_capath handle) (env_path "SSL_CERT_DIR")
+
 let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_detail ~on_header ~on_chunk =
   Curl.set_url handle url;
   Curl.set_protocols handle Curl.[ CURLPROTO_HTTP; CURLPROTO_HTTPS ];
@@ -97,6 +108,7 @@ let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_de
   (* An empty Expect header stops libcurl from waiting for 100-continue on large bodies. *)
   Curl.set_httpheader handle (List.map format_request_header headers @ [ "Expect:" ]);
   Curl.set_useragent handle User_agent.value;
+  configure_ca_from_env handle;
   (* libcurl treats 0 as its 300s default, so round up to at least 1ms, and
      clamp so huge values cannot overflow to 0. *)
   Curl.set_connecttimeoutms handle

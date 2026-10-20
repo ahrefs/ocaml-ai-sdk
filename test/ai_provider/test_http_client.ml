@@ -258,6 +258,25 @@ let test_connect_timeout () =
   (check bool) "bounded by connect_timeout" true (Float.compare (Unix.gettimeofday () -. started) 5.0 < 0);
   Lwt.return_unit
 
+(* SSL_CERT_FILE replaces libcurl's CA bundle: a missing file fails the TLS
+   setup instead of being ignored. *)
+let test_ssl_cert_file_honoured () =
+  let%lwt port, _ = serve_once Hang in
+  let missing = "/nonexistent/ocaml-ai-sdk-test-ca.pem" in
+  let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout:5.0 () in
+  Unix.putenv "SSL_CERT_FILE" missing;
+  Lwt.finalize
+    (fun () ->
+      match%lwt post ~timeouts (Printf.sprintf "https://127.0.0.1:%d/" port) with
+      | _ -> fail "expected a CA file error"
+      | exception Ai_provider.Provider_error.Provider_error { kind = Network_error { message }; is_retryable; _ } ->
+        (check bool) "not retryable" false is_retryable;
+        (check bool) "names the CA file" true (contains ~sub:missing message);
+        Lwt.return_unit)
+    (fun () ->
+      Unix.putenv "SSL_CERT_FILE" "";
+      Lwt.return_unit)
+
 (* A refused CONNECT is retryable only when the proxy's status is. libcurl reads
    the proxy from the environment, so these run last and clear it after. *)
 let with_https_proxy port f =
@@ -275,16 +294,26 @@ let test_proxy_refusal ~status ~retryable () =
   (check bool) "tunnel requested from the proxy" true (contains ~sub:"CONNECT provider.invalid:443 " head);
   Lwt.return_unit
 
-(* libcurl reads proxy settings from the environment, which would route or
-   bypass the loopback requests depending on the machine. An empty value counts
-   as unset. *)
-let clear_proxy_environment () =
+(* Proxy and CA settings come from the environment, and would route, bypass or
+   fail the loopback requests depending on the machine. An empty value counts as
+   unset. *)
+let clear_network_environment () =
   List.iter
     (fun name -> Unix.putenv name "")
-    [ "http_proxy"; "https_proxy"; "HTTPS_PROXY"; "all_proxy"; "ALL_PROXY"; "no_proxy"; "NO_PROXY" ]
+    [
+      "http_proxy";
+      "https_proxy";
+      "HTTPS_PROXY";
+      "all_proxy";
+      "ALL_PROXY";
+      "no_proxy";
+      "NO_PROXY";
+      "SSL_CERT_FILE";
+      "SSL_CERT_DIR";
+    ]
 
 let () =
-  clear_proxy_environment ();
+  clear_network_environment ();
   run "Http_client"
     [
       ( "idle_timeout",
@@ -313,6 +342,7 @@ let () =
           test_case "non-http scheme rejected" `Quick (run_lwt test_non_http_scheme_rejected);
           test_case "tls to plain port not retryable" `Quick (run_lwt test_tls_to_plain_port_not_retryable);
           test_case "connect timeout" `Quick (run_lwt test_connect_timeout);
+          test_case "SSL_CERT_FILE honoured" `Quick (run_lwt test_ssl_cert_file_honoured);
         ] );
       ( "proxy",
         [

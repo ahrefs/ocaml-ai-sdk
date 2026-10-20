@@ -1,6 +1,10 @@
 (** HTTP client for provider API calls, built on libcurl through [Curl_lwt].
 
-    Only [http] and [https] URLs are accepted. [timeouts.connect_timeout] bounds
+    Only [http] and [https] URLs are accepted. Server certificates are verified
+    against libcurl's default CA file and directory. The [SSL_CERT_FILE] and
+    [SSL_CERT_DIR] environment variables, when set, replace the default file and
+    directory respectively; a file that cannot be read fails every HTTPS
+    request. [timeouts.connect_timeout] bounds
     connection setup, [timeouts.request_timeout] the wait for response headers
     and [timeouts.stream_idle_timeout] the gap between body chunks. Timeouts and
     transport failures fail with [Provider_error.Provider_error]. *)

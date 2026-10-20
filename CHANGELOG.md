@@ -23,6 +23,11 @@ All notable changes to this project will be documented in this file.
   tunnel is retryable only when its status is (408, 409, 429 or 5xx).
 - Only `http` and `https` URLs are accepted, whatever protocols the system
   libcurl was built with.
+- TLS certificates are verified against the system libcurl's default CA file
+  and directory. As with cohttp's OpenSSL backend, `SSL_CERT_FILE` replaces the
+  default file and `SSL_CERT_DIR` the default directory. Unlike OpenSSL, a
+  `SSL_CERT_FILE` that cannot be read now fails every HTTPS request with a
+  non-retryable error naming the file, instead of being skipped.
 - New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
   connect, proxy tunnel and TLS handshake. A connection that stalls no longer
   holds the request until `request_timeout`.
