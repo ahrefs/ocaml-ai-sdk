@@ -22,7 +22,7 @@ let parse_content (content : Ai_provider.Content.t list) =
 let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
   ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
-  ?telemetry ?(pending_tool_approvals = []) () =
+  ?telemetry ?(pending_tool_approvals = []) ?abort_signal () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -109,7 +109,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     else begin
       let opts =
         Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
-          ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
+          ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ?abort_signal
+          ()
       in
       (* Step span wrapping the LLM call *)
       let%lwt result, text, reasoning, tool_calls =
@@ -121,7 +122,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           | None -> [])
         @@ fun step_span ->
         let%lwt result =
-          Retry.with_retries ?max_retries ?max_retry_delay_ms (fun () -> Ai_provider.Language_model.generate model opts)
+          Retry.with_retries ?abort_signal ?max_retries ?max_retry_delay_ms (fun () ->
+            Ai_provider.Language_model.generate model opts)
         in
         let text, reasoning, tool_calls = parse_content result.content in
         (* Add response attributes to step span *)
@@ -175,7 +177,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               in
               let t0 = Unix.gettimeofday () in
               let%lwt tr =
-                Core_tool.execute_tool ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args
+                Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+                  ~args:tc.args ()
               in
               let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
               let%lwt () =
@@ -259,6 +262,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               Prompt_builder.append_assistant_and_tool_results ~messages:current_messages
                 ~assistant_content:result.content ~tool_results
             in
+            let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
             loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
               ~all_tool_calls:(List.rev_append tool_calls all_tool_calls)
               ~all_tool_results:(List.rev_append tool_results all_tool_results)
@@ -339,7 +343,9 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
                   is_error = false;
                   provider_metadata = None;
                 }
-            | true -> Core_tool.execute_tool ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name ~args:ta.args)
+            | true ->
+              Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name
+                ~args:ta.args ())
           approvals
       in
       let tool_calls =

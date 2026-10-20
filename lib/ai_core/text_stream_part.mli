@@ -64,3 +64,7 @@ type t =
       usage : Ai_provider.Usage.t;
     }
   | Error of { error : string }
+  | Abort of { reason : string option }
+    (** The caller's abort signal fired. It is the last part of the stream:
+          no [Finish_step] or [Finish] follows. [reason] is always [None] for
+          now, since {!Ai_provider.Abort_signal.t} carries no reason. *)

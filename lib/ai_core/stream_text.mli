@@ -10,7 +10,35 @@
     @param max_retries Number of additional attempts per provider call
       (default 2). Set to 0 to disable retries.
     @param max_retry_delay_ms Caps backoff; a server [Retry-After] above it
-      stops retries instead of sleeping. Uncapped by default. *)
+      stops retries instead of sleeping. Uncapped by default.
+    @param abort_signal Aborts the call. The signal goes to every provider
+      request and to the retry loop. When it fires, [full_stream] gets an
+      [Abort] part and closes at once, with no [Finish_step], [Finish] or
+      [Error] after it, and [text_stream] closes too. [on_chunk] gets the
+      [Abort] part as well. [usage], [finish_reason] and [steps] fail with
+      [Ai_provider.Abort_signal.Aborted], while [output] and
+      [provider_metadata] resolve to [None]. No model call, tool execution or
+      step starts after that, no further provider part is processed, and
+      [on_step_finish] and [on_finish] are not called. The read of the
+      provider stream ends on the abort even when the model ignores the
+      signal and never sends another part. Tools do not receive the signal,
+      so a tool that is running finishes first. A signal that has already
+      fired gives a stream holding [Start] then [Abort], and the model is
+      never called. In that case [on_abort] and [on_chunk] run before
+      [stream_text] returns. Once the call ends, it no longer holds a
+      callback on the signal.
+    @param on_chunk Called with each part right after it is pushed to
+      [full_stream], including the [Error] part of a failed call. An
+      exception it raises ends the call like any other error: an [Error] part
+      follows and the result promises fail with it. Exceptions it raises on
+      the [Error] or [Abort] part are ignored.
+    @param on_step_finish Called after the step's [Finish_step] part is
+      pushed, as upstream does.
+    @param on_finish Called after the streams close and the result promises
+      resolve. An exception it raises is ignored.
+    @param on_abort Called once when [abort_signal] fires, after [Start] and
+      before the [Abort] part, with the steps finished so far in order. An
+      exception it raises is ignored. *)
 
 val stream_text :
   model:Ai_provider.Language_model.t ->
@@ -36,8 +64,10 @@ val stream_text :
   ?on_step_finish:(Generate_text_result.step -> unit) ->
   ?on_chunk:(Text_stream_part.t -> unit) ->
   ?on_finish:(Generate_text_result.t -> unit) ->
+  ?on_abort:(steps:Generate_text_result.step list -> unit) ->
   ?transform:(Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t) ->
   ?telemetry:Telemetry.t ->
   ?pending_tool_approvals:Generate_text_result.pending_tool_approval list ->
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   unit ->
   Stream_text_result.t

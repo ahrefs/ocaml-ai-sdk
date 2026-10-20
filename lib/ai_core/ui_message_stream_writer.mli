@@ -6,33 +6,56 @@
 (** Opaque writer handle. Pass to {!write} and {!merge}. *)
 type t
 
-(** Write a single chunk to the output stream. Synchronous. *)
+(** Write a single chunk to the output stream. Synchronous. A chunk written
+    after the stream closed is dropped. *)
 val write : t -> Ui_message_chunk.t -> unit
 
-(** Merge another chunk stream into the output. Non-blocking: spawns a
-    background task that consumes [stream] and pushes each chunk into the
-    writer. Returns immediately so the caller can continue writing.
+(** Merge another chunk stream into the output. Non-blocking: starts reading
+    [stream] at once and pushes each chunk into the writer, so the caller can
+    keep writing. While the output is open it waits for every merged stream,
+    including one merged after [execute] returned, as upstream's does. A stream
+    merged after the writer's last chunk is still read to its end, but its
+    chunks are dropped.
 
-    If the merged stream raises, an [Error] chunk is pushed to the output.
-
-    {b Why Lwt.async is safe here:}
-    - The push target is an unbounded [Lwt_stream] — pushes never block or fail.
-    - [try%lwt] wraps the consumer so exceptions become [Error] chunks
-      instead of hitting [Lwt.async_exception_hook].
-    - An in-flight counter ensures the output stream stays open until all
-      merge tasks complete — no writes to a closed stream. *)
+    If the merged stream raises, an [Error] chunk formatted by [on_error] is
+    pushed to the output. *)
 val merge : t -> Ui_message_chunk.t Lwt_stream.t -> unit
 
 (** Create a composable UIMessage chunk stream.
 
+    The stream starts with a [Start] chunk and ends with a [Finish] chunk,
+    pushed after [execute] and all merges complete. When an [Abort] chunk was
+    written or merged, the writer pushes no [Finish].
+
+    When [execute] raises, the writer pushes an [Error] chunk right away, as
+    upstream's createUIMessageStream does, then waits for the merged streams
+    to end before it closes the stream. Chunks those streams push later come
+    after the [Error] chunk. For example, when [execute] merges a
+    {!Stream_text.stream_text} UI stream and then awaits [result.usage], an
+    abort fails [usage] with [Ai_provider.Abort_signal.Aborted], so the
+    stream holds the chunks merged so far, then the [Error] chunk and the
+    merged [Abort] chunk in the order they happened, and no [Finish]. The
+    [Error] chunk tells the client the request failed. To end an aborted
+    request quietly, catch [Aborted] in [execute].
+
     @param message_id Optional message ID included in the [Start] chunk.
       Use this for persistence: generate an ID server-side and pass it here
       so the frontend can associate the response with a stored message.
-    @param on_error Format an exception into an error string for the [Error]
-      chunk. Defaults to [Printexc.to_string].
+    @param on_error Format an exception, from [execute] or a merged stream,
+      into the text of the [Error] chunk. Defaults to [Printexc.to_string],
+      which sends the exception's text to the client; pass a function that
+      returns a fixed message to hide it, as upstream's default does.
+      When it raises, the text is ["An error occurred."], so the original
+      exception is not exposed.
     @param on_finish Called after [execute] and all in-flight merges complete.
       Receives [~finish_reason:None] (the stream composer doesn't know the
-      LLM's finish reason) and [~is_aborted:true] if [execute] raised.
+      LLM's finish reason). [~is_aborted] is true if [execute] raised or if
+      an [Abort] chunk was written or merged, for example from a
+      {!Stream_text.stream_text} call whose abort signal fired. A chunk
+      written while it runs is dropped, and the stream closes only once it
+      has returned, so a reader that waits for the end also waits for it; if
+      it never returns, the stream never closes. An exception it raises is
+      ignored.
     @param execute User function that receives a {!t} writer. Write chunks,
       merge streams, etc. The returned promise resolving signals that the
       user's direct work is done (merged streams may still be in flight). *)

@@ -9,7 +9,16 @@
     @param max_retries Number of additional attempts per provider call
       (default 2). Set to 0 to disable retries.
     @param max_retry_delay_ms Caps backoff; a server [Retry-After] above it
-      stops retries instead of sleeping. Uncapped by default. *)
+      stops retries instead of sleeping. Uncapped by default.
+    @param abort_signal Aborts the call. The signal goes to every provider
+      request and to the retry loop. Once it has settled, no model call or
+      tool starts, approved pending tools included. The returned promise
+      fails with [Ai_provider.Abort_signal.Aborted] when the abort stops work
+      the call still had to do, such as a provider request in flight or the
+      next step. An abort that comes after the final model response, or once
+      [stop_when] is met, stops nothing, and the call returns its result as
+      upstream's generateText does. Tools do not receive the signal, so a
+      tool that is running finishes first. *)
 
 val generate_text :
   model:Ai_provider.Language_model.t ->
@@ -35,5 +44,6 @@ val generate_text :
   ?on_step_finish:(Generate_text_result.step -> unit) ->
   ?telemetry:Telemetry.t ->
   ?pending_tool_approvals:Generate_text_result.pending_tool_approval list ->
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   unit ->
   Generate_text_result.t Lwt.t

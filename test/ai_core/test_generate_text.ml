@@ -1058,6 +1058,114 @@ let test_generate_no_retry_on_non_retryable () =
          | Ai_provider.Provider_error.Provider_error _ -> Lwt.return_unit
          | exn -> Lwt.fail exn))
 
+(* Every call asks for the [search] tool once per id in [tool_call_ids].
+   [calls] counts model calls and [signals] records, per call, whether the call
+   options carried the abort signal. *)
+let make_abort_tool_model ?(tool_call_ids = [ "tc_1" ]) () =
+  let calls = ref 0 in
+  let signals = ref [] in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-abort"
+
+    let generate (opts : Ai_provider.Call_options.t) =
+      incr calls;
+      signals := Option.is_some opts.abort_signal :: !signals;
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            List.map
+              (fun tool_call_id ->
+                Ai_provider.Content.Tool_call
+                  { tool_call_type = "function"; tool_call_id; tool_name = "search"; args = {|{"query":"x"}|} })
+              tool_call_ids;
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = None; model = None; headers = []; body = `Null };
+        }
+
+    let stream _opts = Lwt.fail_with "not implemented"
+  end in
+  calls, signals, (module M : Ai_provider.Language_model.S)
+
+(* Runs a [generate_text] call and names its outcome: "finished", "aborted"
+   for [Aborted], or the exception. *)
+let generate_outcome run =
+  Lwt_main.run
+    (Lwt.catch
+       (fun () ->
+         let%lwt (_ : Ai_core.Generate_text_result.t) = run () in
+         Lwt.return "finished")
+       (function
+         | Ai_provider.Abort_signal.Aborted -> Lwt.return "aborted"
+         | exn -> Lwt.return (Printexc.to_string exn)))
+
+(* A [search] tool that counts its runs in [runs] and fires the signal from
+   [abort] when given one. *)
+let counting_search_tool ?abort runs =
+  {
+    search_tool with
+    execute =
+      Some
+        (fun (_ : Yojson.Basic.t) ->
+          incr runs;
+          Option.iter (fun wakener -> Lwt.wakeup_later wakener ()) abort;
+          Lwt.return (`String "results"));
+  }
+
+(* The tool fires the signal, so the second step never starts. *)
+let test_abort_between_steps () =
+  let calls, signals, model = make_abort_tool_model () in
+  let signal, abort = Lwt.wait () in
+  let tool = counting_search_tool ~abort (ref 0) in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", tool ]
+        ~max_steps:3 ~abort_signal:signal ())
+  in
+  (check string) "outcome" "aborted" outcome;
+  (check int) "one model call" 1 !calls;
+  (check (list bool)) "the call got the signal" [ true ] !signals
+
+(* The first of two tool calls fires the signal, so the second never runs. *)
+let test_abort_between_tools () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let signal, abort = Lwt.wait () in
+  let runs = ref 0 in
+  let tool = counting_search_tool ~abort runs in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", tool ]
+        ~max_steps:3 ~abort_signal:signal ())
+  in
+  (check string) "outcome" "aborted" outcome;
+  (check int) "one tool run" 1 !runs;
+  (check int) "one model call" 1 !calls
+
+(* An approved pending tool does not run once the signal has fired. *)
+let test_abort_before_pending_approval () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model () in
+  let runs = ref 0 in
+  let tool = counting_search_tool runs in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc []; approved = true }
+  in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", tool ]
+        ~pending_tool_approvals:[ pending ] ~max_steps:3 ~abort_signal:Lwt.return_unit ())
+  in
+  (check string) "outcome" "aborted" outcome;
+  (check int) "tool never runs" 0 !runs;
+  (check int) "model never called" 0 !calls
+
 let () =
   run "Generate_text"
     [
@@ -1088,6 +1196,12 @@ let () =
           test_case "not_set_continues" `Quick test_stop_when_not_set;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
+      ( "abort",
+        [
+          test_case "between_steps" `Quick test_abort_between_steps;
+          test_case "between_tools" `Quick test_abort_between_tools;
+          test_case "before_pending_approval" `Quick test_abort_before_pending_approval;
+        ] );
       ( "retry",
         [
           test_case "retries_on_retryable_error" `Quick test_generate_retries_on_retryable_error;

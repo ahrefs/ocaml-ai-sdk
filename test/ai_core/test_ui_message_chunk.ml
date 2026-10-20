@@ -23,6 +23,12 @@ let test_abort () =
   let json = json_str (Abort { reason = Some "user cancelled" }) in
   (check string) "abort" {|{"type":"abort","reason":"user cancelled"}|} json
 
+(* Upstream's schema has reason as optional, so None must drop the key, not
+   send null. *)
+let test_abort_no_reason () =
+  let json = json_str (Abort { reason = None }) in
+  (check string) "abort no reason" {|{"type":"abort"}|} json
+
 (* Step boundaries *)
 let test_start_step () =
   let json = json_str Start_step in
@@ -192,6 +198,7 @@ let () =
           test_case "finish" `Quick test_finish;
           test_case "finish_no_reason" `Quick test_finish_no_reason;
           test_case "abort" `Quick test_abort;
+          test_case "abort_no_reason" `Quick test_abort_no_reason;
         ] );
       "steps", [ test_case "start_step" `Quick test_start_step; test_case "finish_step" `Quick test_finish_step ];
       ( "text",

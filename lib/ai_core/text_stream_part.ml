@@ -62,3 +62,4 @@ type t =
       usage : Ai_provider.Usage.t;
     }
   | Error of { error : string }
+  | Abort of { reason : string option }

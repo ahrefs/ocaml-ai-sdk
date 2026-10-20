@@ -1051,6 +1051,548 @@ let test_stream_surfaces_provider_metadata () =
   | Some _ -> ()
   | None -> fail "expected provider_metadata to be Some after a Finish chunk carrying metadata"
 
+(* Abort *)
+
+(* The first call streams a call to the [search] tool. Later calls stream
+   "Found" and then hang like a slow provider until the abort signal fires,
+   which ends the stream without a Finish part, as Stream_pump.pump does.
+   [calls] counts model calls and [signals] records, per call, whether the
+   call options carried the abort signal. *)
+let make_abort_stream_model () =
+  let calls = ref 0 in
+  let signals = ref [] in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-abort-stream"
+
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream (opts : Ai_provider.Call_options.t) =
+      incr calls;
+      signals := Option.is_some opts.abort_signal :: !signals;
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      (match !calls with
+      | 1 ->
+        push
+          (Some
+             (Ai_provider.Stream_part.Tool_call_delta
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_1";
+                  tool_name = "search";
+                  args_text_delta = {|{"query":"test"}|};
+                }));
+        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Finish
+                {
+                  finish_reason = Tool_calls;
+                  usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
+                  provider_metadata = None;
+                }));
+        push None
+      | _ ->
+        push (Some (Ai_provider.Stream_part.Text { text = "Found" }));
+        Option.iter
+          (fun signal -> ignore (Ai_provider.Abort_signal.on_abort signal (fun () -> push None) : unit -> unit))
+          opts.abort_signal);
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  calls, signals, (module M : Ai_provider.Language_model.S)
+
+let part_name (part : Ai_core.Text_stream_part.t) =
+  match part with
+  | Start -> "start"
+  | Start_step -> "start-step"
+  | Text_start _ -> "text-start"
+  | Text_delta _ -> "text-delta"
+  | Text_end _ -> "text-end"
+  | Reasoning_start _ -> "reasoning-start"
+  | Reasoning_delta _ -> "reasoning-delta"
+  | Reasoning_end _ -> "reasoning-end"
+  | Tool_call _ -> "tool-call"
+  | Tool_call_delta _ -> "tool-call-delta"
+  | Tool_result _ -> "tool-result"
+  | Tool_output_denied _ -> "tool-output-denied"
+  | Tool_approval_request _ -> "tool-approval-request"
+  | Source _ -> "source"
+  | File _ -> "file"
+  | Finish_step _ -> "finish-step"
+  | Finish _ -> "finish"
+  | Error _ -> "error"
+  | Abort { reason = None } -> "abort"
+  | Abort { reason = Some reason } -> "abort:" ^ reason
+
+let failed_with_aborted promise =
+  match Lwt.state promise with
+  | Lwt.Fail Ai_provider.Abort_signal.Aborted -> true
+  | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false
+
+let check_result_aborted (result : Ai_core.Stream_text_result.t) =
+  (check bool) "usage failed with Aborted" true (failed_with_aborted result.usage);
+  (check bool) "finish_reason failed with Aborted" true (failed_with_aborted result.finish_reason);
+  (check bool) "steps failed with Aborted" true (failed_with_aborted result.steps)
+
+(* Reads [stream] up to and including the first part that satisfies [f]. *)
+let rec read_until f stream ~acc =
+  match%lwt Lwt_stream.get stream with
+  | None -> Lwt.return (List.rev acc)
+  | Some part when f part -> Lwt.return (List.rev (part :: acc))
+  | Some part -> read_until f stream ~acc:(part :: acc)
+
+let test_abort_mid_stream () =
+  let calls, signals, model = make_abort_stream_model () in
+  let signal, abort = Lwt.wait () in
+  let aborted_with = ref None in
+  let step_finishes = ref 0 in
+  let finished = ref false in
+  let chunks = ref [] in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3 ~abort_signal:signal
+      ~on_abort:(fun ~steps -> aborted_with := Some steps)
+      ~on_step_finish:(fun _ -> incr step_finishes)
+      ~on_finish:(fun _ -> finished := true)
+      ~on_chunk:(fun part -> chunks := part_name part :: !chunks)
+      ()
+  in
+  let%lwt before =
+    read_until
+      (function
+        | Ai_core.Text_stream_part.Text_delta _ -> true
+        | _ -> false)
+      result.full_stream ~acc:[]
+  in
+  Lwt.wakeup_later abort ();
+  let%lwt after = Lwt_stream.to_list result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check (list string))
+    "parts"
+    [
+      "start";
+      "start-step";
+      "tool-call-delta";
+      "tool-call";
+      "tool-result";
+      "finish-step";
+      "start-step";
+      "text-start";
+      "text-delta";
+      "abort";
+    ]
+    (List.map part_name (before @ after));
+  (check (list string)) "on_chunk sees every part" (List.map part_name (before @ after)) (List.rev !chunks);
+  (check (option (list string)))
+    "on_abort gets the first step" (Some [ "search" ])
+    (Option.map
+       (List.concat_map (fun (step : Ai_core.Generate_text_result.step) ->
+          List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_name) step.tool_calls))
+       !aborted_with);
+  (check int) "on_step_finish for the first step only" 1 !step_finishes;
+  (check bool) "on_finish not called" false !finished;
+  check_result_aborted result;
+  (check int) "model calls" 2 !calls;
+  (check (list bool)) "every call got the signal" [ true; true ] !signals;
+  Lwt.return_unit
+
+(* As upstream, [Start] comes before the [Abort] part even when the signal
+   fired before the call. *)
+let test_abort_before_start () =
+  let calls, (_ : bool list ref), model = make_abort_stream_model () in
+  let aborted_with = ref None in
+  let chunks = ref [] in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~abort_signal:Lwt.return_unit
+      ~on_abort:(fun ~steps -> aborted_with := Some (List.length steps))
+      ~on_chunk:(fun part -> chunks := part_name part :: !chunks)
+      ()
+  in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  let%lwt texts = Lwt_stream.to_list result.text_stream in
+  let%lwt () = Lwt.pause () in
+  (check (list string)) "parts" [ "start"; "abort" ] (List.map part_name parts);
+  (check (list string)) "on_chunk parts" [ "start"; "abort" ] (List.rev !chunks);
+  (check (list string)) "no text" [] texts;
+  (check (option int)) "on_abort with no steps" (Some 0) !aborted_with;
+  check_result_aborted result;
+  (check int) "model never called" 0 !calls;
+  Lwt.return_unit
+
+(* Runs a search that fires the abort signal from [on_step_finish] or from the
+   tool. Returns the parts, the number of steps on_abort got, the model call
+   count and the tool run count. *)
+let run_abort_in_first_step ~in_tool =
+  let calls, (_ : bool list ref), model = make_abort_stream_model () in
+  let signal, abort = Lwt.wait () in
+  let tool_runs = ref 0 in
+  let aborted_steps = ref None in
+  let tool =
+    {
+      search_tool with
+      execute =
+        Some
+          (fun (_ : Yojson.Basic.t) ->
+            incr tool_runs;
+            if in_tool then Lwt.wakeup_later abort ();
+            Lwt.return (`String "results"));
+    }
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", tool ]
+      ~max_steps:3 ~abort_signal:signal
+      ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> if not in_tool then Lwt.wakeup_later abort ())
+      ~on_abort:(fun ~steps -> aborted_steps := Some (List.length steps))
+      ()
+  in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  let%lwt () = Lwt.pause () in
+  check_result_aborted result;
+  Lwt.return (List.map part_name parts, !aborted_steps, !calls, !tool_runs)
+
+let test_abort_in_on_step_finish () =
+  let%lwt parts, aborted_steps, calls, tool_runs = run_abort_in_first_step ~in_tool:false in
+  (check (list string))
+    "parts"
+    [ "start"; "start-step"; "tool-call-delta"; "tool-call"; "tool-result"; "finish-step"; "abort" ]
+    parts;
+  (check (option int)) "on_abort gets the finished step" (Some 1) aborted_steps;
+  (check int) "one model call" 1 calls;
+  (check int) "one tool run" 1 tool_runs;
+  Lwt.return_unit
+
+(* The tool runs before its step finishes, so on_abort gets no steps, and its
+   result comes after the abort, so the stream drops it. *)
+let test_abort_during_tool () =
+  let%lwt parts, aborted_steps, calls, tool_runs = run_abort_in_first_step ~in_tool:true in
+  (check (list string)) "parts" [ "start"; "start-step"; "tool-call-delta"; "tool-call"; "abort" ] parts;
+  (check (option int)) "on_abort gets no steps" (Some 0) aborted_steps;
+  (check int) "one model call" 1 calls;
+  (check int) "one tool run" 1 tool_runs;
+  Lwt.return_unit
+
+(* The UI stream ends with the abort chunk and has no finish chunk. *)
+let test_abort_ui_stream () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let signal, abort = Lwt.wait () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3 ~abort_signal:signal
+      ~on_chunk:(function
+        | Text_delta _ -> Lwt.wakeup_later abort ()
+        | _ -> ())
+      ()
+  in
+  let%lwt sse = Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_sse_stream result) in
+  let types =
+    List.filter_map
+      (fun event ->
+        match String.trim event with
+        | "data: [DONE]" -> Some "[DONE]"
+        | line ->
+          let json = Yojson.Basic.from_string (String.sub line 6 (String.length line - 6)) in
+          Some (Yojson.Basic.Util.to_string (Yojson.Basic.Util.member "type" json)))
+      sse
+  in
+  (check (list string))
+    "chunk types"
+    [
+      "start";
+      "start-step";
+      "tool-input-start";
+      "tool-input-delta";
+      "tool-input-available";
+      "tool-output-available";
+      "finish-step";
+      "start-step";
+      "text-start";
+      "text-delta";
+      "abort";
+      "[DONE]";
+    ]
+    types;
+  (check string) "abort chunk" "data: {\"type\":\"abort\"}" (String.trim (List.nth sse (List.length sse - 2)));
+  Lwt.return_unit
+
+(* Collects [stream], or gives [None] when it has not closed within a second,
+   so a stream that never closes fails the test instead of hanging it. *)
+let to_list_or_hang stream =
+  Lwt.pick
+    [
+      (let%lwt parts = Lwt_stream.to_list stream in
+       Lwt.return_some parts);
+      (let%lwt () = Lwt_unix.sleep 1.0 in
+       Lwt.return_none);
+    ]
+
+let failed_with_failure message promise =
+  match Lwt.state promise with
+  | Lwt.Fail (Failure m) -> String.equal m message
+  | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false
+
+(* An exception from [on_chunk] on the [Finish] part becomes an [Error] part,
+   and every stream and promise still settles. *)
+let test_on_chunk_raises_on_finish () =
+  let model = make_text_stream_model "Hi" in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello"
+      ~on_chunk:(function
+        | Finish _ -> failwith "on_chunk failed"
+        | _ -> ())
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt texts = to_list_or_hang result.text_stream in
+  let%lwt partial = to_list_or_hang result.partial_output_stream in
+  let%lwt () = Lwt.pause () in
+  (check (option (list string)))
+    "parts"
+    (Some
+       [ "start"; "start-step"; "text-start"; "text-delta"; "text-delta"; "text-end"; "finish-step"; "finish"; "error" ])
+    (Option.map (List.map part_name) parts);
+  (check (option (list string))) "text_stream closes" (Some [ "H"; "i" ]) texts;
+  (check bool) "partial_output_stream closes" true (Option.is_some partial);
+  (check bool) "usage fails" true (failed_with_failure "on_chunk failed" result.usage);
+  (check bool) "finish_reason fails" true (failed_with_failure "on_chunk failed" result.finish_reason);
+  (check bool) "steps fails" true (failed_with_failure "on_chunk failed" result.steps);
+  (check bool) "output resolves to None" true
+    (match Lwt.state result.output with
+    | Lwt.Return None -> true
+    | Lwt.Return (Some _) | Lwt.Fail _ | Lwt.Sleep -> false);
+  Lwt.return_unit
+
+(* [on_finish] runs after the call has settled, so its exception changes
+   nothing. *)
+let test_on_finish_raises () =
+  let model = make_text_stream_model "Hi" in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~on_finish:(fun _ -> failwith "on_finish failed") ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt partial = to_list_or_hang result.partial_output_stream in
+  let%lwt usage = result.usage in
+  let%lwt steps = result.steps in
+  (check (option string))
+    "last part" (Some "finish")
+    (Option.bind parts (fun parts -> Option.map part_name (List.nth_opt parts (List.length parts - 1))));
+  (check bool) "partial_output_stream closes" true (Option.is_some partial);
+  (check int) "usage" 10 usage.input_tokens;
+  (check int) "one step" 1 (List.length steps);
+  Lwt.return_unit
+
+(* As upstream, [Finish_step] is emitted before [on_step_finish] runs. *)
+let test_finish_step_before_on_step_finish () =
+  let model = make_text_stream_model "Hi" in
+  let log = ref [] in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello"
+      ~on_chunk:(function
+        | Finish_step _ -> log := "finish-step" :: !log
+        | Finish _ -> log := "finish" :: !log
+        | _ -> ())
+      ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> log := "on_step_finish" :: !log)
+      ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list) = Lwt_stream.to_list result.full_stream in
+  (check (list string)) "order" [ "finish-step"; "on_step_finish"; "finish" ] (List.rev !log);
+  Lwt.return_unit
+
+(* The abort path ignores exceptions from [on_chunk] and still closes. *)
+let test_abort_on_chunk_raises () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let aborted = ref false in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~abort_signal:Lwt.return_unit
+      ~on_abort:(fun ~steps:_ -> aborted := true)
+      ~on_chunk:(fun (_ : Ai_core.Text_stream_part.t) -> failwith "on_chunk failed")
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check (option (list string))) "parts" (Some [ "start"; "abort" ]) (Option.map (List.map part_name) parts);
+  (check bool) "on_abort called" true !aborted;
+  check_result_aborted result;
+  Lwt.return_unit
+
+(* An abort stops reading the provider stream. *)
+let test_abort_stops_reading_provider () =
+  let provider_stream =
+    Lwt_stream.of_list
+      (Ai_provider.Stream_part.Stream_start { warnings = [] }
+       :: List.map (fun text -> Ai_provider.Stream_part.Text { text }) [ {|{"a":|}; "1"; {|,"b":2|}; "}" ]
+      @ [
+          Ai_provider.Stream_part.Finish
+            {
+              finish_reason = Stop;
+              usage = { input_tokens = 1; output_tokens = 1; total_tokens = Some 2 };
+              provider_metadata = None;
+            };
+        ])
+  in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-buffered"
+    let generate _opts = Lwt.fail_with "not implemented"
+    let stream _opts =
+      Lwt.return { Ai_provider.Stream_result.stream = provider_stream; warnings = []; raw_response = None }
+  end in
+  let signal, abort = Lwt.wait () in
+  let result =
+    Ai_core.Stream_text.stream_text
+      ~model:(module M)
+      ~prompt:"x" ~abort_signal:signal
+      ~on_chunk:(function
+        | Text_delta _ -> Lwt.wakeup_later abort ()
+        | _ -> ())
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt partial = to_list_or_hang result.partial_output_stream in
+  let%lwt () = Lwt.pause () in
+  (check (option (list string)))
+    "parts"
+    (Some [ "start"; "start-step"; "text-start"; "text-delta"; "abort" ])
+    (Option.map (List.map part_name) parts);
+  (check bool) "partial_output_stream closes" true (Option.is_some partial);
+  (check bool) "provider parts left unread" true (Lwt_stream.get_available provider_stream <> []);
+  check_result_aborted result;
+  Lwt.return_unit
+
+(* The step that runs pending approvals counts as finished for [on_abort], as it
+   does for [steps]. *)
+let test_abort_after_pending_approvals () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let signal, abort = Lwt.wait () in
+  let aborted_with = ref None in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc [ "query", `String "first" ]; approved = true }
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~pending_tool_approvals:[ pending ] ~max_steps:4 ~abort_signal:signal
+      ~on_abort:(fun ~steps -> aborted_with := Some steps)
+      ~on_chunk:(function
+        | Text_delta _ -> Lwt.wakeup_later abort ()
+        | _ -> ())
+      ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list option) = to_list_or_hang result.full_stream in
+  (check (option (list (list string))))
+    "on_abort gets the approval step and the search step"
+    (Some [ [ "tc_0" ]; [ "tc_1" ] ])
+    (Option.map
+       (List.map (fun (step : Ai_core.Generate_text_result.step) ->
+          List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_call_id) step.tool_calls))
+       !aborted_with);
+  Lwt.return_unit
+
+(* [on_chunk] gets the [Error] part too, as upstream's onChunk does. An
+   exception it raises there is ignored, so the call still ends with the
+   provider's error. *)
+let test_on_chunk_gets_error () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-failing"
+    let generate _opts = Lwt.fail_with "not implemented"
+    let stream _opts = Lwt.fail_with "provider down"
+  end in
+  let chunks = ref [] in
+  let result =
+    Ai_core.Stream_text.stream_text
+      ~model:(module M)
+      ~prompt:"Hello" ~max_retries:0
+      ~on_chunk:(fun part ->
+        chunks := part_name part :: !chunks;
+        match part with
+        | Error _ -> failwith "on_chunk failed"
+        | _ -> ())
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  let parts = Option.map (List.map part_name) parts in
+  (check (option string))
+    "last part" (Some "error")
+    (Option.bind parts (fun parts -> List.nth_opt parts (List.length parts - 1)));
+  (check (option (list string))) "on_chunk sees every part" parts (Some (List.rev !chunks));
+  (check bool) "usage fails with the provider error" true (failed_with_failure "provider down" result.usage);
+  Lwt.return_unit
+
+(* A custom model that ignores the abort signal: its stream sends one text part
+   and then neither pushes nor closes. *)
+let make_stalled_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-stalled"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = "Hi" }));
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+(* Records the names of the spans that ended. *)
+let make_exit_collector () =
+  let names = Hashtbl.create 8 in
+  let exited = ref [] in
+  let next_id = ref 0 in
+  let callbacks : unit Trace_core.Collector.Callbacks.t =
+    Trace_core.Collector.Callbacks.make
+      ~enter_span:(fun () ~__FUNCTION__:_ ~__FILE__:_ ~__LINE__:_ ~level:_ ~params:_ ~data:_ ~parent:_ name ->
+        let id = !next_id in
+        incr next_id;
+        Hashtbl.replace names id name;
+        Test_span id)
+      ~exit_span:(fun () span ->
+        match span with
+        | Test_span id -> Option.iter (fun name -> exited := name :: !exited) (Hashtbl.find_opt names id)
+        | _ -> ())
+      ~add_data_to_span:(fun () _span _data -> ())
+      ~message:(fun () ~level:_ ~params:_ ~data:_ ~span:_ _msg -> ())
+      ~metric:(fun () ~level:_ ~params:_ ~data:_ _name _metric -> ())
+      ()
+  in
+  Trace_core.Collector.C_some ((), callbacks), exited
+
+(* The background job must finish after an abort even when the model never
+   pushes again. Its root span ends only when the job does. *)
+let test_abort_with_stalled_provider () =
+  let collector, exited = make_exit_collector () in
+  Trace_core.with_setup_collector collector (fun () ->
+    Lwt_main.run
+      (let signal, (_ : unit Lwt.u) = Lwt.task () in
+       let telemetry = Ai_core.Telemetry.create ~enabled:true () in
+       let result =
+         Ai_core.Stream_text.stream_text ~model:(make_stalled_model ()) ~prompt:"Hello" ~abort_signal:signal ~telemetry
+           ()
+       in
+       let%lwt (_ : Ai_core.Text_stream_part.t list) =
+         read_until
+           (function
+             | Ai_core.Text_stream_part.Text_delta _ -> true
+             | _ -> false)
+           result.full_stream ~acc:[]
+       in
+       Lwt.cancel signal;
+       let%lwt parts = to_list_or_hang result.full_stream in
+       let%lwt () = Lwt_unix.sleep 0.1 in
+       (check (option (list string))) "parts after the abort" (Some [ "abort" ]) (Option.map (List.map part_name) parts);
+       (check bool) "ai.streamText span ended" true (List.mem "ai.streamText" !exited);
+       (check bool) "ai.streamText.doStream span ended" true (List.mem "ai.streamText.doStream" !exited);
+       Lwt.return_unit))
+
 let () =
   run "Stream_text"
     [
@@ -1069,7 +1611,14 @@ let () =
           test_case "denied_emits_output_denied" `Quick test_denied_tool_emits_output_denied;
           test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes_stream;
         ] );
-      "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
+      ( "callbacks",
+        [
+          test_case "on_chunk" `Quick test_on_chunk_callback;
+          test_case "on_chunk_raises_on_finish" `Quick (run_lwt test_on_chunk_raises_on_finish);
+          test_case "on_finish_raises" `Quick (run_lwt test_on_finish_raises);
+          test_case "finish_step_before_on_step_finish" `Quick (run_lwt test_finish_step_before_on_step_finish);
+          test_case "on_chunk_gets_error" `Quick (run_lwt test_on_chunk_gets_error);
+        ] );
       ( "stop_when",
         [
           test_case "step_count" `Quick test_stream_stop_when_step_count;
@@ -1096,5 +1645,17 @@ let () =
           test_case "disabled_no_spans" `Quick test_stream_telemetry_disabled;
           test_case "integration_callbacks" `Quick test_stream_telemetry_integration_callbacks;
           test_case "root_attributes" `Quick test_stream_telemetry_root_attributes;
+        ] );
+      ( "abort",
+        [
+          test_case "mid_stream" `Quick (run_lwt test_abort_mid_stream);
+          test_case "before_start" `Quick (run_lwt test_abort_before_start);
+          test_case "in_on_step_finish" `Quick (run_lwt test_abort_in_on_step_finish);
+          test_case "during_tool" `Quick (run_lwt test_abort_during_tool);
+          test_case "ui_stream" `Quick (run_lwt test_abort_ui_stream);
+          test_case "on_chunk_raises" `Quick (run_lwt test_abort_on_chunk_raises);
+          test_case "stops_reading_provider" `Quick (run_lwt test_abort_stops_reading_provider);
+          test_case "after_pending_approvals" `Quick (run_lwt test_abort_after_pending_approvals);
+          test_case "stalled_provider" `Quick test_abort_with_stalled_provider;
         ] );
     ]

@@ -32,7 +32,10 @@ val resolve_messages :
   unit ->
   Ai_provider.Prompt.message list
 
-(** Build a [Call_options.t] with common defaults. *)
+(** Build a [Call_options.t] with common defaults.
+
+    @param abort_signal Copied to [Call_options.abort_signal], which the
+      provider uses to abort the request. *)
 val make_call_options :
   messages:Ai_provider.Prompt.message list ->
   tools:Ai_provider.Tool.t list ->
@@ -46,6 +49,7 @@ val make_call_options :
   ?seed:int ->
   ?provider_options:Ai_provider.Provider_options.t ->
   ?headers:(string * string) list ->
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   unit ->
   Ai_provider.Call_options.t
 

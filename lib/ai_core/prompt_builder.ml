@@ -77,7 +77,7 @@ let resolve_messages ?system ?system_provider_options ?prompt ?messages () =
   | None -> base
 
 let make_call_options ~messages ~tools ?tool_choice ?(mode = Ai_provider.Mode.Regular) ?max_output_tokens ?temperature
-  ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers () =
+  ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ?abort_signal () =
   {
     Ai_provider.Call_options.prompt = messages;
     mode;
@@ -93,7 +93,7 @@ let make_call_options ~messages ~tools ?tool_choice ?(mode = Ai_provider.Mode.Re
     presence_penalty = None;
     provider_options = Option.value ~default:Ai_provider.Provider_options.empty provider_options;
     headers = Option.value ~default:[] headers;
-    abort_signal = None;
+    abort_signal;
   }
 
 let tools_to_provider tools =

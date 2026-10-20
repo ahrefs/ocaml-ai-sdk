@@ -39,6 +39,55 @@ All notable changes to this project will be documented in this file.
   has settled, and an abort cuts a backoff or `retry-after` sleep short. An
   attempt that fails with `Aborted` is re-raised as is, never retried or
   wrapped in `Retry_error`.
+- `Generate_text.generate_text` takes `?abort_signal`. The signal goes to every
+  provider request and to the retry loop. Once it has fired, no model call or
+  tool starts, approved pending tools included. The call fails with
+  `Abort_signal.Aborted` when the abort stops work it still had to do. An
+  abort after the final model response, or once `stop_when` is met, stops
+  nothing, and the call returns its result, as upstream's generateText does.
+- `Stream_text.stream_text` takes `?abort_signal` and `?on_abort`, following
+  upstream's streamText. When the signal fires, `on_abort` gets the steps
+  finished so far, then `full_stream` and `on_chunk` get a new
+  `Text_stream_part.Abort` part and the stream closes. No `Finish_step`,
+  `Finish` or `Error` part follows, and `on_step_finish` and `on_finish` are
+  not called again. `usage`, `finish_reason` and `steps` fail with `Aborted`.
+  The job processes no further provider part and starts no model call, tool or
+  step after the abort. A signal that has already fired gives a stream
+  holding `Start` then `Abort`, without calling the model, and runs
+  `on_abort` and `on_chunk` before `stream_text` returns. The provider stream
+  read ends on the abort even when a custom model ignores the signal and
+  stalls. Tools do not receive the signal yet.
+- `on_chunk` now also gets the `Error` part that ends a failed
+  `stream_text` call, as upstream's onChunk does. An exception it raises on
+  that part is ignored.
+- `Stream_text.stream_text` now pushes each step's `Finish_step` part before
+  calling `on_step_finish`, as upstream does. It used to call
+  `on_step_finish` first. An exception from `on_finish` is ignored, since the
+  streams and promises have already settled by then.
+- Breaking for direct callers: `Core_tool.execute_tool` takes
+  `?abort_signal` and a final `()`. It fails with `Aborted` without running
+  the tool once the signal has fired. `generate_text` and `stream_text` run
+  every tool through it.
+- `Stream_text_result.to_ui_message_stream` turns the `Abort` part into the
+  `{"type":"abort"}` chunk, with no `finish` chunk after it.
+- `Ui_message_stream_writer.create_ui_message_stream` passes
+  `~is_aborted:true` to `on_finish` when an `Abort` chunk was written or merged,
+  as well as when `execute` raises. After an `Abort` chunk, it no longer
+  pushes its own `finish` chunk.
+- When `execute` raises, the writer now pushes the `error` chunk at once and
+  then waits for the merged streams to end before it closes, as upstream's
+  createUIMessageStream does. It used to close at once, so a merge still
+  running pushed into the closed stream and raised `Lwt_stream.Closed` out
+  of `Lwt.async`, which exits the process by default. A write or merged
+  chunk that comes after the stream closed is now dropped.
+- A chunk written while the writer's `on_finish` runs is now dropped rather
+  than sent after `finish`. The stream still closes only after `on_finish`
+  returns. A merged stream's failure is now formatted by `on_error` too, and
+  when `on_error` itself raises the error chunk reads "An error occurred."
+  instead of the original exception text.
+- `Prompt_builder.make_call_options` takes `?abort_signal`.
+- `Text_stream_part.t` has a new `Abort` constructor, so exhaustive matches on
+  it need a new case.
 
 ## 0.7 — 2026-10-19
 

@@ -29,7 +29,8 @@ let safe_parse_json_args s =
 
 let denied_result = `Assoc [ "type", `String "execution-denied" ]
 
-let execute_tool ~tools ~tool_call_id ~tool_name ~args =
+let execute_tool ?abort_signal ~tools ~tool_call_id ~tool_name ~args () =
+  let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
   match List.assoc_opt tool_name tools with
   | None ->
     Lwt.return
