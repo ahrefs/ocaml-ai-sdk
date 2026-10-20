@@ -47,16 +47,15 @@ let pump ~provider ~push f events =
     with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
       fail (deserialization_error ~provider ~raw:evt.data exn)
   in
-  Lwt.async (fun () ->
-    Lwt.finalize
-      (fun () ->
-        try%lwt Lwt_stream.iter on_event events with
-        | Provider_error.Provider_error error ->
-          fail error;
-          Lwt.return_unit
-        | exn ->
-          fail (deserialization_error ~provider ~raw:"" exn);
-          Lwt.return_unit)
-      (fun () ->
-        push None;
-        Lwt.return_unit))
+  let stream_failed = function
+    | Provider_error.Provider_error error -> error
+    | exn -> deserialization_error ~provider ~raw:"" exn
+  in
+  Lwt.dont_wait
+    (fun () ->
+      let%lwt () = Lwt_stream.iter on_event events in
+      push None;
+      Lwt.return_unit)
+    (fun exn ->
+      fail (stream_failed exn);
+      push None)
