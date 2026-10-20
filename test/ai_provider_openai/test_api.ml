@@ -59,8 +59,7 @@ let test_mock_fetch () =
       ~stream:false ()
   in
   let result =
-    Lwt_main.run
-      (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false ~abort_signal:None)
+    Lwt_main.run (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false)
   in
   match result with
   | `Json json ->
@@ -85,10 +84,7 @@ let test_headers_with_org () =
     Ai_provider_openai.Config.create ~api_key:"sk-test" ~organization:"org-123" ~project:"proj-456" ~fetch ()
   in
   let body = Ai_provider_openai.Openai_api.make_request_body ~model:"gpt-4o" ~messages:[] ~stream:false () in
-  let _ =
-    Lwt_main.run
-      (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false ~abort_signal:None)
-  in
+  let _ = Lwt_main.run (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false) in
   (check bool) "called" true !called
 
 let () =

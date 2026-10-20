@@ -215,8 +215,7 @@ let test_messages_with_mock_fetch () =
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
   let result =
-    Lwt_main.run
-      (Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false ~abort_signal:None)
+    Lwt_main.run (Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false)
   in
   match result with
   | `Json json ->
@@ -237,8 +236,8 @@ let test_messages_aborted_skips_fetch () =
     Lwt_main.run
       (try%lwt
          let%lwt (_ : [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ]) =
-           Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false
-             ~abort_signal:(Some Lwt.return_unit)
+           Ai_provider_anthropic.Anthropic_api.messages_abortable (Some Lwt.return_unit) ~config ~body ~extra_headers:[]
+             ~stream:false
          in
          Lwt.return_false
        with Ai_provider.Abort_signal.Aborted -> Lwt.return_true)

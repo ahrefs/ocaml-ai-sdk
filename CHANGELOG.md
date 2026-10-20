@@ -26,10 +26,11 @@ All notable changes to this project will be documented in this file.
 ### Provider wiring (`ai_provider_anthropic`, `ai_provider_openai`, `ai_provider_openrouter`)
 
 - The models pass `Call_options.abort_signal` to the HTTP client.
-- Breaking for direct callers: `Anthropic_api.messages`,
-  `Openai_api.chat_completions` and `Openrouter_api.chat_completions` take a
-  new required `~abort_signal` argument. Pass `~abort_signal:None` to keep the
-  old behaviour.
+- New `Anthropic_api.messages_abortable`,
+  `Openai_api.chat_completions_abortable` and
+  `Openrouter_api.chat_completions_abortable` take the signal as their first
+  argument, and the models call them. `messages` and `chat_completions` keep
+  their signatures and never abort.
 - A custom `fetch` cannot be interrupted. An aborted request fails before
   calling it, but a call in progress runs to the end.
 

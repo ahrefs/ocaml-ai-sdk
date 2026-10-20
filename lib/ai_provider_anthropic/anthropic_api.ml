@@ -110,7 +110,7 @@ let make_headers ~(config : Config.t) ~extra_headers =
   in
   base_headers @ auth_headers @ config.default_headers @ extra_headers
 
-let messages ~config ~body ~extra_headers ~stream ~abort_signal =
+let messages_abortable abort_signal ~config ~body ~extra_headers ~stream =
   let body_json = request_body_to_json body in
   match config.Config.fetch with
   | Some fetch ->
@@ -138,3 +138,5 @@ let messages ~config ~body ~extra_headers ~stream ~abort_signal =
     | false, false ->
       let%lwt body = Http_client.body_string response in
       Lwt.return (`Json (Yojson.Basic.from_string body)))
+
+let messages ~config ~body ~extra_headers ~stream = messages_abortable None ~config ~body ~extra_headers ~stream

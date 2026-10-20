@@ -135,7 +135,7 @@ let provider_error_of_http_response ~body response =
   let retry_after = Http_client.header response "retry-after" in
   Openrouter_error.of_response_with_retry_after ~retry_after_ms ~status ~body ~retry_after ()
 
-let chat_completions ~config ~body ~extra_body ~extra_headers ~stream ~abort_signal =
+let chat_completions_abortable abort_signal ~config ~body ~extra_body ~extra_headers ~stream =
   let body_json = merge_extra_body (request_body_to_json body) extra_body in
   match config.Config.fetch with
   | Some fetch ->
@@ -161,3 +161,6 @@ let chat_completions ~config ~body ~extra_body ~extra_headers ~stream ~abort_sig
       let%lwt body = Http_client.body_string response in
       let%lwt json = check_200_error (Yojson.Basic.from_string body) in
       Lwt.return (`Json json))
+
+let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
+  chat_completions_abortable None ~config ~body ~extra_body ~extra_headers ~stream

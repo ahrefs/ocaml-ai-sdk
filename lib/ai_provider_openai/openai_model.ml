@@ -154,8 +154,7 @@ let create ~config ~model =
     let generate opts =
       let body, warnings = prepare_request ~model ~stream:false opts in
       match%lwt
-        Openai_api.chat_completions ~config ~body ~extra_headers:opts.headers ~stream:false
-          ~abort_signal:opts.abort_signal
+        Openai_api.chat_completions_abortable opts.abort_signal ~config ~body ~extra_headers:opts.headers ~stream:false
       with
       | `Json json ->
         let result = Convert_response.parse_response json in
@@ -165,8 +164,7 @@ let create ~config ~model =
     let stream opts =
       let body, warnings = prepare_request ~model ~stream:true opts in
       match%lwt
-        Openai_api.chat_completions ~config ~body ~extra_headers:opts.headers ~stream:true
-          ~abort_signal:opts.abort_signal
+        Openai_api.chat_completions_abortable opts.abort_signal ~config ~body ~extra_headers:opts.headers ~stream:true
       with
       | `Stream line_stream ->
         let sse_events = Sse.parse_events line_stream in
