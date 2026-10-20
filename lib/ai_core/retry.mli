@@ -41,8 +41,15 @@ val reason_to_string : retry_reason -> string
       this limit instead stops retrying immediately, without sleeping or issuing
       another request.
     @param sleep Function called to sleep between retries (default [Lwt_unix.sleep]).
-    @param random Random source in [[0, 1)] used for bounded jitter. *)
+      With [abort_signal], an abort during the sleep cancels the promise [sleep]
+      returned.
+    @param random Random source in [[0, 1)] used for bounded jitter.
+    @param abort_signal Stops the loop with [Ai_provider.Abort_signal.Aborted]:
+      no attempt starts once it has settled, and it ends a sleep between
+      attempts early. An attempt that fails with [Aborted] is re-raised as is,
+      never retried or wrapped in [Retry_error]. *)
 val with_retries :
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   ?max_retries:int ->
   ?initial_delay_ms:int ->
   ?backoff_factor:int ->

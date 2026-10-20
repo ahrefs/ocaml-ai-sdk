@@ -29,6 +29,10 @@ let is_transient_network_error = function
   | Unix.Unix_error ((ECONNRESET | ECONNREFUSED | ETIMEDOUT | EPIPE | ENETUNREACH | EHOSTUNREACH), _, _) -> true
   | _ -> false
 
+let is_abort = function
+  | Ai_provider.Abort_signal.Aborted -> true
+  | _ -> false
+
 let is_retryable_error = function
   | Ai_provider.Provider_error.Provider_error { is_retryable; _ } -> is_retryable
   | exn -> is_transient_network_error exn
@@ -40,7 +44,7 @@ let retry_after_s = function
   | Ai_provider.Provider_error.Provider_error _ -> None
   | _ -> None
 
-let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor = 2) ?max_retry_delay_ms
+let with_retries ?abort_signal ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor = 2) ?max_retry_delay_ms
   ?(sleep = Lwt_unix.sleep) ?random f =
   if max_retries < 0 then invalid_arg "Retry.with_retries: max_retries must be >= 0";
   if initial_delay_ms < 0 then invalid_arg "Retry.with_retries: initial_delay_ms must be >= 0";
@@ -55,14 +59,29 @@ let with_retries ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(backoff_factor 
       let state = Random.State.make_self_init () in
       fun () -> Random.State.float state 1.0
   in
+  (* An abort ends the sleep between attempts early. *)
+  let sleep =
+    match abort_signal with
+    | None -> sleep
+    | Some signal ->
+      fun delay_s ->
+        Lwt.pick
+          [
+            sleep delay_s;
+            (let%lwt () = Ai_provider.Abort_signal.wait signal in
+             Lwt.fail Ai_provider.Abort_signal.Aborted);
+          ]
+  in
   let make_retry_error ~reason ~errors_rev exn =
     let errors = List.rev errors_rev in
     Retry_error { message = error_message ~reason ~attempts:(List.length errors) exn; reason; errors }
   in
   let rec loop ~delay_ms ~errors_rev ~i =
+    let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
     Lwt.catch f (fun exn ->
       let errors_rev = exn :: errors_rev in
       match () with
+      | () when is_abort exn -> Lwt.fail exn
       | () when max_retries = 0 -> Lwt.fail exn
       | () when i > max_retries -> Lwt.fail (make_retry_error ~reason:Max_retries_exceeded ~errors_rev exn)
       | () when is_retryable_error exn ->

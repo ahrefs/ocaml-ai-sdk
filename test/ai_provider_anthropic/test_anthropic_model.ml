@@ -605,6 +605,23 @@ let test_model_accessors () =
   (check string) "model_id" "claude-sonnet-5" (Ai_provider.Language_model.model_id model);
   (check string) "spec" "V3" (Ai_provider.Language_model.specification_version model)
 
+(* Nothing listens on port 1, so a request that went out would fail with a
+   retryable Network_error. A settled signal must stop the call first. *)
+let expect_aborted_call call () =
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~base_url:"http://127.0.0.1:1" () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some Lwt.return_unit;
+    }
+  in
+  match Lwt_main.run (call model opts) with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted -> ()
+
 let () =
   run "Anthropic_model"
     [
@@ -641,4 +658,9 @@ let () =
           test_case "preserves_existing_system" `Quick test_object_json_preserves_existing_system;
         ] );
       "accessors", [ test_case "model_accessors" `Quick test_model_accessors ];
+      ( "abort",
+        [
+          test_case "generate with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.generate);
+          test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
+        ] );
     ]

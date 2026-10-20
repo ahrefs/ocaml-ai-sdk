@@ -18,6 +18,7 @@
     Any other exception, raised by [events] or by [f], is pushed as an [Error]
     part and ends the stream. A [Provider_error] is pushed as it is. Anything
     else becomes an [Unexpected_error] whose message is the exception as
-    [Printexc.to_string] prints it. *)
+    [Printexc.to_string] prints it. [Abort_signal.Aborted] ends the stream
+    without an [Error] part. *)
 val pump :
   provider:string -> push:(Stream_part.t option -> unit) -> (Sse.event -> unit) -> Sse.event Lwt_stream.t -> unit

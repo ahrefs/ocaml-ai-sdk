@@ -182,6 +182,7 @@ let create ~config ~model =
       let body, extra_body, warnings = prepare_request ~config ~model ~stream:false opts in
       let%lwt response =
         Openrouter_api.chat_completions ~config ~body ~extra_body ~extra_headers:opts.headers ~stream:false
+          ~abort_signal:opts.abort_signal
       in
       match response with
       | `Json json ->
@@ -193,6 +194,7 @@ let create ~config ~model =
       let body, extra_body, warnings = prepare_request ~config ~model ~stream:true opts in
       let%lwt response =
         Openrouter_api.chat_completions ~config ~body ~extra_body ~extra_headers:opts.headers ~stream:true
+          ~abort_signal:opts.abort_signal
       in
       match response with
       | `Stream line_stream ->

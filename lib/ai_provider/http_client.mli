@@ -16,7 +16,12 @@
     [timeouts.connect_timeout] bounds connection setup,
     [timeouts.request_timeout] the wait for response headers and
     [timeouts.stream_idle_timeout] the gap between body chunks. Timeouts and
-    transport failures fail with [Provider_error.Provider_error]. *)
+    transport failures fail with [Provider_error.Provider_error].
+
+    Once the [abort_signal] given to [post] settles, the client cancels the
+    transfer. A [post] still waiting for headers fails with
+    [Abort_signal.Aborted], and so does every body read from then on, including
+    a read already waiting for a chunk. *)
 
 type response
 
@@ -25,8 +30,11 @@ type response
     [timeouts.request_timeout], or with [Network_error] when the transfer fails
     before headers. A transfer option that libcurl rejects, such as a URL over
     its 8 MB string limit, fails with a non-retryable [Network_error].
-    Cancelling the returned promise aborts the transfer. *)
+    Cancelling the returned promise aborts the transfer. Fails with
+    [Abort_signal.Aborted], without starting a transfer, when [abort_signal]
+    has already settled. *)
 val post :
+  ?abort_signal:Abort_signal.t ->
   timeouts:Http_timeouts.t ->
   provider:string ->
   headers:(string * string) list ->
@@ -47,20 +55,26 @@ val body_string : response -> string Lwt.t
 (** Reads the body of an error response, at most 64 KiB within 10 seconds. A
     transport failure, a timeout or either limit ends the read instead of
     failing it, so the caller keeps the status and headers and gets whatever
-    part of the body arrived. The rest of the transfer is aborted. *)
+    part of the body arrived. The rest of the transfer is aborted. An abort
+    fails the read with [Abort_signal.Aborted] instead. *)
 val error_body : response -> string Lwt.t
 
 (** The body as lines (split on LF, CR stripped), read on demand. The idle timer
     runs only while a read waits for the next chunk, so a stream nobody reads is
     never timed out or aborted. A trailing line without LF is
     emitted at end of body. A read fails with the same errors as [body_string];
-    the transfer is then aborted and later reads return [None]. *)
+    the transfer is then aborted and later reads return [None]. After an abort,
+    every read fails with [Abort_signal.Aborted], even when lines from an
+    earlier chunk are still unread. *)
 val body_lines : response -> string Lwt_stream.t
 
 module For_testing : sig
   (** A response whose body comes from in-memory chunks; [body_string] and
-      [body_lines] behave as for a network response. *)
+      [body_lines] behave as for a network response. Reads check
+      [abort_signal] as they would for [post]'s, but nothing cancels the
+      chunks when it settles. *)
   val response_of_chunks :
+    ?abort_signal:Abort_signal.t ->
     timeouts:Http_timeouts.t ->
     provider:string ->
     status:int ->

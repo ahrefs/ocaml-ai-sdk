@@ -4,6 +4,7 @@ module Usage = Usage
 module Warning = Warning
 module Provider_error = Provider_error
 module Retry_after = Retry_after
+module Abort_signal = Abort_signal
 module Prompt = Prompt
 module Tool = Tool
 module Tool_choice = Tool_choice

@@ -110,19 +110,21 @@ let make_headers ~(config : Config.t) ~extra_headers =
   in
   base_headers @ auth_headers @ config.default_headers @ extra_headers
 
-let messages ~config ~body ~extra_headers ~stream =
+let messages ~config ~body ~extra_headers ~stream ~abort_signal =
   let body_json = request_body_to_json body in
   match config.Config.fetch with
   | Some fetch ->
     let headers = make_headers ~config ~extra_headers in
     let body_str = Yojson.Basic.to_string body_json in
+    let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
     let%lwt json = fetch ~url:(config.base_url ^ "/messages") ~headers ~body:body_str in
     Lwt.return (`Json json)
   | None ->
     let headers = make_headers ~config ~extra_headers in
     let body = Yojson.Basic.to_string body_json in
     let%lwt response =
-      Http_client.post ~timeouts:config.timeouts ~provider:"anthropic" ~headers ~body (config.base_url ^ "/messages")
+      Http_client.post ?abort_signal ~timeouts:config.timeouts ~provider:"anthropic" ~headers ~body
+        (config.base_url ^ "/messages")
     in
     let status = Http_client.status response in
     (match status >= 400, stream with

@@ -215,13 +215,36 @@ let test_messages_with_mock_fetch () =
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
   let result =
-    Lwt_main.run (Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false)
+    Lwt_main.run
+      (Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false ~abort_signal:None)
   in
   match result with
   | `Json json ->
     let r = mock_response_fields_of_json json in
     (check string) "id" "msg_test" r.id
   | `Stream _ -> fail "expected Json"
+
+(* A custom fetch cannot be interrupted, so an aborted request never calls it. *)
+let test_messages_aborted_skips_fetch () =
+  let called = ref false in
+  let fetch ~url:_ ~headers:_ ~body:_ =
+    called := true;
+    Lwt.return (`Assoc [])
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
+  let aborted =
+    Lwt_main.run
+      (try%lwt
+         let%lwt (_ : [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ]) =
+           Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false
+             ~abort_signal:(Some Lwt.return_unit)
+         in
+         Lwt.return_false
+       with Ai_provider.Abort_signal.Aborted -> Lwt.return_true)
+  in
+  (check bool) "aborted" true aborted;
+  (check bool) "fetch not called" false !called
 
 let () =
   run "Anthropic_api"
@@ -243,5 +266,9 @@ let () =
           test_case "non_manual" `Quick test_required_betas_non_manual;
           test_case "dedup" `Quick test_merge_deduplicates;
         ] );
-      "messages", [ test_case "mock_fetch" `Quick test_messages_with_mock_fetch ];
+      ( "messages",
+        [
+          test_case "mock_fetch" `Quick test_messages_with_mock_fetch;
+          test_case "aborted_skips_fetch" `Quick test_messages_aborted_skips_fetch;
+        ] );
     ]

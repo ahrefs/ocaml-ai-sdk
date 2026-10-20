@@ -450,6 +450,76 @@ let test_invalid_max_retry_delay () =
    with Invalid_argument _ -> caught := true);
   (check bool) "caught invalid_arg" true !caught
 
+let describe_outcome promise =
+  match Lwt.state promise with
+  | Lwt.Return value -> "returned " ^ value
+  | Lwt.Fail Ai_provider.Abort_signal.Aborted -> "aborted"
+  | Lwt.Fail exn -> Printexc.to_string exn
+  | Lwt.Sleep -> "pending"
+
+(* An abort is re-raised as is, even after a retry, where any other
+   non-retryable error would be wrapped in a Retry_error. *)
+let test_aborted_attempt_not_retried () =
+  let call_count = ref 0 in
+  let signal, (_ : unit Lwt.u) = Lwt.wait () in
+  let result =
+    Ai_core.Retry.with_retries ~abort_signal:signal ~max_retries:3 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter
+      (fun () ->
+      incr call_count;
+      match !call_count with
+      | 1 -> Lwt.fail (retryable_error "overloaded")
+      | _ -> Lwt.fail Ai_provider.Abort_signal.Aborted)
+  in
+  let%lwt () = Lwt.pause () in
+  (check string) "outcome" "aborted" (describe_outcome result);
+  (check int) "called twice" 2 !call_count;
+  Lwt.return_unit
+
+(* The sleep never ends on its own, so only the abort can end the wait. *)
+let test_abort_during_backoff () =
+  let call_count = ref 0 in
+  let signal, abort = Lwt.wait () in
+  let result =
+    Ai_core.Retry.with_retries ~abort_signal:signal ~max_retries:2 ~initial_delay_ms:1
+      ~sleep:(fun _ -> fst (Lwt.wait ()))
+      (fun () ->
+        incr call_count;
+        Lwt.fail (retryable_error "overloaded"))
+  in
+  (check string) "sleeping" "pending" (describe_outcome result);
+  Lwt.wakeup_later abort ();
+  let%lwt () = Lwt.pause () in
+  (check string) "outcome" "aborted" (describe_outcome result);
+  (check int) "called once" 1 !call_count;
+  Lwt.return_unit
+
+(* The signal is a cancelable task: a backoff that ends normally must not
+   cancel it while dropping its wait on the signal. *)
+let test_finished_backoff_spares_signal () =
+  let call_count = ref 0 in
+  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let%lwt result =
+    Ai_core.Retry.with_retries ~abort_signal:signal ~max_retries:2 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter
+      (fun () ->
+      incr call_count;
+      match !call_count with
+      | 1 -> Lwt.fail (retryable_error "overloaded")
+      | _ -> Lwt.return "ok")
+  in
+  (check string) "result" "ok" result;
+  (check bool) "signal still pending" false (Ai_provider.Abort_signal.is_aborted signal);
+  Lwt.return_unit
+
+let test_already_aborted_makes_no_attempt () =
+  let call_count = ref 0 in
+  let result =
+    Ai_core.Retry.with_retries ~abort_signal:Lwt.return_unit (fun () ->
+      incr call_count;
+      Lwt.return "ok")
+  in
+  (check string) "outcome" "aborted" (describe_outcome result);
+  (check int) "never called" 0 !call_count
+
 let () =
   run "Retry"
     [
@@ -481,5 +551,9 @@ let () =
           test_case "negative_max_retries" `Quick test_negative_max_retries;
           test_case "invalid_backoff_factor" `Quick test_invalid_backoff_factor;
           test_case "invalid_max_retry_delay" `Quick test_invalid_max_retry_delay;
+          test_case "aborted_attempt_not_retried" `Quick (run_lwt test_aborted_attempt_not_retried);
+          test_case "abort_during_backoff" `Quick (run_lwt test_abort_during_backoff);
+          test_case "finished_backoff_spares_signal" `Quick (run_lwt test_finished_backoff_spares_signal);
+          test_case "already_aborted_no_attempt" `Quick test_already_aborted_makes_no_attempt;
         ] );
     ]

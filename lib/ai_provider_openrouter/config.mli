@@ -4,7 +4,10 @@ type compatibility =
   | Strict
   | Compatible
 
-(** Custom HTTP function for testing. *)
+(** Custom HTTP function for testing. An abort signal cannot interrupt it: a
+    request whose signal has already settled fails with
+    [Ai_provider.Abort_signal.Aborted] before [fetch] runs, but once [fetch]
+    starts the call runs to the end. *)
 type fetch_fn = url:string -> headers:(string * string) list -> body:string -> Yojson.Basic.t Lwt.t
 
 type t = {

@@ -135,12 +135,13 @@ let provider_error_of_http_response ~body response =
   let retry_after = Http_client.header response "retry-after" in
   Openrouter_error.of_response_with_retry_after ~retry_after_ms ~status ~body ~retry_after ()
 
-let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
+let chat_completions ~config ~body ~extra_body ~extra_headers ~stream ~abort_signal =
   let body_json = merge_extra_body (request_body_to_json body) extra_body in
   match config.Config.fetch with
   | Some fetch ->
     let headers = make_headers ~config ~extra_headers in
     let body_str = Yojson.Basic.to_string body_json in
+    let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
     let%lwt json = fetch ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str in
     let%lwt json = check_200_error json in
     Lwt.return (`Json json)
@@ -148,7 +149,7 @@ let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
     let headers = make_headers ~config ~extra_headers in
     let body = Yojson.Basic.to_string body_json in
     let%lwt response =
-      Http_client.post ~timeouts:config.timeouts ~provider:"openrouter" ~headers ~body
+      Http_client.post ?abort_signal ~timeouts:config.timeouts ~provider:"openrouter" ~headers ~body
         (config.base_url ^ "/chat/completions")
     in
     (match Http_client.status response >= 400, stream with

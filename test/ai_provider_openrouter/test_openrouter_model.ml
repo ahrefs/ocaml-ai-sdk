@@ -322,6 +322,66 @@ let test_stall_before_first_chunk () =
   | Ai_provider.Stream_part.Error { error = { kind = Timeout { phase = Stream_idle; _ }; _ } } :: _ -> ()
   | _ -> fail "expected the stream to end with a Stream_idle error"
 
+(* Nothing listens on port 1, so a request that went out would fail with a
+   retryable Network_error. A settled signal must stop the call first. *)
+let expect_aborted_call call () =
+  let config = Ai_provider_openrouter.Config.create ~api_key:"sk-or-test" ~base_url:"http://127.0.0.1:1" () in
+  let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some Lwt.return_unit;
+    }
+  in
+  match Lwt_main.run (call model opts) with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted -> ()
+
+(* [stream] waits for the first completion chunk to read the response info. An
+   abort during that wait must end the call with a stream that closes without
+   an Error part. *)
+let test_abort_before_first_chunk () =
+  Unix.putenv "no_proxy" "*";
+  let parts =
+    Lwt_main.run
+      (let%lwt port = serve_stalled_stream () in
+       let config =
+         Ai_provider_openrouter.Config.create ~api_key:"sk-or-test"
+           ~base_url:(Printf.sprintf "http://127.0.0.1:%d" port)
+           ~timeouts:(Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 ())
+           ()
+       in
+       let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
+       let module M = (val model : Ai_provider.Language_model.S) in
+       let signal, (_ : unit Lwt.u) = Lwt.task () in
+       let opts =
+         {
+           (Ai_provider.Call_options.default
+              ~prompt:
+                [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+           with
+           abort_signal = Some signal;
+         }
+       in
+       let call = M.stream opts in
+       let%lwt () = Lwt_unix.sleep 0.2 in
+       (check bool) "waiting for the first chunk" true (Lwt.is_sleeping call);
+       Lwt.cancel signal;
+       let%lwt result = Lwt_unix.with_timeout 5.0 (fun () -> call) in
+       Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list result.Ai_provider.Stream_result.stream))
+  in
+  match
+    List.exists
+      (function
+        | Ai_provider.Stream_part.Error _ -> true
+        | _ -> false)
+      parts
+  with
+  | true -> fail "expected no Error part after the abort"
+  | false -> ()
+
 let () =
   run "Openrouter_model"
     [
@@ -336,5 +396,11 @@ let () =
           test_case "headers" `Quick test_headers;
           test_case "http_200_error" `Quick test_http_200_error;
           test_case "stall_before_first_chunk" `Quick test_stall_before_first_chunk;
+        ] );
+      ( "abort",
+        [
+          test_case "generate with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.generate);
+          test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
+          test_case "stream before the first chunk" `Quick test_abort_before_first_chunk;
         ] );
     ]

@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Provider HTTP client (`ai_provider`)
+
+- New `Abort_signal` module. A signal is a `unit Lwt.t` that the caller
+  resolves or fails to abort. Cancelling it also aborts when the promise is
+  cancelable, as one from `Lwt.task` is. Operations it interrupts fail with
+  `Abort_signal.Aborted`. `Call_options.abort_signal` is now typed
+  `Abort_signal.t option`, the same type as before.
+- `Abort_signal.on_abort : t -> (unit -> unit) -> unit -> unit` returns a
+  detach function. Call it when the operation ends, so a long-lived signal
+  does not keep the callback alive. The callback must not raise: an exception
+  goes to `Lwt.async_exception_hook`, which exits the process by default.
+- `Http_client.post` takes `?abort_signal`. A signal that has already settled
+  fails the call before it connects. An abort before the headers arrive fails
+  `post` at once instead of waiting for `request_timeout`. An abort during the
+  body fails the waiting or next read, `error_body` included. In both cases
+  libcurl drops the transfer and closes its connection.
+- `Stream_pump.pump` ends the stream without an `Error` part when the source
+  fails with `Aborted`.
+
+### Provider wiring (`ai_provider_anthropic`, `ai_provider_openai`, `ai_provider_openrouter`)
+
+- The models pass `Call_options.abort_signal` to the HTTP client.
+- Breaking for direct callers: `Anthropic_api.messages`,
+  `Openai_api.chat_completions` and `Openrouter_api.chat_completions` take a
+  new required `~abort_signal` argument. Pass `~abort_signal:None` to keep the
+  old behaviour.
+- A custom `fetch` cannot be interrupted. An aborted request fails before
+  calling it, but a call in progress runs to the end.
+
+### Core SDK (`ai_core`)
+
+- `Retry.with_retries` takes `?abort_signal`. No attempt starts once the signal
+  has settled, and an abort cuts a backoff or `retry-after` sleep short. An
+  attempt that fails with `Aborted` is re-raised as is, never retried or
+  wrapped in `Retry_error`.
+
 ## 0.7 — 2026-10-19
 
 ### Breaking changes
