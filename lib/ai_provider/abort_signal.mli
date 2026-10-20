@@ -29,10 +29,12 @@ val is_aborted : t -> bool
     which by default prints it and exits the process. *)
 val on_abort : t -> (unit -> unit) -> unit -> unit
 
-(** A fresh promise that resolves when the signal settles, whether the signal
-    resolves, fails or is cancelled. Cancelling it, for example as a loser of
-    [Lwt.pick], fails it with [Lwt.Canceled], leaves the signal untouched and
-    removes its callback from the signal. *)
+(** A promise that resolves when the signal settles, whether the signal
+    resolves, fails or is cancelled. While the signal is pending, it is a new
+    promise: cancelling it, for example as a loser of [Lwt.pick], fails it with
+    [Lwt.Canceled], leaves the signal untouched and removes its callback from
+    the signal. For a signal that has already settled, it may be already
+    resolved. *)
 val wait : t -> unit Lwt.t
 
 (** Fails with [Aborted] when the signal is present and has settled. *)

@@ -14,8 +14,9 @@
     @param abort_signal Aborts the call. The signal goes to every provider
       request and to the retry loop. When it fires, [full_stream] gets an
       [Abort] part and closes at once, with no [Finish_step], [Finish] or
-      [Error] after it, and [text_stream] closes too. [on_chunk] gets the
-      [Abort] part as well. [usage], [finish_reason] and [steps] fail with
+      [Error] after it, and [text_stream] closes too. As upstream's
+      [onChunk], [on_chunk] does not get the [Abort] part. [usage],
+      [finish_reason] and [steps] fail with
       [Ai_provider.Abort_signal.Aborted], while [output] and
       [provider_metadata] resolve to [None]. No model call, tool execution or
       step starts after that, no further provider part is processed, and
@@ -24,14 +25,14 @@
       signal and never sends another part. Tools do not receive the signal,
       so a tool that is running finishes first. A signal that has already
       fired gives a stream holding [Start] then [Abort], and the model is
-      never called. In that case [on_abort] and [on_chunk] run before
-      [stream_text] returns. Once the call ends, it no longer holds a
+      never called. In that case [on_abort] runs before [stream_text]
+      returns. Once the call ends, it no longer holds a
       callback on the signal.
     @param on_chunk Called with each part right after it is pushed to
       [full_stream], including the [Error] part of a failed call. An
       exception it raises ends the call like any other error: an [Error] part
       follows and the result promises fail with it. Exceptions it raises on
-      the [Error] or [Abort] part are ignored.
+      the [Error] part are ignored.
     @param on_step_finish Called after the step's [Finish_step] part is
       pushed, as upstream does.
     @param on_finish Called after the streams close and the result promises

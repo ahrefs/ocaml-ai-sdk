@@ -47,14 +47,15 @@ All notable changes to this project will be documented in this file.
   nothing, and the call returns its result, as upstream's generateText does.
 - `Stream_text.stream_text` takes `?abort_signal` and `?on_abort`, following
   upstream's streamText. When the signal fires, `on_abort` gets the steps
-  finished so far, then `full_stream` and `on_chunk` get a new
-  `Text_stream_part.Abort` part and the stream closes. No `Finish_step`,
+  finished so far, then `full_stream` gets a new `Text_stream_part.Abort`
+  part and the stream closes. As upstream's onChunk, `on_chunk` does not get
+  it. No `Finish_step`,
   `Finish` or `Error` part follows, and `on_step_finish` and `on_finish` are
   not called again. `usage`, `finish_reason` and `steps` fail with `Aborted`.
   The job processes no further provider part and starts no model call, tool or
   step after the abort. A signal that has already fired gives a stream
   holding `Start` then `Abort`, without calling the model, and runs
-  `on_abort` and `on_chunk` before `stream_text` returns. The provider stream
+  `on_abort` before `stream_text` returns. The provider stream
   read ends on the abort even when a custom model ignores the signal and
   stalls. Tools do not receive the signal yet.
 - `on_chunk` now also gets the `Error` part that ends a failed

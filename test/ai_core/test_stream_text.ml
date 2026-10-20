@@ -1185,7 +1185,11 @@ let test_abort_mid_stream () =
       "abort";
     ]
     (List.map part_name (before @ after));
-  (check (list string)) "on_chunk sees every part" (List.map part_name (before @ after)) (List.rev !chunks);
+  (* As upstream's onChunk, [on_chunk] sees every part but the [Abort]. *)
+  (check (list string))
+    "on_chunk sees every part but abort"
+    (List.filter (fun name -> not (String.equal name "abort")) (List.map part_name (before @ after)))
+    (List.rev !chunks);
   (check (option (list string)))
     "on_abort gets the first step" (Some [ "search" ])
     (Option.map
@@ -1215,7 +1219,7 @@ let test_abort_before_start () =
   let%lwt texts = Lwt_stream.to_list result.text_stream in
   let%lwt () = Lwt.pause () in
   (check (list string)) "parts" [ "start"; "abort" ] (List.map part_name parts);
-  (check (list string)) "on_chunk parts" [ "start"; "abort" ] (List.rev !chunks);
+  (check (list string)) "on_chunk parts" [ "start" ] (List.rev !chunks);
   (check (list string)) "no text" [] texts;
   (check (option int)) "on_abort with no steps" (Some 0) !aborted_with;
   check_result_aborted result;

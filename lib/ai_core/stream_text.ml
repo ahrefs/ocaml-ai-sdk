@@ -245,7 +245,8 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       (* Upstream also ignores an exception from onAbort. *)
       emit_start ~push:push_part_ignoring_errors;
       (try Option.iter (fun f -> f ~steps:(List.rev !completed_steps)) on_abort with (_ : exn) -> ());
-      push_part_ignoring_errors (Text_stream_part.Abort { reason = None });
+      (* As upstream's onChunk, [on_chunk] never sees the [Abort] part. *)
+      full_push (Some (Text_stream_part.Abort { reason = None }));
       full_push None;
       partial_output_push None;
       Lwt.wakeup_later_exn usage_resolver Ai_provider.Abort_signal.Aborted;
