@@ -10,14 +10,16 @@ All notable changes to this project will be documented in this file.
 
 - Provider requests now go through libcurl (`curl` and `curl_lwt`) instead of
   cohttp. A system libcurl is required, and `lwt_ssl` is no longer a dependency.
-  The chat server handler in `ai_core` still uses cohttp.
+  The chat server handler in `ai_core` still uses cohttp. The provider libraries
+  no longer link `cohttp-lwt-unix`, so a project that used cohttp or `lwt_ssl`
+  only through them must now depend on those packages itself.
 - `Http_client` has a new API. `post` takes a string URL, header pairs and a
   string body, and returns an abstract `response` read with `status`, `header`
   (case-insensitive), `body_string`, `error_body` and `body_lines`. `body_lines`
   replaces `wrap_body_with_idle_timeout`, and `For_testing.response_of_chunks`
   builds a response from in-memory chunks for tests.
 - Transport failures now fail with `Provider_error` `Network_error` (carrying
-  libcurl's message) instead of `Unix.Unix_error`. Host and proxy DNS, connect,
+  libcurl's message) instead of `Unix.Unix_error`. DNS, connect,
   send, receive, empty-reply, truncated-body, timeout and HTTP/2 failures are
   marked retryable. A failed TLS handshake is not.
 - A transfer option that libcurl rejects, such as a URL over its 8 MB string
@@ -28,9 +30,14 @@ All notable changes to this project will be documented in this file.
 - TLS certificates are verified against the system libcurl's default CA file
   and directory. As with cohttp's OpenSSL backend, `SSL_CERT_FILE` replaces the
   default file and `SSL_CERT_DIR` the default directory. A file that cannot be
-  read, or a directory the TLS backend cannot use, is skipped, as OpenSSL
-  skipped it. Unlike OpenSSL, a readable `SSL_CERT_FILE` that holds no usable
-  certificate fails every HTTPS request with a non-retryable `Network_error`.
+  read is skipped, as OpenSSL skipped it, and so is `SSL_CERT_DIR` on a TLS
+  backend without CA directory support. Unlike OpenSSL, a readable
+  `SSL_CERT_FILE` that holds no usable certificate fails every HTTPS request
+  with a non-retryable `Network_error`.
+- libcurl built with OpenSSL writes TLS session keys to the file named by
+  `SSLKEYLOGFILE` when that variable is set, as browsers do. cohttp ignored it.
+  Anyone holding that file and a packet capture can read the API keys sent to
+  providers, so leave it unset outside local debugging.
 - New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
   connect and TLS handshake. A connection that stalls no longer
   holds the request until `request_timeout`. It fails with a retryable
@@ -38,7 +45,10 @@ All notable changes to this project will be documented in this file.
   `request_timeout` fires first with its non-retryable `Request_headers`
   timeout.
 - Requests send `User-Agent: ocaml-ai-sdk/<version>` unless the caller passes
-  its own `User-Agent` header, and enable TCP keepalive.
+  its own `User-Agent` header, and enable TCP keepalive. libcurl also sends
+  `Accept: */*`, and over HTTPS uses HTTP/2 when the provider offers it and the
+  system libcurl supports it. A header with an empty value goes out as
+  `Name;`, libcurl's form for an empty header.
 - An error response (status 400 or above) whose body stalls or breaks off now
   still fails with the provider's API error, keeping the status and the
   `retry-after` headers, instead of a network error or idle timeout. The error
@@ -62,11 +72,14 @@ All notable changes to this project will be documented in this file.
   becomes a `Deserialization_error` part and the stream continues. Any other
   exception, from the event stream or the converter, becomes an `Error` part
   and ends the stream. The Anthropic, OpenAI and OpenRouter converters use it.
+- `Language_model.generate` and `stream` return a failed promise when the
+  model's function raises before returning one, instead of raising.
 
 ### Core SDK (`ai_core`)
 
 - `stream_text` reports finish reason `error` for a step whose provider stream
   emitted an error, matching upstream `streamText`. It used to report `other`.
+  The UI stream's `finish` chunk carries it as `finishReason: "error"`.
 
 ### OpenRouter provider (`ai_provider_openrouter`)
 

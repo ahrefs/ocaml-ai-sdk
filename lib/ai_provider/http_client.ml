@@ -105,8 +105,9 @@ let readable_file path =
 
 (* libcurl verifies against its compiled-in CA bundle and ignores OpenSSL's
    SSL_CERT_FILE and SSL_CERT_DIR, so pass them on as the curl tool does. As
-   OpenSSL did for the cohttp client, a file that cannot be read and a directory
-   the TLS backend cannot use are skipped, leaving libcurl's defaults. *)
+   OpenSSL did for the cohttp client, a file that cannot be read is skipped,
+   leaving libcurl's default. A TLS backend without CA directory support
+   rejects CAPATH, and the directory is then skipped too. *)
 let configure_ca_from_env handle =
   Option.iter (Curl.set_cainfo handle)
     (Option.bind (env_path "SSL_CERT_FILE") (fun path ->

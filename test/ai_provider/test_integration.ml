@@ -137,8 +137,10 @@ let test_dispatch_returns_promises () =
     | Lwt.Return () | Lwt.Sleep -> failf "%s did not fail" name
     | exception exn -> failf "%s raised %s instead of returning a promise" name (Printexc.to_string exn)
   in
-  fails "generate" (fun () -> Lwt.map ignore (Ai_provider.Language_model.generate model opts));
-  fails "stream" (fun () -> Lwt.map ignore (Ai_provider.Language_model.stream model opts))
+  fails "generate" (fun () ->
+    Lwt.map (fun (_ : Ai_provider.Generate_result.t) -> ()) (Ai_provider.Language_model.generate model opts));
+  fails "stream" (fun () ->
+    Lwt.map (fun (_ : Ai_provider.Stream_result.t) -> ()) (Ai_provider.Language_model.stream model opts))
 
 let () =
   run "Integration"

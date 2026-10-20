@@ -77,8 +77,8 @@ let test_reads_return_promises () =
     | (_ : unit Lwt.t) -> ()
     | exception exn -> failf "%s raised %s instead of returning a promise" name (Printexc.to_string exn)
   in
-  returns_promise "body_string" (fun r -> Lwt.map ignore (Ai_provider.Http_client.body_string r));
-  returns_promise "error_body" (fun r -> Lwt.map ignore (Ai_provider.Http_client.error_body r))
+  returns_promise "body_string" (fun r -> Lwt.map (fun (_ : string) -> ()) (Ai_provider.Http_client.body_string r));
+  returns_promise "error_body" (fun r -> Lwt.map (fun (_ : string) -> ()) (Ai_provider.Http_client.error_body r))
 
 (* Loopback server. Each test serves one connection with a canned reply. *)
 
@@ -274,6 +274,28 @@ let test_connect_timeout () =
   (check bool) "bounded by connect_timeout" true (Float.compare (Unix.gettimeofday () -. started) 5.0 < 0);
   Lwt.return_unit
 
+(* A server that accepts and never answers fails the request with the
+   non-retryable Request_headers timeout. *)
+let test_request_timeout () =
+  let%lwt port, _ = serve_once Hang in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:0.3 () in
+  match%lwt post ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) with
+  | _ -> fail "expected a Request_headers timeout"
+  | exception
+      Ai_provider.Provider_error.Provider_error { kind = Timeout { phase = Request_headers; _ }; is_retryable; _ } ->
+    (check bool) "retryable" false is_retryable;
+    Lwt.return_unit
+
+(* A body cut short after the headers hands out the lines that arrived, then
+   fails the next read with a retryable Network_error. *)
+let test_truncated_body_lines () =
+  let%lwt port, _ = serve_once (Reply "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\ndata: one\n") in
+  let%lwt response = post (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let lines = Ai_provider.Http_client.body_lines response in
+  let%lwt first = Lwt_stream.get lines in
+  (check (option string)) "first line" (Some "data: one") first;
+  expect_network_error ~retryable:true (Lwt.apply Lwt_stream.get lines)
+
 (* Sets an environment variable for the duration of [f]. An empty value counts
    as unset. *)
 let with_env name value f =
@@ -372,6 +394,8 @@ let () =
           test_case "non-http scheme rejected" `Quick (run_lwt test_non_http_scheme_rejected);
           test_case "tls to plain port not retryable" `Quick (run_lwt test_tls_to_plain_port_not_retryable);
           test_case "connect timeout" `Quick (run_lwt test_connect_timeout);
+          test_case "request timeout" `Quick (run_lwt test_request_timeout);
+          test_case "truncated body lines" `Quick (run_lwt test_truncated_body_lines);
           test_case "SSL_CERT_FILE honoured" `Quick (run_lwt test_ssl_cert_file_honoured);
           test_case "unreadable SSL_CERT_FILE skipped" `Quick (run_lwt test_unreadable_ssl_cert_file_skipped);
           test_case "rejected option not retryable" `Quick (run_lwt test_rejected_option_not_retryable);
