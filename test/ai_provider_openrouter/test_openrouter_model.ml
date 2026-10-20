@@ -343,7 +343,6 @@ let expect_aborted_call call () =
    abort during that wait must end the call with a stream that closes without
    an Error part. *)
 let test_abort_before_first_chunk () =
-  Unix.putenv "no_proxy" "*";
   let parts =
     Lwt_main.run
       (let%lwt port = serve_stalled_stream () in
