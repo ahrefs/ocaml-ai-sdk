@@ -8,9 +8,10 @@ end
 
 type t = (module S)
 
-(* A provider's [match%lwt] on a request that failed before it started raises at
-   once (see [Http_client.body_string]); [Lwt.apply] turns that into a failed
-   promise for every caller. *)
+(* A provider can raise before returning a promise, for instance from request
+   preparation or a [match%lwt] on a request that failed before it started (see
+   [Http_client.body_string]). [Lwt.apply] turns that into a failed promise for
+   every caller. *)
 let generate (module M : S) opts = Lwt.apply M.generate opts
 let stream (module M : S) opts = Lwt.apply M.stream opts
 let provider (module M : S) = M.provider

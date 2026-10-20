@@ -149,10 +149,16 @@ let prepare_request ~config ~model ~stream (opts : Ai_provider.Call_options.t) =
 
 (* Yields the events left in [events], then fails with [exn]. *)
 let fail_after_events exn events =
+  let failed = ref false in
   Lwt_stream.from (fun () ->
+    match !failed with
+    | true -> Lwt.return_none
+    | false ->
     match%lwt Lwt_stream.get events with
     | Some _ as event -> Lwt.return event
-    | None -> Lwt.fail exn)
+    | None ->
+      failed := true;
+      Lwt.fail exn)
 
 (* The response info is read from a clone of [events]. When that read fails,
    [events] keeps the events read so far but would then end silently, so the

@@ -142,7 +142,7 @@ let setup_error ~provider ~detail code =
   Provider_error.Provider_error
     {
       provider;
-      kind = Network_error { message = error_message ~detail code };
+      kind = Network_error { message = Printf.sprintf "%s (%s)" (Curl.strerror code) detail };
       is_retryable = false;
       retry_after_s = None;
     }
@@ -276,8 +276,8 @@ let read_chunk r =
       let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
       Lwt.fail (Provider_error.Provider_error err))
 
-(* With lwt_ppx, [match%lwt] and [try%lwt] on a promise that has already failed
-   raise at once instead of returning the failed promise. [body_string] and
+(* With lwt_ppx, [match%lwt], and [try%lwt] without a catch-all handler, raise at
+   once on a promise that has already failed instead of returning it. [body_string] and
    [error_body] start through [Lwt.apply] so a caller always gets a promise.
    [Lwt_stream.get] has the same behaviour on its own, so [body_lines] cannot
    avoid it. *)
