@@ -299,7 +299,12 @@ let test_ssl_cert_file_honoured () =
 (* libcurl rejects a string option over 8 MB. The rejected option surfaces as a
    non-retryable Network_error, not as a Curl.CurlException. *)
 let test_rejected_option_not_retryable () =
-  expect_network_error ~retryable:false (post ("http://127.0.0.1/" ^ String.make 8_000_000 'a'))
+  match%lwt post ("http://127.0.0.1/" ^ String.make 8_000_000 'a') with
+  | _ -> fail "expected a network error"
+  | exception Ai_provider.Provider_error.Provider_error { kind = Network_error { message }; is_retryable; _ } ->
+    (check bool) "retryable" false is_retryable;
+    (check bool) "names the code" true (contains ~sub:"(CURLE_BAD_FUNCTION_ARGUMENT)" message);
+    Lwt.return_unit
 
 (* A refused CONNECT is retryable only when the proxy's status is. libcurl reads
    the proxy from the environment, so these run last and clear it after. *)

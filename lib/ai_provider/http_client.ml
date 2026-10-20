@@ -137,12 +137,13 @@ let network_error ?(proxy_status = 0) ~provider ~detail code =
   Provider_error.Provider_error { provider; kind = Network_error { message }; is_retryable; retry_after_s = None }
 
 (* A rejected option, such as a CA directory the TLS backend cannot use, fails
-   the same way on every attempt, so it is never retryable. *)
-let setup_error ~provider ~detail code =
+   the same way on every attempt, so it is never retryable. ocurl's
+   CurlException carries the code's name (CURLE_...), not libcurl's error text. *)
+let setup_error ~provider ~code_name code =
   Provider_error.Provider_error
     {
       provider;
-      kind = Network_error { message = Printf.sprintf "%s (%s)" (Curl.strerror code) detail };
+      kind = Network_error { message = Printf.sprintf "%s (%s)" (Curl.strerror code) code_name };
       is_retryable = false;
       retry_after_s = None;
     }
@@ -168,9 +169,9 @@ let start ~timeouts ~provider ~url ~headers ~body =
       ~on_chunk;
     Curl_lwt.perform handle
   with
-  | exception Curl.CurlException (code, _, detail) ->
+  | exception Curl.CurlException (code, _, code_name) ->
     Curl.cleanup handle;
-    raise (setup_error ~provider ~detail code)
+    raise (setup_error ~provider ~code_name code)
   | exception exn ->
     Curl.cleanup handle;
     raise exn
