@@ -7,8 +7,8 @@
 
 type t = private {
   connect_timeout : float;
-    (** Seconds to establish the connection: DNS, TCP connect, proxy tunnel
-          and TLS handshake. When it fires, the request fails with a retryable
+    (** Seconds to establish the connection: DNS, TCP connect and TLS
+          handshake. When it fires, the request fails with a retryable
           [Network_error], since nothing has reached the server. Both clocks
           start with the request, so it takes effect only while it is below
           [request_timeout]. Otherwise a stalled connection fails with the

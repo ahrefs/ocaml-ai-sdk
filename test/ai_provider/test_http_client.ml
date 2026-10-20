@@ -274,27 +274,45 @@ let test_connect_timeout () =
   (check bool) "bounded by connect_timeout" true (Float.compare (Unix.gettimeofday () -. started) 5.0 < 0);
   Lwt.return_unit
 
-(* SSL_CERT_FILE replaces libcurl's CA bundle: a missing file fails the TLS
-   setup instead of being ignored. The wording of the error depends on the TLS
+(* Sets an environment variable for the duration of [f]. An empty value counts
+   as unset. *)
+let with_env name value f =
+  Unix.putenv name value;
+  Lwt.finalize f (fun () ->
+    Unix.putenv name "";
+    Lwt.return_unit)
+
+(* A readable SSL_CERT_FILE replaces libcurl's CA bundle: one holding no
+   certificate fails the TLS setup. The wording of the error depends on the TLS
    backend, so the test checks that the failure is not retryable and arrives
    well before the connect timeout, which a hung handshake would wait out. *)
 let test_ssl_cert_file_honoured () =
   let%lwt port, _ = serve_once Hang in
   let connect_timeout = 5.0 in
   let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout () in
-  Unix.putenv "SSL_CERT_FILE" "/nonexistent/ocaml-ai-sdk-test-ca.pem";
+  let ca_file = Filename.temp_file "ocaml-ai-sdk-test-ca" ".pem" in
   let started = Unix.gettimeofday () in
   Lwt.finalize
     (fun () ->
       let%lwt () =
-        expect_network_error ~retryable:false (post ~timeouts (Printf.sprintf "https://127.0.0.1:%d/" port))
+        with_env "SSL_CERT_FILE" ca_file (fun () ->
+          expect_network_error ~retryable:false (post ~timeouts (Printf.sprintf "https://127.0.0.1:%d/" port)))
       in
       (check bool) "before the connect timeout" true
         (Float.compare (Unix.gettimeofday () -. started) (connect_timeout /. 2.) < 0);
       Lwt.return_unit)
     (fun () ->
-      Unix.putenv "SSL_CERT_FILE" "";
+      Sys.remove ca_file;
       Lwt.return_unit)
+
+(* An SSL_CERT_FILE that cannot be read is skipped, as OpenSSL skipped it for
+   the cohttp client: the handshake still starts, and the hung server makes it
+   wait out the connect timeout. *)
+let test_unreadable_ssl_cert_file_skipped () =
+  let%lwt port, _ = serve_once Hang in
+  let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout:0.2 () in
+  with_env "SSL_CERT_FILE" "/nonexistent/ocaml-ai-sdk-test-ca.pem" (fun () ->
+    expect_network_error ~retryable:true (post ~timeouts (Printf.sprintf "https://127.0.0.1:%d/" port)))
 
 (* libcurl rejects a string option over 8 MB. The rejected option surfaces as a
    non-retryable Network_error, not as a Curl.CurlException. *)
@@ -306,43 +324,25 @@ let test_rejected_option_not_retryable () =
     (check bool) "names the code" true (contains ~sub:"(CURLE_BAD_FUNCTION_ARGUMENT)" message);
     Lwt.return_unit
 
-(* A refused CONNECT is retryable only when the proxy's status is. libcurl reads
-   the proxy from the environment, so these run last and clear it after. *)
-let with_https_proxy port f =
-  Unix.putenv "https_proxy" (Printf.sprintf "http://127.0.0.1:%d" port);
-  Lwt.finalize f (fun () ->
-    Unix.putenv "https_proxy" "";
-    Lwt.return_unit)
-
-let test_proxy_refusal ~status ~retryable () =
-  let%lwt port, request =
-    serve_once (Reply (Printf.sprintf "HTTP/1.1 %d Refused\r\nContent-Length: 0\r\n\r\n" status))
+(* Proxy environment variables are ignored, as cohttp ignored them: the request
+   goes straight to the server, never to the proxy, which would answer 502. *)
+let test_proxy_environment_ignored () =
+  let%lwt proxy_port, _ = serve_once (Reply "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n") in
+  let%lwt port, _ = serve_once ok_reply in
+  let proxy = Printf.sprintf "http://127.0.0.1:%d" proxy_port in
+  let%lwt response =
+    with_env "http_proxy" proxy (fun () ->
+      with_env "all_proxy" proxy (fun () -> post (Printf.sprintf "http://127.0.0.1:%d/" port)))
   in
-  let%lwt () = with_https_proxy port (fun () -> expect_network_error ~retryable (post "https://provider.invalid/v1")) in
-  let%lwt head = request in
-  (check bool) "tunnel requested from the proxy" true (contains ~sub:"CONNECT provider.invalid:443 " head);
+  (check int) "served directly" 200 (Ai_provider.Http_client.status response);
   Lwt.return_unit
 
-(* Proxy and CA settings come from the environment, and would route, bypass or
-   fail the loopback requests depending on the machine. An empty value counts as
-   unset. *)
-let clear_network_environment () =
-  List.iter
-    (fun name -> Unix.putenv name "")
-    [
-      "http_proxy";
-      "https_proxy";
-      "HTTPS_PROXY";
-      "all_proxy";
-      "ALL_PROXY";
-      "no_proxy";
-      "NO_PROXY";
-      "SSL_CERT_FILE";
-      "SSL_CERT_DIR";
-    ]
+(* CA settings come from the environment, and would fail the loopback requests
+   depending on the machine. An empty value counts as unset. *)
+let clear_ca_environment () = List.iter (fun name -> Unix.putenv name "") [ "SSL_CERT_FILE"; "SSL_CERT_DIR" ]
 
 let () =
-  clear_network_environment ();
+  clear_ca_environment ();
   run "Http_client"
     [
       ( "idle_timeout",
@@ -373,11 +373,8 @@ let () =
           test_case "tls to plain port not retryable" `Quick (run_lwt test_tls_to_plain_port_not_retryable);
           test_case "connect timeout" `Quick (run_lwt test_connect_timeout);
           test_case "SSL_CERT_FILE honoured" `Quick (run_lwt test_ssl_cert_file_honoured);
+          test_case "unreadable SSL_CERT_FILE skipped" `Quick (run_lwt test_unreadable_ssl_cert_file_skipped);
           test_case "rejected option not retryable" `Quick (run_lwt test_rejected_option_not_retryable);
         ] );
-      ( "proxy",
-        [
-          test_case "407 not retryable" `Quick (run_lwt (test_proxy_refusal ~status:407 ~retryable:false));
-          test_case "503 retryable" `Quick (run_lwt (test_proxy_refusal ~status:503 ~retryable:true));
-        ] );
+      "proxy", [ test_case "environment ignored" `Quick (run_lwt test_proxy_environment_ignored) ];
     ]

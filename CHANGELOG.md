@@ -19,21 +19,20 @@ All notable changes to this project will be documented in this file.
 - Transport failures now fail with `Provider_error` `Network_error` (carrying
   libcurl's message) instead of `Unix.Unix_error`. Host and proxy DNS, connect,
   send, receive, empty-reply, truncated-body, timeout and HTTP/2 failures are
-  marked retryable. A failed TLS handshake is not. A proxy that refuses the
-  CONNECT tunnel is retryable only when its status is 408, 409, 429 or 5xx, the
-  rule now public as `Provider_error.is_retryable_status`.
-- A transfer option that libcurl rejects, such as an `SSL_CERT_DIR` the TLS
-  backend cannot use, fails with a non-retryable `Network_error` instead of
-  raising `Curl.CurlException`.
+  marked retryable. A failed TLS handshake is not.
+- A transfer option that libcurl rejects, such as a URL over its 8 MB string
+  limit, fails with a non-retryable `Network_error` instead of raising
+  `Curl.CurlException`.
 - Only `http` and `https` URLs are accepted, whatever protocols the system
   libcurl was built with.
 - TLS certificates are verified against the system libcurl's default CA file
   and directory. As with cohttp's OpenSSL backend, `SSL_CERT_FILE` replaces the
-  default file and `SSL_CERT_DIR` the default directory. Unlike OpenSSL, a
-  `SSL_CERT_FILE` that cannot be read now fails every HTTPS request with a
-  non-retryable `Network_error`, instead of being skipped.
+  default file and `SSL_CERT_DIR` the default directory. A file that cannot be
+  read, or a directory the TLS backend cannot use, is skipped, as OpenSSL
+  skipped it. Unlike OpenSSL, a readable `SSL_CERT_FILE` that holds no usable
+  certificate fails every HTTPS request with a non-retryable `Network_error`.
 - New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
-  connect, proxy tunnel and TLS handshake. A connection that stalls no longer
+  connect and TLS handshake. A connection that stalls no longer
   holds the request until `request_timeout`. It fails with a retryable
   `Network_error`, and only while it is below `request_timeout`. Otherwise
   `request_timeout` fires first with its non-retryable `Request_headers`
@@ -44,9 +43,9 @@ All notable changes to this project will be documented in this file.
   still fails with the provider's API error, keeping the status and the
   `retry-after` headers, instead of a network error or idle timeout. The error
   body is read for at most 10 seconds and 64 KiB.
-- libcurl honours the `http_proxy`, `https_proxy`, `all_proxy` and `no_proxy`
-  environment variables, so provider requests now go through a configured
-  proxy. cohttp ignored them.
+- As with cohttp, requests never go through a proxy: libcurl's use of the
+  `http_proxy`, `https_proxy` and `all_proxy` environment variables is turned
+  off.
 - `stream_idle_timeout` now also bounds non-streaming response bodies, which
   previously could hang on a stalled connection.
 - A stream that fails partway through (idle timeout, dropped or truncated

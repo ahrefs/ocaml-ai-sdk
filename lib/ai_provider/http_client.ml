@@ -38,7 +38,6 @@ let transient_codes =
   :: List.map code_number
        Curl.
          [
-           CURLE_COULDNT_RESOLVE_PROXY;
            CURLE_COULDNT_RESOLVE_HOST;
            CURLE_COULDNT_CONNECT;
            CURLE_PARTIAL_FILE;
@@ -95,11 +94,31 @@ let env_path name =
   | None | Some "" -> None
   | Some path -> Some path
 
+let readable_file path =
+  match Unix.stat path with
+  | { st_kind = S_REG; _ } ->
+    (match Unix.access path [ R_OK ] with
+    | () -> true
+    | exception Unix.Unix_error _ -> false)
+  | { st_kind = S_DIR | S_CHR | S_BLK | S_LNK | S_FIFO | S_SOCK; _ } -> false
+  | exception Unix.Unix_error _ -> false
+
 (* libcurl verifies against its compiled-in CA bundle and ignores OpenSSL's
-   SSL_CERT_FILE and SSL_CERT_DIR, so pass them on as the curl tool does. *)
+   SSL_CERT_FILE and SSL_CERT_DIR, so pass them on as the curl tool does. As
+   OpenSSL did for the cohttp client, a file that cannot be read and a directory
+   the TLS backend cannot use are skipped, leaving libcurl's defaults. *)
 let configure_ca_from_env handle =
-  Option.iter (Curl.set_cainfo handle) (env_path "SSL_CERT_FILE");
-  Option.iter (Curl.set_capath handle) (env_path "SSL_CERT_DIR")
+  Option.iter (Curl.set_cainfo handle)
+    (Option.bind (env_path "SSL_CERT_FILE") (fun path ->
+       match readable_file path with
+       | true -> Some path
+       | false -> None));
+  Option.iter
+    (fun dir ->
+      match Curl.set_capath handle dir with
+      | () -> ()
+      | exception Curl.CurlException _ -> ())
+    (env_path "SSL_CERT_DIR")
 
 let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_detail ~on_header ~on_chunk =
   Curl.set_url handle url;
@@ -109,6 +128,9 @@ let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_de
   (* An empty Expect header stops libcurl from waiting for 100-continue on large bodies. *)
   Curl.set_httpheader handle (List.map format_request_header headers @ [ "Expect:" ]);
   Curl.set_useragent handle User_agent.value;
+  (* An empty proxy stops libcurl from reading http_proxy, https_proxy and
+     all_proxy, which the cohttp client ignored. *)
+  Curl.set_proxy handle "";
   configure_ca_from_env handle;
   (* libcurl treats 0 as its 300s default, so round up to at least 1ms, and
      clamp so huge values cannot overflow to 0. *)
@@ -125,18 +147,12 @@ let error_message ~detail code =
   | "" -> Curl.strerror code
   | detail -> detail
 
-let network_error ?(proxy_status = 0) ~provider ~detail code =
+let network_error ~provider ~detail code =
   let message = error_message ~detail code in
-  (* A refused proxy tunnel fails with CURLE_RECV_ERROR whatever the proxy's
-     reason, so its CONNECT status decides retryability as an HTTP status would. *)
-  let is_retryable =
-    match proxy_status with
-    | status when status >= 300 -> Provider_error.is_retryable_status status
-    | _ -> List.exists (Int.equal (code_number code)) transient_codes
-  in
+  let is_retryable = List.exists (Int.equal (code_number code)) transient_codes in
   Provider_error.Provider_error { provider; kind = Network_error { message }; is_retryable; retry_after_s = None }
 
-(* A rejected option, such as a CA directory the TLS backend cannot use, fails
+(* A rejected option, such as a URL over libcurl's 8 MB string limit, fails
    the same way on every attempt, so it is never retryable. ocurl's
    CurlException carries the code's name (CURLE_...), not libcurl's error text. *)
 let setup_error ~provider ~code_name code =
@@ -148,10 +164,10 @@ let setup_error ~provider ~code_name code =
       retry_after_s = None;
     }
 
-let failure_before_head ~handle ~provider ~error_detail code =
+let failure_before_head ~provider ~error_detail code =
   match succeeded code with
   | true -> network_error ~provider ~detail:"" Curl.CURLE_GOT_NOTHING
-  | false -> network_error ~proxy_status:(Curl.get_httpconnectcode handle) ~provider ~detail:!error_detail code
+  | false -> network_error ~provider ~detail:!error_detail code
 
 let start ~timeouts ~provider ~url ~headers ~body =
   let handle = Curl.init () in
@@ -187,7 +203,7 @@ let start ~timeouts ~provider ~url ~headers ~body =
         match !state with
         | Delivered -> release ()
         | Collecting _ ->
-          let error = failure_before_head ~handle ~provider ~error_detail code in
+          let error = failure_before_head ~provider ~error_detail code in
           release ();
           deliver ~state ~head_ready (Error error))
       (fun (_ : exn) -> release ());

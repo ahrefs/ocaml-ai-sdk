@@ -299,11 +299,7 @@ let serve_stalled_stream () =
 (* A stream that stalls before its first completion chunk still returns, and
    reports the idle timeout as its last part. *)
 let test_stall_before_first_chunk () =
-  (* Keeps a proxy configured on the machine away from the loopback request. *)
-  let saved_no_proxy = Option.value ~default:"" (Sys.getenv_opt "no_proxy") in
-  Unix.putenv "no_proxy" "*";
   let parts =
-    Fun.protect ~finally:(fun () -> Unix.putenv "no_proxy" saved_no_proxy) @@ fun () ->
     Lwt_main.run
       (let%lwt port = serve_stalled_stream () in
        let config =
