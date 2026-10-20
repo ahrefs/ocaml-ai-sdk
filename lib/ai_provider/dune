@@ -4,3 +4,10 @@
  (libraries lwt lwt.unix curl curl_lwt yojson melange-json-native)
  (preprocess
   (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
+
+(rule
+ (target user_agent.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (echo "let value = \"ocaml-ai-sdk/%{version:ocaml-ai-sdk}\"\n"))))

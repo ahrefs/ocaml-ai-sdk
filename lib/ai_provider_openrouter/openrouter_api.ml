@@ -153,7 +153,7 @@ let chat_completions ~config ~body ~extra_body ~extra_headers ~stream =
     in
     (match Http_client.status response >= 400, stream with
     | true, _ ->
-      let%lwt body = Http_client.body_string response in
+      let%lwt body = Http_client.error_body response in
       Lwt.fail (Ai_provider.Provider_error.Provider_error (provider_error_of_http_response ~body response))
     | false, true -> Lwt.return (`Stream (Http_client.body_lines response))
     | false, false ->

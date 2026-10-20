@@ -29,6 +29,9 @@ let curle_ok = code_number Curl.CURLE_OK
 let curle_http2 = 16
 let curle_http2_stream = 92
 
+(* Unlike upstream, which retries every fetch failure, a failed TLS handshake
+   (CURLE_SSL_CONNECT_ERROR) is not retried: it is usually a configuration error
+   such as https to a plain-HTTP port. *)
 let transient_codes =
   curle_http2
   :: curle_http2_stream
@@ -39,7 +42,6 @@ let transient_codes =
            CURLE_COULDNT_CONNECT;
            CURLE_PARTIAL_FILE;
            CURLE_OPERATION_TIMEOUTED;
-           CURLE_SSL_CONNECT_ERROR;
            CURLE_GOT_NOTHING;
            CURLE_SEND_ERROR;
            CURLE_RECV_ERROR;
@@ -85,18 +87,47 @@ let format_request_header (name, value) =
   | "" -> name ^ ";"
   | value -> Printf.sprintf "%s: %s" name value
 
-let configure handle ~url ~headers ~body ~error_detail ~on_header ~on_chunk =
+let max_connect_timeout_ms = 2147483647.
+
+let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_detail ~on_header ~on_chunk =
   Curl.set_url handle url;
+  Curl.set_protocols handle Curl.[ CURLPROTO_HTTP; CURLPROTO_HTTPS ];
   Curl.set_postfields handle body;
   Curl.set_postfieldsize handle (String.length body);
   (* An empty Expect header stops libcurl from waiting for 100-continue on large bodies. *)
   Curl.set_httpheader handle (List.map format_request_header headers @ [ "Expect:" ]);
+  Curl.set_useragent handle User_agent.value;
+  (* libcurl treats 0 as its 300s default, so round up to at least 1ms, and
+     clamp so huge values cannot overflow to 0. *)
+  Curl.set_connecttimeoutms handle
+    (Float.to_int (Float.min (Float.ceil (timeouts.connect_timeout *. 1000.)) max_connect_timeout_ms));
+  Curl.set_tcpkeepalive handle true;
   Curl.set_nosignal handle true;
   Curl.set_errorbuffer handle error_detail;
   Curl.set_headerfunction handle on_header;
   Curl.set_writefunction handle on_chunk
 
-let start ~url ~headers ~body =
+let network_error ?(proxy_status = 0) ~provider ~detail code =
+  let message =
+    match detail with
+    | "" -> Curl.strerror code
+    | detail -> detail
+  in
+  (* A refused proxy tunnel fails with CURLE_RECV_ERROR whatever the proxy's
+     reason, so its CONNECT status decides retryability as an HTTP status would. *)
+  let is_retryable =
+    match proxy_status with
+    | status when status >= 300 -> Provider_error.is_retryable_status status
+    | _ -> List.exists (Int.equal (code_number code)) transient_codes
+  in
+  Provider_error.Provider_error { provider; kind = Network_error { message }; is_retryable; retry_after_s = None }
+
+let failure_before_head ~handle ~provider ~error_detail code =
+  match succeeded code with
+  | true -> network_error ~provider ~detail:"" Curl.CURLE_GOT_NOTHING
+  | false -> network_error ~proxy_status:(Curl.get_httpconnectcode handle) ~provider ~detail:!error_detail code
+
+let start ~timeouts ~provider ~url ~headers ~body =
   let handle = Curl.init () in
   let head_ready = Lwt_mvar.create_empty () in
   let chunks, push = Lwt_stream.create () in
@@ -107,7 +138,9 @@ let start ~url ~headers ~body =
     String.length data
   in
   match
-    configure handle ~url ~headers ~body ~error_detail ~on_header:(on_header_line ~handle ~state ~head_ready) ~on_chunk;
+    configure handle ~timeouts ~url ~headers ~body ~error_detail
+      ~on_header:(on_header_line ~handle ~state ~head_ready)
+      ~on_chunk;
     Curl_lwt.perform handle
   with
   | exception exn ->
@@ -122,19 +155,14 @@ let start ~url ~headers ~body =
        before regular callbacks, so cleanup never frees an attached handle. *)
     Lwt.on_any transfer
       (fun code ->
-        release ();
-        deliver ~state ~head_ready (Error (if succeeded code then Curl.CURLE_GOT_NOTHING else code)))
+        match !state with
+        | Delivered -> release ()
+        | Collecting _ ->
+          let error = failure_before_head ~handle ~provider ~error_detail code in
+          release ();
+          deliver ~state ~head_ready (Error error))
       (fun (_ : exn) -> release ());
     head_ready, transfer, chunks, error_detail
-
-let network_error ~provider ~detail code =
-  let message =
-    match detail with
-    | "" -> Curl.strerror code
-    | detail -> detail
-  in
-  let is_retryable = List.exists (Int.equal (code_number code)) transient_codes in
-  Provider_error.Provider_error { provider; kind = Network_error { message }; is_retryable; retry_after_s = None }
 
 (* Curl data arrives inside libcurl callbacks, where libcurl rejects API calls
    such as starting another transfer. The pause moves downstream code to the
@@ -150,14 +178,14 @@ let cancel_on_failure transfer f =
     Lwt.cancel transfer;
     Lwt.fail exn
 
-let await_head ~(timeouts : Http_timeouts.t) ~provider ~transfer ~error_detail head_ready =
+let await_head ~(timeouts : Http_timeouts.t) ~provider ~transfer head_ready =
   let started = Unix.gettimeofday () in
   cancel_on_failure transfer (fun () ->
     match%lwt
       outside_curl_callback (Lwt_unix.with_timeout timeouts.request_timeout (fun () -> Lwt_mvar.take head_ready))
     with
     | Ok head -> Lwt.return head
-    | Error code -> Lwt.fail (network_error ~provider ~detail:!error_detail code)
+    | Error error -> Lwt.fail error
     | exception Lwt_unix.Timeout ->
       let elapsed_s = Unix.gettimeofday () -. started in
       let err =
@@ -166,23 +194,42 @@ let await_head ~(timeouts : Http_timeouts.t) ~provider ~transfer ~error_detail h
       Lwt.fail (Provider_error.Provider_error err))
 
 let post ~timeouts ~provider ~headers ~body url =
-  let%lwt head_ready, transfer, chunks, error_detail = Lwt.wrap (fun () -> start ~url ~headers ~body) in
-  let%lwt head = await_head ~timeouts ~provider ~transfer ~error_detail head_ready in
+  let%lwt head_ready, transfer, chunks, error_detail =
+    Lwt.wrap (fun () -> start ~timeouts ~provider ~url ~headers ~body)
+  in
+  let%lwt head = await_head ~timeouts ~provider ~transfer head_ready in
   Lwt.return { head; transfer; chunks; error_detail; timeouts; provider }
 
-let response_of_chunks ~timeouts ~provider ~status ~headers chunks =
-  let headers = List.map (fun (name, value) -> String.lowercase_ascii name, value) headers in
-  { head = { status; headers }; transfer = Lwt.return Curl.CURLE_OK; chunks; error_detail = ref ""; timeouts; provider }
+module For_testing = struct
+  let response_of_chunks ~timeouts ~provider ~status ~headers chunks =
+    let headers = List.map (fun (name, value) -> String.lowercase_ascii name, value) headers in
+    {
+      head = { status; headers };
+      transfer = Lwt.return Curl.CURLE_OK;
+      chunks;
+      error_detail = ref "";
+      timeouts;
+      provider;
+    }
+end
 
+(* A chunk already queued is returned as is: only a read that waited can be
+   woken from inside a libcurl callback, so only that one needs the idle timer
+   and the pause. *)
 let next_chunk r =
-  outside_curl_callback
-    (Lwt.pick
-       [
-         (let%lwt chunk = Lwt_stream.get r.chunks in
-          Lwt.return (`Chunk chunk));
-         (let%lwt () = Lwt_unix.sleep r.timeouts.stream_idle_timeout in
-          Lwt.return `Idle);
-       ])
+  let chunk = Lwt_stream.get r.chunks in
+  match Lwt.state chunk with
+  | Lwt.Return chunk -> Lwt.return (`Chunk chunk)
+  | Lwt.Fail exn -> Lwt.fail exn
+  | Lwt.Sleep ->
+    outside_curl_callback
+      (Lwt.pick
+         [
+           (let%lwt chunk = chunk in
+            Lwt.return (`Chunk chunk));
+           (let%lwt () = Lwt_unix.sleep r.timeouts.stream_idle_timeout in
+            Lwt.return `Idle);
+         ])
 
 let transfer_result r =
   let%lwt code = r.transfer in
@@ -211,6 +258,29 @@ let body_string r =
     | None -> Lwt.return (Buffer.contents buf)
   in
   loop ()
+
+let error_body_limit = 65536
+let error_body_deadline_s = 10.0
+
+let error_body r =
+  let buf = Buffer.create 4096 in
+  let rec read_capped () =
+    match Buffer.length buf >= error_body_limit with
+    | true -> Lwt.return_unit
+    | false ->
+    match%lwt read_chunk r with
+    | Some chunk ->
+      Buffer.add_string buf chunk;
+      read_capped ()
+    | None -> Lwt.return_unit
+  in
+  let%lwt () =
+    try%lwt Lwt_unix.with_timeout error_body_deadline_s read_capped
+    with Provider_error.Provider_error _ | Lwt_unix.Timeout -> Lwt.return_unit
+  in
+  (* Abandons whatever the cap or deadline left unread; a no-op once the transfer is done. *)
+  Lwt.cancel r.transfer;
+  Lwt.return (Buffer.sub buf 0 (Int.min error_body_limit (Buffer.length buf)))
 
 let split_on_newlines buf chunk emit =
   String.iter

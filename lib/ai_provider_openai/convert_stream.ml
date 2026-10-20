@@ -59,7 +59,7 @@ let transform events ~warnings =
       tool_calls;
     Hashtbl.clear tool_calls
   in
-  Ai_provider.Stream_part.pump ~push
+  Ai_provider.Stream_part.pump ~provider:"openai" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->
@@ -77,13 +77,12 @@ let transform events ~warnings =
           finished := true
         end
       | false ->
-      try
         let json = Yojson.Basic.from_string evt.data in
         let chunk = chunk_json_of_json json in
         emit_start ();
         (* Store usage if present (appears in final chunk) *)
         Stdlib.Option.iter (fun u -> last_usage := Some u) chunk.usage;
-        match List.nth_opt chunk.choices 0 with
+        (match List.nth_opt chunk.choices 0 with
         | None -> ()
         | Some choice ->
           let delta = choice.delta in
@@ -132,19 +131,6 @@ let transform events ~warnings =
                         provider_metadata = None;
                       }));
               finished := true)
-            choice.finish_reason
-      with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
-        push
-          (Some
-             (Ai_provider.Stream_part.Error
-                {
-                  error =
-                    {
-                      Ai_provider.Provider_error.provider = "openai";
-                      kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
-                      is_retryable = false;
-                      retry_after_s = None;
-                    };
-                })))
+            choice.finish_reason))
     events;
   stream

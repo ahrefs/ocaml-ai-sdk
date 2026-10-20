@@ -1,8 +1,9 @@
 (** HTTP client for provider API calls, built on libcurl through [Curl_lwt].
 
-    [timeouts.request_timeout] bounds the wait for response headers and
-    [timeouts.stream_idle_timeout] bounds the gap between body chunks. Timeouts
-    and transport failures fail with [Provider_error.Provider_error]. *)
+    Only [http] and [https] URLs are accepted. [timeouts.connect_timeout] bounds
+    connection setup, [timeouts.request_timeout] the wait for response headers
+    and [timeouts.stream_idle_timeout] the gap between body chunks. Timeouts and
+    transport failures fail with [Provider_error.Provider_error]. *)
 
 type response
 
@@ -28,6 +29,12 @@ val header : response -> string -> string option
     [timeouts.stream_idle_timeout]; both abort the transfer. *)
 val body_string : response -> string Lwt.t
 
+(** Reads the body of an error response, at most 64 KiB within 10 seconds. A
+    transport failure, a timeout or either limit ends the read instead of
+    failing it, so the caller keeps the status and headers and gets whatever
+    part of the body arrived. The rest of the transfer is aborted. *)
+val error_body : response -> string Lwt.t
+
 (** The body as lines (split on LF, CR stripped), read on demand. The idle timer
     runs only while a read waits for the next chunk, so a stream nobody reads is
     never timed out or aborted. A trailing line without LF is
@@ -35,12 +42,14 @@ val body_string : response -> string Lwt.t
     the transfer is then aborted and later reads return [None]. *)
 val body_lines : response -> string Lwt_stream.t
 
-(** A response whose body comes from in-memory chunks; [body_string] and
-    [body_lines] behave as for a network response. Intended for tests. *)
-val response_of_chunks :
-  timeouts:Http_timeouts.t ->
-  provider:string ->
-  status:int ->
-  headers:(string * string) list ->
-  string Lwt_stream.t ->
-  response
+module For_testing : sig
+  (** A response whose body comes from in-memory chunks; [body_string] and
+      [body_lines] behave as for a network response. *)
+  val response_of_chunks :
+    timeouts:Http_timeouts.t ->
+    provider:string ->
+    status:int ->
+    headers:(string * string) list ->
+    string Lwt_stream.t ->
+    response
+end

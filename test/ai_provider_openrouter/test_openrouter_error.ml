@@ -64,8 +64,8 @@ let test_of_response_json_without_error () =
   (check string) "raw body preserved" {|{"detail":"nope"}|} body
 
 let response_with ~status header =
-  Ai_provider.Http_client.response_of_chunks ~timeouts:Ai_provider.Http_timeouts.default ~provider:"openrouter" ~status
-    ~headers:[ header ] (Lwt_stream.of_list [])
+  Ai_provider.Http_client.For_testing.response_of_chunks ~timeouts:Ai_provider.Http_timeouts.default
+    ~provider:"openrouter" ~status ~headers:[ header ] (Lwt_stream.of_list [])
 
 let test_http_response_preserves_retry_after status () =
   let response = response_with ~status ("Retry-After", " 5 ") in

@@ -240,7 +240,8 @@ let test_transport_error_emits_error () =
         data: {\"id\":\"msg_1\",\"model\":\"claude\",\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}\n\n");
   let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:0.1 () in
   let response =
-    Ai_provider.Http_client.response_of_chunks ~timeouts ~provider:"anthropic" ~status:200 ~headers:[] chunks
+    Ai_provider.Http_client.For_testing.response_of_chunks ~timeouts ~provider:"anthropic" ~status:200 ~headers:[]
+      chunks
   in
   let events = Ai_provider_anthropic.Sse.parse_events (Ai_provider.Http_client.body_lines response) in
   let parts = Lwt_main.run (Lwt_stream.to_list (Ai_provider_anthropic.Convert_stream.transform events ~warnings:[])) in

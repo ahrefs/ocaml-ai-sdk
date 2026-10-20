@@ -192,7 +192,7 @@ let transform events ~warnings =
       finished := true
     end
   in
-  Ai_provider.Stream_part.pump ~push
+  Ai_provider.Stream_part.pump ~provider:"openrouter" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->
@@ -204,9 +204,8 @@ let transform events ~warnings =
         in
         emit_finish reason
       | false ->
-      try
         let json = Yojson.Basic.from_string evt.data in
-        match json with
+        (match json with
         | `Assoc fields when List.mem_assoc "error" fields -> process_error_chunk ~push ~emit_finish fields
         | _ ->
           let chunk = chunk_json_of_json json in
@@ -247,19 +246,6 @@ let transform events ~warnings =
                 last_finish_reason := Some mapped;
                 finish_open_tool_calls ();
                 emit_finish mapped)
-              choice.finish_reason)
-      with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
-        push
-          (Some
-             (Ai_provider.Stream_part.Error
-                {
-                  error =
-                    {
-                      Ai_provider.Provider_error.provider = "openrouter";
-                      kind = Deserialization_error { message = Printexc.to_string exn; raw = evt.data };
-                      is_retryable = false;
-                      retry_after_s = None;
-                    };
-                })))
+              choice.finish_reason)))
     events;
   stream

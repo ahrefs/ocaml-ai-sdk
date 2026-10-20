@@ -29,6 +29,9 @@ type t = {
 
 exception Provider_error of t
 
+(** The upstream status-code heuristic: 408, 409, 429, or any 5xx. *)
+val is_retryable_status : int -> bool
+
 (** Construct an API error.
 
     When [is_retryable] is omitted, defaults to the upstream status-code

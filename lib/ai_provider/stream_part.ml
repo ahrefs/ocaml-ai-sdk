@@ -31,13 +31,31 @@ type t =
     }
   | Error of { error : Provider_error.t }
 
-let pump ~push f events =
+let deserialization_error ~provider ~raw exn =
+  {
+    Provider_error.provider;
+    kind = Deserialization_error { message = Printexc.to_string exn; raw };
+    is_retryable = false;
+    retry_after_s = None;
+  }
+
+let pump ~provider ~push f events =
+  let fail error = push (Some (Error { error })) in
+  (* A malformed event is reported and skipped; any other failure ends the stream. *)
+  let on_event (evt : Sse.event) =
+    try f evt
+    with (Yojson.Json_error _ | Melange_json.Of_json_error _) as exn ->
+      fail (deserialization_error ~provider ~raw:evt.data exn)
+  in
   Lwt.async (fun () ->
     Lwt.finalize
       (fun () ->
-        try%lwt Lwt_stream.iter f events
-        with Provider_error.Provider_error error ->
-          push (Some (Error { error }));
+        try%lwt Lwt_stream.iter on_event events with
+        | Provider_error.Provider_error error ->
+          fail error;
+          Lwt.return_unit
+        | exn ->
+          fail (deserialization_error ~provider ~raw:"" exn);
           Lwt.return_unit)
       (fun () ->
         push None;

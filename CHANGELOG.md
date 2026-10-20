@@ -13,13 +13,25 @@ All notable changes to this project will be documented in this file.
   The chat server handler in `ai_core` still uses cohttp.
 - `Http_client` has a new API. `post` takes a string URL, header pairs and a
   string body, and returns an abstract `response` read with `status`, `header`
-  (case-insensitive), `body_string` and `body_lines`. `body_lines` replaces
-  `wrap_body_with_idle_timeout`, and `response_of_chunks` builds a response from
-  in-memory chunks for tests.
+  (case-insensitive), `body_string`, `error_body` and `body_lines`. `body_lines`
+  replaces `wrap_body_with_idle_timeout`, and `For_testing.response_of_chunks`
+  builds a response from in-memory chunks for tests.
 - Transport failures now fail with `Provider_error` `Network_error` (carrying
-  libcurl's message) instead of `Unix.Unix_error`. DNS, connect, TLS handshake,
-  send, receive, empty-reply, truncated-body and HTTP/2 failures are marked
-  retryable.
+  libcurl's message) instead of `Unix.Unix_error`. DNS, connect, send, receive,
+  empty-reply, truncated-body, timeout and HTTP/2 failures are marked
+  retryable. A failed TLS handshake is not. A proxy that refuses the CONNECT
+  tunnel is retryable only when its status is (408, 409, 429 or 5xx).
+- Only `http` and `https` URLs are accepted, whatever protocols the system
+  libcurl was built with.
+- New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
+  connect, proxy tunnel and TLS handshake. A connection that stalls no longer
+  holds the request until `request_timeout`.
+- Requests send `User-Agent: ocaml-ai-sdk/<version>` unless the caller passes
+  its own `User-Agent` header, and enable TCP keepalive.
+- An error response (status 400 or above) whose body stalls or breaks off now
+  still fails with the provider's API error, keeping the status and the
+  `retry-after` headers, instead of a network error or idle timeout. The error
+  body is read for at most 10 seconds and 64 KiB.
 - libcurl honours the `http_proxy`, `https_proxy`, `all_proxy` and `no_proxy`
   environment variables, so provider requests now go through a configured
   proxy. cohttp ignored them.
@@ -33,9 +45,10 @@ All notable changes to this project will be documented in this file.
   with the error. The idle timer runs only while a read is waiting, so a
   `body_lines` stream that nobody reads is no longer timed out.
 - New `Stream_part.pump` runs a provider's per-event converter in the
-  background, turns a `Provider_error` from the event stream into an `Error`
-  part, and always closes the output. The Anthropic, OpenAI and OpenRouter
-  converters use it.
+  background and always closes the output. An event whose JSON fails to decode
+  becomes a `Deserialization_error` part and the stream continues. Any other
+  exception, from the event stream or the converter, becomes an `Error` part
+  and ends the stream. The Anthropic, OpenAI and OpenRouter converters use it.
 
 ### Core SDK (`ai_core`)
 

@@ -115,7 +115,7 @@ let chat_completions ~config ~body ~extra_headers ~stream =
     let status = Http_client.status response in
     (match status >= 400, stream with
     | true, _ ->
-      let%lwt body = Http_client.body_string response in
+      let%lwt body = Http_client.error_body response in
       let retry_after_ms = Http_client.header response "retry-after-ms" in
       let retry_after = Http_client.header response "retry-after" in
       let err = Openai_error.of_response ~retry_after_ms ~retry_after ~status ~body () in

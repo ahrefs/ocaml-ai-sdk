@@ -9,8 +9,9 @@
   test_integration
   test_http_timeouts
   test_http_client
-  test_sse)
+  test_sse
+  test_stream_part)
  (package ocaml-ai-sdk)
- (libraries ai_provider alcotest lwt lwt.unix)
+ (libraries ai_provider alcotest lwt lwt.unix yojson)
  (preprocess
   (pps lwt_ppx)))
