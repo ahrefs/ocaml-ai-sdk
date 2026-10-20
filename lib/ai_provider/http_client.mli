@@ -3,10 +3,15 @@
     Only [http] and [https] URLs are accepted. Server certificates are verified
     against libcurl's default CA file and directory. The [SSL_CERT_FILE] and
     [SSL_CERT_DIR] environment variables, when set, replace the default file and
-    directory respectively; a file that cannot be read fails every HTTPS
-    request. [timeouts.connect_timeout] bounds
-    connection setup, [timeouts.request_timeout] the wait for response headers
-    and [timeouts.stream_idle_timeout] the gap between body chunks. Timeouts and
+    directory respectively. A file that cannot be read fails every HTTPS
+    request with a non-retryable [Network_error]. libcurl takes proxies from the
+    [http_proxy], [https_proxy], [all_proxy] and [no_proxy] environment
+    variables. Requests send [User-Agent: ocaml-ai-sdk/<version>] unless the
+    caller passes its own [User-Agent] header, and enable TCP keepalive.
+
+    [timeouts.connect_timeout] bounds connection setup,
+    [timeouts.request_timeout] the wait for response headers and
+    [timeouts.stream_idle_timeout] the gap between body chunks. Timeouts and
     transport failures fail with [Provider_error.Provider_error]. *)
 
 type response
@@ -14,7 +19,9 @@ type response
 (** POSTs [body] to the URL and resolves once the final (non-1xx) response
     headers arrive. Fails with a [Request_headers] timeout after
     [timeouts.request_timeout], or with [Network_error] when the transfer fails
-    before headers. Cancelling the returned promise aborts the transfer. *)
+    before headers. A transfer option that libcurl rejects, such as an
+    [SSL_CERT_DIR] the TLS backend cannot use, fails with a non-retryable
+    [Network_error]. Cancelling the returned promise aborts the transfer. *)
 val post :
   timeouts:Http_timeouts.t ->
   provider:string ->

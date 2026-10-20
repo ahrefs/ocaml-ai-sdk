@@ -147,6 +147,25 @@ let prepare_request ~config ~model ~stream (opts : Ai_provider.Call_options.t) =
   let extra_body = config.extra_body @ or_opts.extra_body in
   body, extra_body, warnings
 
+(* Yields the events left in [events], then fails with [exn]. *)
+let fail_after_events exn events =
+  Lwt_stream.from (fun () ->
+    match%lwt Lwt_stream.get events with
+    | Some _ as event -> Lwt.return event
+    | None -> Lwt.fail exn)
+
+(* The response info is read from a clone of [events]. When that read fails,
+   [events] keeps the events read so far but would then end silently, so the
+   failure is replayed after them for the converter to report as an [Error]
+   part, as Anthropic and OpenAI do. *)
+let peek_response_info events =
+  try%lwt
+    let%lwt info = Convert_stream.response_info events in
+    Lwt.return (info, events)
+  with
+  | Lwt.Canceled as exn -> Lwt.fail exn
+  | exn -> Lwt.return (None, fail_after_events exn events)
+
 let create ~config ~model =
   let module M = struct
     let specification_version = "v1"
@@ -172,7 +191,7 @@ let create ~config ~model =
       match response with
       | `Stream line_stream ->
         let sse_events = Sse.parse_events line_stream in
-        let%lwt raw_response = Convert_stream.response_info sse_events in
+        let%lwt raw_response, sse_events = peek_response_info sse_events in
         let parts = Convert_stream.transform sse_events ~warnings in
         Lwt.return { Ai_provider.Stream_result.stream = parts; warnings; raw_response }
       | `Json _ -> Lwt.fail_with "unexpected non-streaming response for streaming request"

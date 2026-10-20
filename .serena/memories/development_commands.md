@@ -75,7 +75,8 @@ dune exec examples/one_shot.exe
 Key dependencies managed by Dune:
 - lwt (>= 5.9) - Async programming
 - yojson (>= 2.2) - JSON parsing
-- cohttp-lwt-unix (>= 5.3) - HTTP client
+- curl, curl_lwt (>= 0.10.0) - provider HTTP client, needs a system libcurl
+- cohttp-lwt-unix (>= 5.3) - HTTP server in ai_core's server handler
 - melange-json-native (>= 2.0) - Type-safe JSON
 - base64 - Base64 encoding (for file data)
 - jsonschema (>= 0.1) - JSON Schema validation

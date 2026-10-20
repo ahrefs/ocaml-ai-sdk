@@ -38,6 +38,7 @@ let transient_codes =
   :: List.map code_number
        Curl.
          [
+           CURLE_COULDNT_RESOLVE_PROXY;
            CURLE_COULDNT_RESOLVE_HOST;
            CURLE_COULDNT_CONNECT;
            CURLE_PARTIAL_FILE;
@@ -119,12 +120,13 @@ let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_de
   Curl.set_headerfunction handle on_header;
   Curl.set_writefunction handle on_chunk
 
+let error_message ~detail code =
+  match detail with
+  | "" -> Curl.strerror code
+  | detail -> detail
+
 let network_error ?(proxy_status = 0) ~provider ~detail code =
-  let message =
-    match detail with
-    | "" -> Curl.strerror code
-    | detail -> detail
-  in
+  let message = error_message ~detail code in
   (* A refused proxy tunnel fails with CURLE_RECV_ERROR whatever the proxy's
      reason, so its CONNECT status decides retryability as an HTTP status would. *)
   let is_retryable =
@@ -133,6 +135,17 @@ let network_error ?(proxy_status = 0) ~provider ~detail code =
     | _ -> List.exists (Int.equal (code_number code)) transient_codes
   in
   Provider_error.Provider_error { provider; kind = Network_error { message }; is_retryable; retry_after_s = None }
+
+(* A rejected option, such as a CA directory the TLS backend cannot use, fails
+   the same way on every attempt, so it is never retryable. *)
+let setup_error ~provider ~detail code =
+  Provider_error.Provider_error
+    {
+      provider;
+      kind = Network_error { message = error_message ~detail code };
+      is_retryable = false;
+      retry_after_s = None;
+    }
 
 let failure_before_head ~handle ~provider ~error_detail code =
   match succeeded code with
@@ -155,6 +168,9 @@ let start ~timeouts ~provider ~url ~headers ~body =
       ~on_chunk;
     Curl_lwt.perform handle
   with
+  | exception Curl.CurlException (code, _, detail) ->
+    Curl.cleanup handle;
+    raise (setup_error ~provider ~detail code)
   | exception exn ->
     Curl.cleanup handle;
     raise exn

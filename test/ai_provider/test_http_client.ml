@@ -259,23 +259,31 @@ let test_connect_timeout () =
   Lwt.return_unit
 
 (* SSL_CERT_FILE replaces libcurl's CA bundle: a missing file fails the TLS
-   setup instead of being ignored. *)
+   setup instead of being ignored. The wording of the error depends on the TLS
+   backend, so the test checks that the failure is not retryable and arrives
+   well before the connect timeout, which a hung handshake would wait out. *)
 let test_ssl_cert_file_honoured () =
   let%lwt port, _ = serve_once Hang in
-  let missing = "/nonexistent/ocaml-ai-sdk-test-ca.pem" in
-  let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout:5.0 () in
-  Unix.putenv "SSL_CERT_FILE" missing;
+  let connect_timeout = 5.0 in
+  let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout () in
+  Unix.putenv "SSL_CERT_FILE" "/nonexistent/ocaml-ai-sdk-test-ca.pem";
+  let started = Unix.gettimeofday () in
   Lwt.finalize
     (fun () ->
-      match%lwt post ~timeouts (Printf.sprintf "https://127.0.0.1:%d/" port) with
-      | _ -> fail "expected a CA file error"
-      | exception Ai_provider.Provider_error.Provider_error { kind = Network_error { message }; is_retryable; _ } ->
-        (check bool) "not retryable" false is_retryable;
-        (check bool) "names the CA file" true (contains ~sub:missing message);
-        Lwt.return_unit)
+      let%lwt () =
+        expect_network_error ~retryable:false (post ~timeouts (Printf.sprintf "https://127.0.0.1:%d/" port))
+      in
+      (check bool) "before the connect timeout" true
+        (Float.compare (Unix.gettimeofday () -. started) (connect_timeout /. 2.) < 0);
+      Lwt.return_unit)
     (fun () ->
       Unix.putenv "SSL_CERT_FILE" "";
       Lwt.return_unit)
+
+(* libcurl rejects a string option over 8 MB. The rejected option surfaces as a
+   non-retryable Network_error, not as a Curl.CurlException. *)
+let test_rejected_option_not_retryable () =
+  expect_network_error ~retryable:false (post ("http://127.0.0.1/" ^ String.make 8_000_000 'a'))
 
 (* A refused CONNECT is retryable only when the proxy's status is. libcurl reads
    the proxy from the environment, so these run last and clear it after. *)
@@ -343,6 +351,7 @@ let () =
           test_case "tls to plain port not retryable" `Quick (run_lwt test_tls_to_plain_port_not_retryable);
           test_case "connect timeout" `Quick (run_lwt test_connect_timeout);
           test_case "SSL_CERT_FILE honoured" `Quick (run_lwt test_ssl_cert_file_honoured);
+          test_case "rejected option not retryable" `Quick (run_lwt test_rejected_option_not_retryable);
         ] );
       ( "proxy",
         [

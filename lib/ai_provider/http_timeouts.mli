@@ -8,8 +8,12 @@
 type t = private {
   connect_timeout : float;
     (** Seconds to establish the connection: DNS, TCP connect, proxy tunnel
-          and TLS handshake. Nothing has reached the server when it fires, so
-          the failure is retryable. Default: [10.0]. *)
+          and TLS handshake. When it fires, the request fails with a retryable
+          [Network_error], since nothing has reached the server. Both clocks
+          start with the request, so it takes effect only while it is below
+          [request_timeout]. Otherwise a stalled connection fails with the
+          non-retryable [Timeout { phase = Request_headers }].
+          Default: [10.0]. *)
   request_timeout : float;
     (** Seconds until response headers arrive. Covers TCP connect, TLS
           handshake, request body write, and the server's processing time

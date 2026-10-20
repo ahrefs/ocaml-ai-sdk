@@ -17,20 +17,27 @@ All notable changes to this project will be documented in this file.
   replaces `wrap_body_with_idle_timeout`, and `For_testing.response_of_chunks`
   builds a response from in-memory chunks for tests.
 - Transport failures now fail with `Provider_error` `Network_error` (carrying
-  libcurl's message) instead of `Unix.Unix_error`. DNS, connect, send, receive,
-  empty-reply, truncated-body, timeout and HTTP/2 failures are marked
-  retryable. A failed TLS handshake is not. A proxy that refuses the CONNECT
-  tunnel is retryable only when its status is (408, 409, 429 or 5xx).
+  libcurl's message) instead of `Unix.Unix_error`. Host and proxy DNS, connect,
+  send, receive, empty-reply, truncated-body, timeout and HTTP/2 failures are
+  marked retryable. A failed TLS handshake is not. A proxy that refuses the
+  CONNECT tunnel is retryable only when its status is 408, 409, 429 or 5xx, the
+  rule now public as `Provider_error.is_retryable_status`.
+- A transfer option that libcurl rejects, such as an `SSL_CERT_DIR` the TLS
+  backend cannot use, fails with a non-retryable `Network_error` instead of
+  raising `Curl.CurlException`.
 - Only `http` and `https` URLs are accepted, whatever protocols the system
   libcurl was built with.
 - TLS certificates are verified against the system libcurl's default CA file
   and directory. As with cohttp's OpenSSL backend, `SSL_CERT_FILE` replaces the
   default file and `SSL_CERT_DIR` the default directory. Unlike OpenSSL, a
   `SSL_CERT_FILE` that cannot be read now fails every HTTPS request with a
-  non-retryable error naming the file, instead of being skipped.
+  non-retryable `Network_error`, instead of being skipped.
 - New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
   connect, proxy tunnel and TLS handshake. A connection that stalls no longer
-  holds the request until `request_timeout`.
+  holds the request until `request_timeout`. It fails with a retryable
+  `Network_error`, and only while it is below `request_timeout`. Otherwise
+  `request_timeout` fires first with its non-retryable `Request_headers`
+  timeout.
 - Requests send `User-Agent: ocaml-ai-sdk/<version>` unless the caller passes
   its own `User-Agent` header, and enable TCP keepalive.
 - An error response (status 400 or above) whose body stalls or breaks off now
@@ -46,6 +53,8 @@ All notable changes to this project will be documented in this file.
   connection) now ends with a `Stream_part.Error` carrying the
   `Provider_error`. It used to close silently and re-raise to
   `Lwt.async_exception_hook`, whose default handler exits the process.
+  OpenRouter's `stream` reports a failure before the first completion chunk
+  the same way, instead of failing the call.
   `body_lines` and `Sse.parse_events` read on demand, and a failed read fails
   with the error. The idle timer runs only while a read is waiting, so a
   `body_lines` stream that nobody reads is no longer timed out.

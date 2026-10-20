@@ -34,7 +34,7 @@ ocaml-ai-sdk (package)
 - **Language**: OCaml (4.14+)
 - **Async**: Lwt (5.9+) for promises and async I/O
 - **JSON**: Yojson + Melange.json-native for serialization
-- **HTTP**: Cohttp-lwt-unix for HTTP requests
+- **HTTP**: libcurl (curl + curl_lwt) for provider requests, cohttp-lwt-unix for the ai_core server handler
 - **Schema**: Jsonschema (0.1+) for validation
 - **Build**: Dune 3.21+ with Melange support
 - **PPX**: Lwt_ppx (let%lwt syntax), ppx_deriving.show, melange-json-native.ppx
