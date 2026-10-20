@@ -276,6 +276,11 @@ let read_chunk r =
       let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
       Lwt.fail (Provider_error.Provider_error err))
 
+(* With lwt_ppx, [match%lwt] and [try%lwt] on a promise that has already failed
+   raise at once instead of returning the failed promise. [body_string] and
+   [error_body] start through [Lwt.apply] so a caller always gets a promise.
+   [Lwt_stream.get] has the same behaviour on its own, so [body_lines] cannot
+   avoid it. *)
 let body_string r =
   let buf = Buffer.create 4096 in
   let rec loop () =
@@ -285,30 +290,33 @@ let body_string r =
       loop ()
     | None -> Lwt.return (Buffer.contents buf)
   in
-  loop ()
+  Lwt.apply loop ()
 
 let error_body_limit = 65536
 let error_body_deadline_s = 10.0
 
 let error_body r =
-  let buf = Buffer.create 4096 in
-  let rec read_capped () =
-    match Buffer.length buf >= error_body_limit with
-    | true -> Lwt.return_unit
-    | false ->
-    match%lwt read_chunk r with
-    | Some chunk ->
-      Buffer.add_string buf chunk;
-      read_capped ()
-    | None -> Lwt.return_unit
-  in
-  let%lwt () =
-    try%lwt Lwt_unix.with_timeout error_body_deadline_s read_capped
-    with Provider_error.Provider_error _ | Lwt_unix.Timeout -> Lwt.return_unit
-  in
-  (* Abandons whatever the cap or deadline left unread; a no-op once the transfer is done. *)
-  Lwt.cancel r.transfer;
-  Lwt.return (Buffer.sub buf 0 (Int.min error_body_limit (Buffer.length buf)))
+  Lwt.apply
+    (fun () ->
+      let buf = Buffer.create 4096 in
+      let rec read_capped () =
+        match Buffer.length buf >= error_body_limit with
+        | true -> Lwt.return_unit
+        | false ->
+        match%lwt read_chunk r with
+        | Some chunk ->
+          Buffer.add_string buf chunk;
+          read_capped ()
+        | None -> Lwt.return_unit
+      in
+      let%lwt () =
+        try%lwt Lwt_unix.with_timeout error_body_deadline_s read_capped
+        with Provider_error.Provider_error _ | Lwt_unix.Timeout -> Lwt.return_unit
+      in
+      (* Abandons whatever the cap or deadline left unread; a no-op once the transfer is done. *)
+      Lwt.cancel r.transfer;
+      Lwt.return (Buffer.sub buf 0 (Int.min error_body_limit (Buffer.length buf))))
+    ()
 
 let split_on_newlines buf chunk emit =
   String.iter

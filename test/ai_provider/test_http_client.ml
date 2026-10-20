@@ -64,6 +64,22 @@ let test_timeout_phase_retryability () =
   let idle = Ai_provider.Provider_error.make_timeout ~provider:"p" ~phase:Stream_idle ~elapsed_s:1.0 ~limit_s:1.0 in
   (check bool) "Stream_idle retryable" true idle.is_retryable
 
+(* lwt_ppx's [match%lwt] raises at once on a promise that has already failed.
+   [body_string] and [error_body] must still hand back a promise. *)
+let test_reads_return_promises () =
+  let failing_response () =
+    Ai_provider.Http_client.For_testing.response_of_chunks ~timeouts:Ai_provider.Http_timeouts.default ~provider:"test"
+      ~status:200 ~headers:[]
+      (Lwt_stream.from (fun () -> Lwt.fail (Failure "boom")))
+  in
+  let returns_promise name read =
+    match read (failing_response ()) with
+    | (_ : unit Lwt.t) -> ()
+    | exception exn -> failf "%s raised %s instead of returning a promise" name (Printexc.to_string exn)
+  in
+  returns_promise "body_string" (fun r -> Lwt.map ignore (Ai_provider.Http_client.body_string r));
+  returns_promise "error_body" (fun r -> Lwt.map ignore (Ai_provider.Http_client.error_body r))
+
 (* Loopback server. Each test serves one connection with a canned reply. *)
 
 type reply =
@@ -335,6 +351,7 @@ let () =
           test_case "CRLF stripped" `Quick (run_lwt test_crlf_split);
         ] );
       "provider_error", [ test_case "timeout phase retryability" `Quick test_timeout_phase_retryability ];
+      "promises", [ test_case "failed reads return promises" `Quick test_reads_return_promises ];
       ( "transfer",
         [
           test_case "1xx head skipped" `Quick (run_lwt test_informational_skipped);

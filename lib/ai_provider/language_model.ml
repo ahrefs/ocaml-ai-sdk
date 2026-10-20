@@ -8,8 +8,11 @@ end
 
 type t = (module S)
 
-let generate (module M : S) opts = M.generate opts
-let stream (module M : S) opts = M.stream opts
+(* A provider's [match%lwt] on a request that failed before it started raises at
+   once (see [Http_client.body_string]); [Lwt.apply] turns that into a failed
+   promise for every caller. *)
+let generate (module M : S) opts = Lwt.apply M.generate opts
+let stream (module M : S) opts = Lwt.apply M.stream opts
 let provider (module M : S) = M.provider
 let model_id (module M : S) = M.model_id
 let specification_version (module M : S) = M.specification_version

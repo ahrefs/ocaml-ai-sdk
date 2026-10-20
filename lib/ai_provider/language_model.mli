@@ -24,7 +24,10 @@ end
 (** First-class module wrapper for runtime dispatch. *)
 type t = (module S)
 
+(** [generate] and [stream] dispatch to the model. A failure is always reported
+    through the returned promise, never raised by the call itself. *)
 val generate : t -> Call_options.t -> Generate_result.t Lwt.t
+
 val stream : t -> Call_options.t -> Stream_result.t Lwt.t
 val provider : t -> string
 val model_id : t -> string
