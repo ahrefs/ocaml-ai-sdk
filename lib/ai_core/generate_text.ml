@@ -23,8 +23,13 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
   ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
   ?telemetry ?(pending_tool_approvals = []) ?abort_signal () =
-  (* Build initial messages *)
-  let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
+  (* Build initial messages. Tools get the step's messages without the system
+     prompt, as upstream does, so the loop prepends it only for the model call. *)
+  let request_messages = Prompt_builder.resolve_messages ?prompt ?messages () in
+  let with_system step_messages =
+    Prompt_builder.resolve_messages ?system ?system_provider_options ~messages:step_messages ()
+  in
+  let initial_messages = with_system request_messages in
   let mode = Output.mode_of_output output in
   let tools = Option.value ~default:[] tools in
   let provider_tools = Prompt_builder.tools_to_provider tools in
@@ -73,7 +78,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         })
   in
   (* Step loop *)
-  let rec loop ~current_messages ~steps ~total_usage ~all_tool_calls ~all_tool_results ~step_num =
+  let rec loop ~step_messages ~steps ~total_usage ~all_tool_calls ~all_tool_results ~step_num =
     if step_num > max_steps then begin
       (* Exhausted steps - return what we have *)
       let last_step : Generate_text_result.step =
@@ -107,6 +112,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         }
     end
     else begin
+      let current_messages = with_system step_messages in
       let opts =
         Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
           ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ?abort_signal
@@ -177,8 +183,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               in
               let t0 = Unix.gettimeofday () in
               let%lwt tr =
-                Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
-                  ~args:tc.args ()
+                Core_tool.execute_tool ?abort_signal ~tools ~messages:step_messages ~tool_call_id:tc.tool_call_id
+                  ~tool_name:tc.tool_name ~args:tc.args ()
               in
               let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
               let%lwt () =
@@ -259,11 +265,11 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           (match stop_with_steps with
           | None ->
             let updated_messages =
-              Prompt_builder.append_assistant_and_tool_results ~messages:current_messages
-                ~assistant_content:result.content ~tool_results
+              Prompt_builder.append_assistant_and_tool_results ~messages:step_messages ~assistant_content:result.content
+                ~tool_results
             in
             let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
-            loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
+            loop ~step_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
               ~all_tool_calls:(List.rev_append tool_calls all_tool_calls)
               ~all_tool_results:(List.rev_append tool_results all_tool_results)
               ~step_num:(step_num + 1)
@@ -328,7 +334,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
   (* Execute pending tool approvals before the LLM step loop *)
   let%lwt start_messages, initial_steps, initial_tool_calls, initial_tool_results =
     match pending_tool_approvals with
-    | [] -> Lwt.return (initial_messages, [], [], [])
+    | [] -> Lwt.return (request_messages, [], [], [])
     | approvals ->
       let%lwt tool_results =
         Lwt_list.map_s
@@ -344,8 +350,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
                   provider_metadata = None;
                 }
             | true ->
-              Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name
-                ~args:ta.args ())
+              Core_tool.execute_tool ?abort_signal ~tools ~messages:request_messages ~tool_call_id:ta.tool_call_id
+                ~tool_name:ta.tool_name ~args:ta.args ())
           approvals
       in
       let tool_calls =
@@ -380,11 +386,11 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             })
           tool_results
       in
-      let updated_messages = initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
+      let updated_messages = request_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
       Lwt.return (updated_messages, [ step ], tool_calls, tool_results)
   in
   let%lwt final_result =
-    loop ~current_messages:start_messages ~steps:(List.rev initial_steps)
+    loop ~step_messages:start_messages ~steps:(List.rev initial_steps)
       ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
       ~all_tool_calls:initial_tool_calls ~all_tool_results:initial_tool_results
       ~step_num:(1 + List.length initial_steps)

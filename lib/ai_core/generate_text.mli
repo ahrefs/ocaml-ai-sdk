@@ -17,8 +17,9 @@
       the call still had to do, such as a provider request in flight or the
       next step. An abort that comes after the final model response, or once
       [stop_when] is met, stops nothing, and the call returns its result as
-      upstream's generateText does. Tools do not receive the signal, so a
-      tool that is running finishes first. *)
+      upstream's generateText does. Tools get the signal in their
+      {!Core_tool.execute_options}; a running tool that ignores it finishes
+      first. *)
 
 val generate_text :
   model:Ai_provider.Language_model.t ->

@@ -4,7 +4,7 @@ let test_tool_without_approval () =
   let tool : Ai_core.Core_tool.t =
     Ai_core.Core_tool.create ~description:"test"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "ok"))
+      ~execute:(fun _ _ -> Lwt.return (`String "ok"))
       ()
   in
   (check bool) "no approval" true (Option.is_none tool.needs_approval)
@@ -13,7 +13,7 @@ let test_tool_with_static_approval () =
   let tool =
     Ai_core.Core_tool.create_with_approval ~description:"dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "ok"))
+      ~execute:(fun _ _ -> Lwt.return (`String "ok"))
       ()
   in
   match tool.needs_approval with
@@ -33,7 +33,7 @@ let test_tool_with_dynamic_approval () =
           | Some (`Int n) -> Lwt.return (n > 1000)
           | _ -> Lwt.return_false)
         | _ -> Lwt.return_false)
-      ~execute:(fun _ -> Lwt.return (`String "ok"))
+      ~execute:(fun _ _ -> Lwt.return (`String "ok"))
       ()
   in
   let check_fn =

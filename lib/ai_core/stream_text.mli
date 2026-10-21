@@ -22,8 +22,9 @@
       step starts after that, no further provider part is processed, and
       [on_step_finish] and [on_finish] are not called. The read of the
       provider stream ends on the abort even when the model ignores the
-      signal and never sends another part. Tools do not receive the signal,
-      so a tool that is running finishes first. A signal that has already
+      signal and never sends another part. Tools get the signal in their
+      {!Core_tool.execute_options}; a running tool that ignores it finishes
+      first. A signal that has already
       fired gives a stream holding [Start] then [Abort], and the model is
       never called. In that case [on_abort] runs before [stream_text]
       returns. Once the call ends, it no longer holds a

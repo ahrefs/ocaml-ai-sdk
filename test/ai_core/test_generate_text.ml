@@ -85,7 +85,7 @@ let search_tool : Ai_core.Core_tool.t =
     parameters = `Assoc [ "type", `String "object" ];
     execute =
       Some
-        (fun args ->
+        (fun args _ ->
           let query = try (query_args_of_json args).query with _ -> "unknown" in
           Lwt.return (`String (Printf.sprintf "Results for: %s" query)));
     needs_approval = None;
@@ -276,7 +276,7 @@ let make_single_tool_call_model () =
 let approval_tool : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
     ~parameters:(`Assoc [ "type", `String "object" ])
-    ~execute:(fun _ -> Lwt.return (`String "executed"))
+    ~execute:(fun _ _ -> Lwt.return (`String "executed"))
     ()
 
 let test_approval_stops_loop () =
@@ -296,7 +296,7 @@ let test_no_approval_executes_normally () =
   let no_approval_search_tool : Ai_core.Core_tool.t =
     Ai_core.Core_tool.create ~description:"Search"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun args ->
+      ~execute:(fun args _ ->
         let query = try (query_args_of_json args).query with _ -> "unknown" in
         Lwt.return (`String (Printf.sprintf "Results for: %s" query)))
       ()
@@ -319,7 +319,7 @@ let test_dynamic_approval_conditional () =
         Lwt.return (String.equal target "prod"))
       ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ~execute:(fun _ _ -> Lwt.return (`String "executed"))
       ()
   in
   let model = make_single_tool_call_model () in
@@ -387,7 +387,7 @@ let test_approved_tool_executes () =
   let tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ~execute:(fun _ _ -> Lwt.return (`String "executed"))
       ()
   in
   (* Pass tc_1 as pre-approved pending approval — should execute directly *)
@@ -459,13 +459,13 @@ let test_mixed_tools_safe_executes () =
   let safe_tool =
     Ai_core.Core_tool.create ~description:"Safe"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "safe result"))
+      ~execute:(fun _ _ -> Lwt.return (`String "safe result"))
       ()
   in
   let dangerous_tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "dangerous result"))
+      ~execute:(fun _ _ -> Lwt.return (`String "dangerous result"))
       ()
   in
   let result =
@@ -594,7 +594,7 @@ let test_stop_when_has_tool_call () =
   let done_tool : Ai_core.Core_tool.t =
     Ai_core.Core_tool.create ~description:"Done"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "done"))
+      ~execute:(fun _ _ -> Lwt.return (`String "done"))
       ()
   in
   let result =
@@ -1060,8 +1060,9 @@ let test_generate_no_retry_on_non_retryable () =
 
 (* Every call asks for the [search] tool once per id in [tool_call_ids].
    [calls] counts model calls and [signals] records, per call, whether the call
-   options carried the abort signal. *)
-let make_abort_tool_model ?(tool_call_ids = [ "tc_1" ]) () =
+   options carried the abort signal. [prompts] gets each call's prompt, latest
+   first. *)
+let make_abort_tool_model ?(tool_call_ids = [ "tc_1" ]) ?(prompts = ref []) () =
   let calls = ref 0 in
   let signals = ref [] in
   let module M : Ai_provider.Language_model.S = struct
@@ -1072,6 +1073,7 @@ let make_abort_tool_model ?(tool_call_ids = [ "tc_1" ]) () =
     let generate (opts : Ai_provider.Call_options.t) =
       incr calls;
       signals := Option.is_some opts.abort_signal :: !signals;
+      prompts := opts.prompt :: !prompts;
       Lwt.return
         {
           Ai_provider.Generate_result.content =
@@ -1111,7 +1113,7 @@ let counting_search_tool ?abort runs =
     search_tool with
     execute =
       Some
-        (fun (_ : Yojson.Basic.t) ->
+        (fun (_ : Yojson.Basic.t) _ ->
           incr runs;
           Option.iter (fun wakener -> Lwt.wakeup_later wakener ()) abort;
           Lwt.return (`String "results"));
@@ -1166,6 +1168,129 @@ let test_abort_before_pending_approval () =
   (check int) "tool never runs" 0 !runs;
   (check int) "model never called" 0 !calls
 
+(* Names each message by its role. *)
+let roles messages =
+  List.map
+    (fun (message : Ai_provider.Prompt.message) ->
+      match message with
+      | System _ -> "system"
+      | User _ -> "user"
+      | Assistant _ -> "assistant"
+      | Tool _ -> "tool")
+    messages
+
+(* A [search] tool that records the options of each run in [seen], latest
+   first. *)
+let recording_search_tool seen =
+  {
+    search_tool with
+    execute =
+      Some
+        (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
+          seen := options :: !seen;
+          Lwt.return (`String "results"));
+  }
+
+let has_signal signal (options : Ai_core.Core_tool.execute_options) =
+  match options.abort_signal with
+  | Some s -> s == signal
+  | None -> false
+
+(* Each run gets the signal, its call id and the messages of the step that
+   produced the call, without the system prompt or that step's response. *)
+let test_tool_execute_options () =
+  let prompts = ref [] in
+  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model ~prompts () in
+  let signal, _abort = Ai_provider.Abort_signal.create () in
+  let seen = ref [] in
+  let (_ : Ai_core.Generate_text_result.t) =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~system:"Be brief" ~prompt:"Search"
+         ~tools:[ "search", recording_search_tool seen ]
+         ~max_steps:3 ~abort_signal:signal ())
+  in
+  let runs = List.rev !seen in
+  (check (list string))
+    "tool call ids" [ "tc_1"; "tc_1" ]
+    (List.map (fun (options : Ai_core.Core_tool.execute_options) -> options.tool_call_id) runs);
+  (check (list (list string)))
+    "messages"
+    [ [ "user" ]; [ "user"; "assistant"; "tool" ] ]
+    (List.map (fun (options : Ai_core.Core_tool.execute_options) -> roles options.messages) runs);
+  (check (list bool)) "signal" [ true; true ] (List.map (has_signal signal) runs);
+  (check (list (list string)))
+    "the model still gets the system prompt"
+    [
+      [ "system"; "user" ];
+      [ "system"; "user"; "assistant"; "tool" ];
+      [ "system"; "user"; "assistant"; "tool"; "assistant"; "tool" ];
+    ]
+    (List.rev_map roles !prompts)
+
+let pending_request_messages : Ai_provider.Prompt.message list =
+  [
+    User { content = [ Text { text = "Search"; provider_options = Ai_provider.Provider_options.empty } ] };
+    Assistant
+      {
+        content =
+          [
+            Tool_call
+              { id = "tc_0"; name = "search"; args = `Assoc []; provider_options = Ai_provider.Provider_options.empty };
+          ];
+      };
+  ]
+
+(* An approved pending tool runs before the first step and gets the request's
+   messages. *)
+let test_pending_tool_execute_options () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let signal, _abort = Ai_provider.Abort_signal.create () in
+  let seen = ref [] in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc []; approved = true }
+  in
+  let (_ : Ai_core.Generate_text_result.t) =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~system:"Be brief" ~messages:pending_request_messages
+         ~tools:[ "search", recording_search_tool seen ]
+         ~pending_tool_approvals:[ pending ] ~max_steps:2 ~abort_signal:signal ())
+  in
+  match !seen with
+  | [ options ] ->
+    (check string) "tool call id" "tc_0" options.tool_call_id;
+    (check (list string)) "messages" [ "user"; "assistant" ] (roles options.messages);
+    (check bool) "signal" true (has_signal signal options)
+  | runs -> Alcotest.failf "expected one run, got %d" (List.length runs)
+
+(* A tool that waits on the signal ends when it fires, so the call fails at
+   the abort and not when a tool that ignores the signal would end. *)
+let test_abort_reaches_tool () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let tool =
+    {
+      search_tool with
+      execute =
+        Some
+          (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
+            let%lwt () =
+              match options.abort_signal with
+              | Some signal -> Ai_provider.Abort_signal.wait signal
+              | None -> Lwt_unix.sleep 1.0
+            in
+            Lwt.return (`String "stopped"));
+    }
+  in
+  let started = Unix.gettimeofday () in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", tool ]
+        ~max_steps:3 ~abort_signal:(Lwt_unix.sleep 0.3) ())
+  in
+  let elapsed = Unix.gettimeofday () -. started in
+  (check string) "outcome" "aborted" outcome;
+  (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.6)
+
 let () =
   run "Generate_text"
     [
@@ -1176,6 +1301,8 @@ let () =
           test_case "tool_not_found" `Quick test_tool_not_found;
           test_case "max_steps_1" `Quick test_max_steps_1;
           test_case "on_step_finish" `Quick test_on_step_finish;
+          test_case "execute_options" `Quick test_tool_execute_options;
+          test_case "pending_execute_options" `Quick test_pending_tool_execute_options;
         ] );
       ( "approval",
         [
@@ -1201,6 +1328,7 @@ let () =
           test_case "between_steps" `Quick test_abort_between_steps;
           test_case "between_tools" `Quick test_abort_between_tools;
           test_case "before_pending_approval" `Quick test_abort_before_pending_approval;
+          test_case "reaches_tool" `Quick test_abort_reaches_tool;
         ] );
       ( "retry",
         [

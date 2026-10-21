@@ -92,7 +92,7 @@ let weather_tool =
              `Assoc [ "city", `Assoc [ "type", `String "string"; "description", `String "City name, e.g. 'Paris'" ] ] );
            "required", `List [ `String "city" ];
          ])
-    ~execute:(fun args ->
+    ~execute:(fun args _ ->
       let city =
         match args with
         | `Assoc pairs ->

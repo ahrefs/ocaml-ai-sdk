@@ -104,7 +104,7 @@ let search_tool : Ai_core.Core_tool.t =
     parameters = `Assoc [ "type", `String "object" ];
     execute =
       Some
-        (fun args ->
+        (fun args _ ->
           let q = try (query_args_of_json args).query with _ -> "?" in
           Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
     needs_approval = None;
@@ -339,7 +339,7 @@ let make_approval_stream_model () =
 let approval_tool : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
     ~parameters:(`Assoc [ "type", `String "object" ])
-    ~execute:(fun _ -> Lwt.return (`String "executed"))
+    ~execute:(fun _ _ -> Lwt.return (`String "executed"))
     ()
 
 let test_approval_stops_stream_loop () =
@@ -432,7 +432,7 @@ let test_approved_tool_executes_stream () =
   let tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ~execute:(fun _ _ -> Lwt.return (`String "executed"))
       ()
   in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
@@ -495,7 +495,7 @@ let test_denied_tool_emits_output_denied () =
   let tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "should not execute"))
+      ~execute:(fun _ _ -> Lwt.return (`String "should not execute"))
       ()
   in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
@@ -581,13 +581,13 @@ let test_mixed_tools_safe_executes_stream () =
   let safe_tool =
     Ai_core.Core_tool.create ~description:"Safe"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "safe result"))
+      ~execute:(fun _ _ -> Lwt.return (`String "safe result"))
       ()
   in
   let dangerous_tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "dangerous result"))
+      ~execute:(fun _ _ -> Lwt.return (`String "dangerous result"))
       ()
   in
   let result =
@@ -717,7 +717,7 @@ let test_stream_stop_when_has_tool_call () =
   let done_tool =
     Ai_core.Core_tool.create ~description:"Done"
       ~parameters:(`Assoc [ "type", `String "object" ])
-      ~execute:(fun _ -> Lwt.return (`String "done"))
+      ~execute:(fun _ _ -> Lwt.return (`String "done"))
       ()
   in
   let result =
@@ -1287,7 +1287,7 @@ let run_abort_in_first_step ~in_tool =
       search_tool with
       execute =
         Some
-          (fun (_ : Yojson.Basic.t) ->
+          (fun (_ : Yojson.Basic.t) _ ->
             incr tool_runs;
             if in_tool then Lwt.wakeup_later abort ();
             Lwt.return (`String "results"));
@@ -1460,7 +1460,7 @@ let counting_search_tool ?abort runs =
     search_tool with
     execute =
       Some
-        (fun (_ : Yojson.Basic.t) ->
+        (fun (_ : Yojson.Basic.t) _ ->
           incr runs;
           Option.iter Lwt.cancel abort;
           Lwt.return (`String "results"));
@@ -1510,6 +1510,98 @@ let test_abort_between_pending_approvals () =
   (check int) "model never called" 0 !calls;
   check_ends_with_abort parts;
   check_result_aborted result;
+  Lwt.return_unit
+
+(* Names each message by its role. *)
+let roles messages =
+  List.map
+    (fun (message : Ai_provider.Prompt.message) ->
+      match message with
+      | System _ -> "system"
+      | User _ -> "user"
+      | Assistant _ -> "assistant"
+      | Tool _ -> "tool")
+    messages
+
+(* A [search] tool that records the options of each run in [seen], latest
+   first. *)
+let recording_search_tool seen =
+  {
+    search_tool with
+    execute =
+      Some
+        (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
+          seen := options :: !seen;
+          Lwt.return (`String "results"));
+  }
+
+let has_signal signal (options : Ai_core.Core_tool.execute_options) =
+  match options.abort_signal with
+  | Some s -> s == signal
+  | None -> false
+
+(* Each run gets the signal, its call id and the messages of the step that
+   produced the call, without the system prompt or that step's response. *)
+let test_tool_execute_options () =
+  let model = make_multi_step_stream_model () in
+  let signal, _abort = Ai_provider.Abort_signal.create () in
+  let seen = ref [] in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~system:"Be brief" ~prompt:"Search"
+      ~tools:[ "search", recording_search_tool seen ]
+      ~max_steps:3 ~abort_signal:signal ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list) = Lwt_stream.to_list result.full_stream in
+  let runs = List.rev !seen in
+  (check (list string))
+    "tool call ids" [ "tc_1"; "tc_2" ]
+    (List.map (fun (options : Ai_core.Core_tool.execute_options) -> options.tool_call_id) runs);
+  (check (list (list string)))
+    "messages"
+    [ [ "user" ]; [ "user"; "assistant"; "tool" ] ]
+    (List.map (fun (options : Ai_core.Core_tool.execute_options) -> roles options.messages) runs);
+  (check (list bool)) "signal" [ true; true ] (List.map (has_signal signal) runs);
+  Lwt.return_unit
+
+(* An approved pending tool runs before the first step and gets the request's
+   messages. *)
+let test_pending_tool_execute_options () =
+  let model = make_tool_stream_model () in
+  let signal, _abort = Ai_provider.Abort_signal.create () in
+  let seen = ref [] in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc []; approved = true }
+  in
+  let messages : Ai_provider.Prompt.message list =
+    [
+      User { content = [ Text { text = "Search"; provider_options = Ai_provider.Provider_options.empty } ] };
+      Assistant
+        {
+          content =
+            [
+              Tool_call
+                {
+                  id = "tc_0";
+                  name = "search";
+                  args = `Assoc [];
+                  provider_options = Ai_provider.Provider_options.empty;
+                };
+            ];
+        };
+    ]
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~system:"Be brief" ~messages
+      ~tools:[ "search", recording_search_tool seen ]
+      ~pending_tool_approvals:[ pending ] ~max_steps:2 ~abort_signal:signal ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list) = Lwt_stream.to_list result.full_stream in
+  (match !seen with
+  | [ options ] ->
+    (check string) "tool call id" "tc_0" options.tool_call_id;
+    (check (list string)) "messages" [ "user"; "assistant" ] (roles options.messages);
+    (check bool) "signal" true (has_signal signal options)
+  | runs -> Alcotest.failf "expected one run, got %d" (List.length runs));
   Lwt.return_unit
 
 (* The abort path ignores exceptions from [on_chunk] and still closes. *)
@@ -1847,6 +1939,8 @@ let () =
       ( "tools",
         [
           test_case "tool_loop" `Quick test_tool_stream_loop;
+          test_case "execute_options" `Quick (run_lwt test_tool_execute_options);
+          test_case "pending_execute_options" `Quick (run_lwt test_pending_tool_execute_options);
           test_case "approval_stops_stream_loop" `Quick test_approval_stops_stream_loop;
           test_case "approved_tool_executes" `Quick test_approved_tool_executes_stream;
           test_case "denied_emits_output_denied" `Quick test_denied_tool_emits_output_denied;

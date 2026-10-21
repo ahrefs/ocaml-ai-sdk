@@ -28,7 +28,7 @@ let () =
                  "properties", `Assoc [ "query", `Assoc [ "type", `String "string" ] ];
                  "required", `List [ `String "query" ];
                ])
-          ~execute:(fun args ->
+          ~execute:(fun args _ ->
             let { query } = search_args_of_json args in
             Printf.printf "  [tool] Searching for: %s\n%!" query;
             Lwt.return (`String (Printf.sprintf "Results for '%s': OCaml is a functional programming language." query)))
@@ -43,7 +43,7 @@ let () =
                  "properties", `Assoc [ "summary", `Assoc [ "type", `String "string" ] ];
                  "required", `List [ `String "summary" ];
                ])
-          ~execute:(fun args ->
+          ~execute:(fun args _ ->
             let { summary } = summarize_args_of_json args in
             Printf.printf "  [tool] Summary: %s\n%!" summary;
             Lwt.return (`String summary))

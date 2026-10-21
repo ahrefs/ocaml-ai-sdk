@@ -389,8 +389,13 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k
   ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish ?on_abort ?transform ?telemetry
   ?(pending_tool_approvals = []) ?abort_signal () =
-  (* Build initial messages *)
-  let initial_messages = Prompt_builder.resolve_messages ?system ?system_provider_options ?prompt ?messages () in
+  (* Build initial messages. Tools get the step's messages without the system
+     prompt, as upstream does, so the loop prepends it only for the model call. *)
+  let request_messages = Prompt_builder.resolve_messages ?prompt ?messages () in
+  let with_system step_messages =
+    Prompt_builder.resolve_messages ?system ?system_provider_options ~messages:step_messages ()
+  in
+  let initial_messages = with_system request_messages in
   let mode = Output.mode_of_output output in
   let tools = Option.value ~default:[] tools in
   let provider_tools = Prompt_builder.tools_to_provider tools in
@@ -467,10 +472,10 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         Option.iter (fun f -> f step) on_step_finish;
         Lwt.return_unit)
     in
-    let execute_and_emit (tc : Generate_text_result.tool_call) =
+    let execute_and_emit ~messages (tc : Generate_text_result.tool_call) =
       let%lwt tr =
-        Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args
-          ()
+        Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+          ~args:tc.args ()
       in
       emit_event
         (Text_stream_part.Tool_result
@@ -483,7 +488,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
            });
       Lwt.return tr
     in
-    let execute_tool_with_telemetry ~step_num (tc : Generate_text_result.tool_call) =
+    let execute_tool_with_telemetry ~step_num ~messages (tc : Generate_text_result.tool_call) =
       Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
         match telemetry with
         | Some t ->
@@ -506,8 +511,8 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       in
       let t0 = Unix.gettimeofday () in
       let%lwt tr =
-        Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args
-          ()
+        Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+          ~args:tc.args ()
       in
       let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
       let%lwt () =
@@ -602,7 +607,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             metadata = tp.metadata_;
           })
     in
-    let rec step_loop ~current_messages ~steps ~total_usage ~step_num =
+    let rec step_loop ~step_messages ~steps ~total_usage ~step_num =
       if step_num > max_steps then
         finish_stream ~finish_reason:(Ai_provider.Finish_reason.Other "max_steps") ~usage:total_usage
           ~all_steps:(List.rev steps)
@@ -613,6 +618,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_response_model, step_provider_metadata =
           guard @@ fun () ->
           emit_event Text_stream_part.Start_step;
+          let current_messages = with_system step_messages in
           let opts =
             Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
               ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers
@@ -659,7 +665,9 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         in
         if should_continue then begin
           let%lwt blocked_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
-          let%lwt tool_results = Lwt_list.map_s (execute_tool_with_telemetry ~step_num) executable_calls in
+          let%lwt tool_results =
+            Lwt_list.map_s (execute_tool_with_telemetry ~step_num ~messages:step_messages) executable_calls
+          in
           (* Emit approval requests only for tools that have needs_approval (not client-only tools) *)
           List.iter
             (fun (tc : Generate_text_result.tool_call) ->
@@ -721,10 +729,10 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
                     tool_calls
               in
               let updated_messages =
-                Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content
+                Prompt_builder.append_assistant_and_tool_results ~messages:step_messages ~assistant_content
                   ~tool_results
               in
-              step_loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_total
+              step_loop ~step_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_total
                 ~step_num:(step_num + 1))
         end
         else begin
@@ -756,7 +764,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       (* Execute pending tool approvals before starting the LLM step loop *)
       let%lwt start_messages, initial_steps =
         match pending_tool_approvals with
-        | [] -> Lwt.return (initial_messages, [])
+        | [] -> Lwt.return (request_messages, [])
         | approvals ->
           emit_event Text_stream_part.Start_step;
           (* Emit tool input chunks so the frontend creates tool invocations *)
@@ -783,7 +791,9 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
                       is_error = false;
                       provider_metadata = None;
                     }
-                | true -> execute_and_emit { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+                | true ->
+                  execute_and_emit ~messages:request_messages
+                    { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
               approvals
           in
           let tool_calls =
@@ -819,10 +829,10 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
                 })
               tool_results
           in
-          let updated_messages = initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
+          let updated_messages = request_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
           Lwt.return (updated_messages, [ step ])
       in
-      step_loop ~current_messages:start_messages ~steps:(List.rev initial_steps)
+      step_loop ~step_messages:start_messages ~steps:(List.rev initial_steps)
         ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
         ~step_num:(1 + List.length initial_steps)
     with exn ->

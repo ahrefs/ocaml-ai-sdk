@@ -5,10 +5,21 @@
     provides results via [addToolOutput]. Tools can optionally require approval
     before execution via [needs_approval]. *)
 
+(** What a tool's [execute] receives besides its arguments. Mirrors upstream's
+    [ToolExecutionOptions]. *)
+type execute_options = {
+  tool_call_id : string;
+  messages : Ai_provider.Prompt.message list;
+    (** The messages sent to the model for the step that produced the call,
+        without the system prompt and without that step's response. For an
+        approved tool, the request's messages. *)
+  abort_signal : Ai_provider.Abort_signal.t option;  (** The [abort_signal] given to [generate_text] or [stream_text]. *)
+}
+
 type t = {
   description : string option;
   parameters : Yojson.Basic.t;  (** JSON Schema for tool parameters *)
-  execute : (Yojson.Basic.t -> Yojson.Basic.t Lwt.t) option;
+  execute : (Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) option;
     (** Execute the tool server-side. [None] for client-side tools
         where the frontend provides results. *)
   needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
@@ -29,7 +40,7 @@ val create :
   ?needs_approval:(Yojson.Basic.t -> bool Lwt.t) ->
   ?provider_options:Ai_provider.Provider_options.t ->
   parameters:Yojson.Basic.t ->
-  execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) ->
+  execute:(Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) ->
   unit ->
   t
 
@@ -38,7 +49,7 @@ val create_with_approval :
   ?description:string ->
   ?provider_options:Ai_provider.Provider_options.t ->
   parameters:Yojson.Basic.t ->
-  execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) ->
+  execute:(Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) ->
   unit ->
   t
 
@@ -59,11 +70,12 @@ val denied_result : Yojson.Basic.t
     Returns an error result if the tool is not found, is client-side only, or throws.
     Fails with [Ai_provider.Abort_signal.Aborted], without running the tool,
     when [abort_signal] has already fired. [generate_text] and [stream_text]
-    pass their signal, so neither starts a tool after an abort. The tool
-    itself does not get the signal. *)
+    pass their signal, so neither starts a tool after an abort. The tool gets
+    the signal, [messages] and [tool_call_id] in its {!execute_options}. *)
 val execute_tool :
   ?abort_signal:Ai_provider.Abort_signal.t ->
   tools:(string * t) list ->
+  messages:Ai_provider.Prompt.message list ->
   tool_call_id:string ->
   tool_name:string ->
   args:Yojson.Basic.t ->

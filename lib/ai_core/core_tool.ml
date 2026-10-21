@@ -1,7 +1,13 @@
+type execute_options = {
+  tool_call_id : string;
+  messages : Ai_provider.Prompt.message list;
+  abort_signal : Ai_provider.Abort_signal.t option;
+}
+
 type t = {
   description : string option;
   parameters : Yojson.Basic.t;
-  execute : (Yojson.Basic.t -> Yojson.Basic.t Lwt.t) option;
+  execute : (Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) option;
   needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
   provider_options : Ai_provider.Provider_options.t;
 }
@@ -29,7 +35,7 @@ let safe_parse_json_args s =
 
 let denied_result = `Assoc [ "type", `String "execution-denied" ]
 
-let execute_tool ?abort_signal ~tools ~tool_call_id ~tool_name ~args () =
+let execute_tool ?abort_signal ~tools ~messages ~tool_call_id ~tool_name ~args () =
   let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
   match List.assoc_opt tool_name tools with
   | None ->
@@ -52,7 +58,7 @@ let execute_tool ?abort_signal ~tools ~tool_call_id ~tool_name ~args () =
       }
   | Some { execute = Some exec; _ } ->
   try%lwt
-    let%lwt result = exec args in
+    let%lwt result = exec args { tool_call_id; messages; abort_signal } in
     Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
   with exn ->
     Lwt.return

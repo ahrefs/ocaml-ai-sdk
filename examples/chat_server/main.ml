@@ -47,7 +47,7 @@ let get_weather : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval
     ~description:"Get the current weather for a city. Returns temperature and conditions."
     ~parameters:(json_of_schema city_args_jsonschema)
-    ~execute:(fun args ->
+    ~execute:(fun args _ ->
       let city = try (city_args_of_json args).city with _ -> "unknown" in
       let temperature, condition =
         match String.lowercase_ascii city with
@@ -80,7 +80,7 @@ type search_results = { results : search_result_item list } [@@deriving to_json]
 let search_web : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create ~description:"Search the web for information. Returns a list of relevant results."
     ~parameters:(json_of_schema search_args_jsonschema)
-    ~execute:(fun args ->
+    ~execute:(fun args _ ->
       let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
       let n = num_results in
       let results =
