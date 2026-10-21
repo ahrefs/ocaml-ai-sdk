@@ -375,25 +375,12 @@ let test_on_finish_exception_still_closes_stream () =
 (* Streams "Hi" and then waits, closing its stream only when the abort signal
    fires, as a provider stream does. *)
 let make_waiting_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-waiting"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream (opts : Ai_provider.Call_options.t) =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Hi" }));
-      Option.iter
-        (fun signal ->
-          ignore
-            (Ai_provider.Abort_signal.with_on_abort signal (fun () -> push None) (fun () -> Lwt_stream.closed stream)
-              : unit Lwt.t))
-        opts.abort_signal;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  Ai_mock.Language_model.(
+    fst
+      (create
+         ~stream:
+           (Respond (hanging_stream [ Ai_provider.Stream_part.Stream_start { warnings = [] }; Text { text = "Hi" } ]))
+         ()))
 
 let status data = Chunk.Data { data_type = "status"; id = Some "s"; data = `String data }
 

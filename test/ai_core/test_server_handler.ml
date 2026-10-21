@@ -63,25 +63,17 @@ let test_make_sse_response_body_content () =
 (* === handle_chat tests === *)
 
 let text_model text =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-model"
-    let generate _opts = Lwt.fail_with "handle_chat streams"
-
-    let stream _opts =
-      let usage = { Ai_provider.Usage.input_tokens = 1; output_tokens = 1; total_tokens = Some 2 } in
-      let stream =
-        Lwt_stream.of_list
-          [
-            Ai_provider.Stream_part.Stream_start { warnings = [] };
-            Text { text };
-            Finish { finish_reason = Stop; usage; provider_metadata = None };
-          ]
-      in
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let usage = { Ai_provider.Usage.input_tokens = 1; output_tokens = 1; total_tokens = Some 2 } in
+  fst
+    (Ai_mock.Language_model.create
+       ~stream:
+         (Return
+            [
+              Ai_provider.Stream_part.Stream_start { warnings = [] };
+              Text { text };
+              Finish { finish_reason = Stop; usage; provider_metadata = None };
+            ])
+       ())
 
 let chat_body = {|{"messages":[{"id":"1","role":"user","parts":[{"type":"text","text":"Hi"}]}]}|}
 
@@ -179,30 +171,13 @@ let test_parse_chat_request_errors () =
   | Ok _ -> fail "accepted invalid JSON"
 
 (* Sends "Hi", then nothing until the abort signal fires, and ends without a
-   Finish part, as Stream_pump.pump does on abort. [signal] records the signal
-   the call received. *)
+   Finish part, as Stream_pump.pump does on abort. *)
 let hanging_model () =
-  let signal = ref None in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-hanging"
-    let generate _opts = Lwt.fail_with "handle_chat streams"
-
-    let stream (opts : Ai_provider.Call_options.t) =
-      signal := opts.abort_signal;
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Hi" }));
-      Option.iter
-        (fun signal ->
-          ignore
-            (Ai_provider.Abort_signal.with_on_abort signal (fun () -> push None) (fun () -> Lwt_stream.closed stream)
-              : unit Lwt.t))
-        opts.abort_signal;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  signal, (module M : Ai_provider.Language_model.S)
+  Ai_mock.Language_model.(
+    create
+      ~stream:
+        (Respond (hanging_stream [ Ai_provider.Stream_part.Stream_start { warnings = [] }; Text { text = "Hi" } ]))
+      ())
 
 (* Fails the test instead of hanging when [promise] takes over a second. *)
 let within ~what promise =
@@ -222,7 +197,7 @@ let sse_type event =
 
 let test_handle_chat_abort_signal () =
   Lwt_main.run
-    (let model_signal, model = hanging_model () in
+    (let model, mock = hanging_model () in
      let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
      let response = Ai_core.Server_handler.handle_chat ~model ~abort_signal chat_body in
      let rec read_to_delta () =
@@ -235,9 +210,10 @@ let test_handle_chat_abort_signal () =
      Lwt.cancel abort_signal;
      let%lwt rest = within ~what:"the end of the stream" (Lwt_stream.to_list response.body) in
      (check (list string)) "stream tail" [ "abort"; "[DONE]" ] (List.map sse_type rest);
-     (match !model_signal with
-     | Some signal -> (check bool) "model call aborted" true (Ai_provider.Abort_signal.is_aborted signal)
-     | None -> fail "the model call got no abort signal");
+     (match Ai_mock.Language_model.stream_calls mock with
+     | [ { abort_signal = Some signal; _ } ] ->
+       (check bool) "model call aborted" true (Ai_provider.Abort_signal.is_aborted signal)
+     | _ -> fail "expected one model call with an abort signal");
      Lwt.return_unit)
 
 let test_handle_cors_preflight () =

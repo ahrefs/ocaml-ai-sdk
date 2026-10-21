@@ -181,7 +181,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     Lwt.return tr
   in
   (* Step loop *)
-  let rec loop ~step_messages ~steps ~total_usage ~step_num =
+  let rec loop ~step_messages ~steps ~step_num =
     if step_num > max_steps then begin
       (* Exhausted steps - return what we have *)
       let finish_reason =
@@ -189,7 +189,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         | (last_step : Generate_text_result.step) :: _ -> last_step.finish_reason
         | [] -> Ai_provider.Finish_reason.Error
       in
-      Lwt.return (Final_result.make ~finish_reason ~usage:total_usage ~output:None (List.rev steps))
+      let steps = List.rev steps in
+      Lwt.return (Final_result.make ~finish_reason ~usage:(Generate_text_result.total_usage steps) ~output:None steps)
     end
     else begin
       let current_messages = with_system step_messages in
@@ -224,10 +225,10 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         | _ -> ());
         Lwt.return (result, text, reasoning, tool_calls)
       in
-      let new_usage = Generate_text_result.add_usage total_usage result.usage in
       let finished all_steps =
         Final_result.make ~response:result.response ~warnings:result.warnings ~finish_reason:result.finish_reason
-          ~usage:new_usage ~output:(Output.parse_output output all_steps) all_steps
+          ~usage:(Generate_text_result.total_usage all_steps)
+          ~output:(Output.parse_output output all_steps) all_steps
       in
       (* Check if we need to execute tools *)
       let has_tool_calls =
@@ -280,7 +281,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
                 ~tool_results
             in
             let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
-            loop ~step_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage ~step_num:(step_num + 1)
+            loop ~step_messages:updated_messages ~steps:(step :: steps) ~step_num:(step_num + 1)
           | Some all_steps_so_far -> Lwt.return (finished all_steps_so_far))
       end
       else begin
@@ -364,9 +365,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     | approvals -> run_pending_approvals approvals
   in
   let%lwt final_result =
-    loop ~step_messages:start_messages ~steps:(List.rev initial_steps)
-      ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
-      ~step_num:(1 + List.length initial_steps)
+    loop ~step_messages:start_messages ~steps:(List.rev initial_steps) ~step_num:(1 + List.length initial_steps)
   in
   (* Add final attributes to root span *)
   (match telemetry with

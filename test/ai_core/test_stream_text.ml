@@ -3,100 +3,59 @@ open Alcotest
 
 type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
+module Mock = Ai_mock.Language_model
+
+(* Token counts whose total is their sum. *)
+let tokens input_tokens output_tokens : Ai_provider.Usage.t =
+  { input_tokens; output_tokens; total_tokens = Some (input_tokens + output_tokens) }
+
+let stream_start = Ai_provider.Stream_part.Stream_start { warnings = [] }
+
+let finish_part ?(finish_reason = Ai_provider.Finish_reason.Stop) usage =
+  Ai_provider.Stream_part.Finish { finish_reason; usage; provider_metadata = None }
+
+(* The parts that stream one whole tool call. *)
+let tool_call_parts ?(tool_name = "search") ?(args = {|{"query":"test"}|}) tool_call_id =
+  [
+    Ai_provider.Stream_part.Tool_call_delta
+      { tool_call_type = "function"; tool_call_id; tool_name; args_text_delta = args };
+    Tool_call_finish { tool_call_id };
+  ]
+
+let model_calls mock = List.length (Mock.stream_calls mock)
+
 (* Mock streaming model -- emits text deltas *)
 let make_text_stream_model response_text =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-stream"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = response_text } ];
-          finish_reason = Stop;
-          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = None; model = None; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      (* Split text into characters for realistic streaming *)
-      String.iter (fun c -> push (Some (Ai_provider.Stream_part.Text { text = String.make 1 c }))) response_text;
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Stop;
-                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return
-        {
-          Ai_provider.Stream_result.stream;
-          warnings = [];
-          raw_response = Some { id = Some "stream-1"; model = Some "actual-stream-model"; headers = []; body = `Null };
-        }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  (* Split text into characters for realistic streaming *)
+  let deltas =
+    List.map
+      (fun c -> Ai_provider.Stream_part.Text { text = String.make 1 c })
+      (List.of_seq (String.to_seq response_text))
+  in
+  let parts = (stream_start :: deltas) @ [ finish_part (tokens 10 5) ] in
+  let raw_response : Ai_provider.Generate_result.response_info =
+    { id = Some "stream-1"; model = Some "actual-stream-model"; headers = []; body = `Null }
+  in
+  fst
+    (Mock.create ~provider:"mock" ~model_id:"mock-stream"
+       ~stream:
+         (Respond
+            (fun (_ : Ai_provider.Call_options.t) ->
+              Lwt.return { (Mock.stream_result parts) with raw_response = Some raw_response }))
+       ())
 
 (* Mock model that streams a tool call then text on second call *)
 let make_tool_stream_model () =
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-tool-stream"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      incr call_count;
-      let stream, push = Lwt_stream.create () in
-      if !call_count = 1 then begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "Searching..." }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Tool_call_delta
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "tc_1";
-                  tool_name = "search";
-                  args_text_delta = {|{"query":"test"}|};
-                }));
-        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Tool_calls;
-                  usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
-                  provider_metadata = None;
-                }));
-        push None
-      end
-      else begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "Found it!" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Stop;
-                  usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
-                  provider_metadata = None;
-                }));
-        push None
-      end;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create
+       ~stream:
+         (Sequence
+            [
+              (stream_start :: Text { text = "Searching..." } :: tool_call_parts "tc_1")
+              @ [ finish_part ~finish_reason:Tool_calls (tokens 10 8) ];
+              [ stream_start; Text { text = "Found it!" }; finish_part (tokens 20 5) ];
+            ])
+       ())
 
 let search_tool : Ai_core.Core_tool.t =
   {
@@ -227,40 +186,15 @@ let test_stream_with_object_output () =
    call whose args stream in as deltas. Stream_text must drive the partial-output parser
    off those deltas so partial JSON appears progressively — same UX as the native path. *)
 let make_json_tool_fallback_stream_model ~chunks =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-json-tool-fallback"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      List.iter
-        (fun chunk ->
-          push
-            (Some
-               (Ai_provider.Stream_part.Tool_call_delta
-                  {
-                    tool_call_type = "function";
-                    tool_call_id = "tc_json_1";
-                    tool_name = "json";
-                    args_text_delta = chunk;
-                  })))
-        chunks;
-      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_json_1" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Tool_calls;
-                usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let delta args_text_delta =
+    Ai_provider.Stream_part.Tool_call_delta
+      { tool_call_type = "function"; tool_call_id = "tc_json_1"; tool_name = "json"; args_text_delta }
+  in
+  let parts =
+    (stream_start :: List.map delta chunks)
+    @ [ Tool_call_finish { tool_call_id = "tc_json_1" }; finish_part ~finish_reason:Tool_calls (tokens 10 8) ]
+  in
+  fst (Mock.create ~stream:(Return parts) ())
 
 let test_stream_with_json_tool_fallback () =
   (* Chunk a full JSON object across several deltas. partial_output_stream should see
@@ -303,38 +237,13 @@ let test_stream_without_output () =
   (check bool) "output is None" true (Option.is_none final_output)
 
 let make_approval_stream_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-approval-stream"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Let me check." }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Tool_call_delta
-              {
-                tool_call_type = "function";
-                tool_call_id = "tc_1";
-                tool_name = "dangerous_action";
-                args_text_delta = {|{"target":"prod"}|};
-              }));
-      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Tool_calls;
-                usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let parts =
+    stream_start
+    :: Text { text = "Let me check." }
+    :: tool_call_parts ~tool_name:"dangerous_action" ~args:{|{"target":"prod"}|} "tc_1"
+    @ [ finish_part ~finish_reason:Tool_calls (tokens 10 8) ]
+  in
+  fst (Mock.create ~stream:(Return parts) ())
 
 let approval_tool : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
@@ -374,57 +283,6 @@ let test_approval_stops_stream_loop () =
     (check int) "1 tool call" 1 (List.length step.tool_calls);
     (check int) "0 tool results" 0 (List.length step.tool_results)
   | [] -> Alcotest.fail "expected at least one step"
-
-let make_approved_stream_model () =
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-approved-stream"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      incr call_count;
-      let stream, push = Lwt_stream.create () in
-      if !call_count = 1 then begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "Let me check." }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Tool_call_delta
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "tc_1";
-                  tool_name = "dangerous_action";
-                  args_text_delta = {|{"target":"prod"}|};
-                }));
-        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Tool_calls;
-                  usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 };
-                  provider_metadata = None;
-                }));
-        push None
-      end
-      else begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "Done!" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Stop;
-                  usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
-                  provider_metadata = None;
-                }));
-        push None
-      end;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
 
 let test_approved_tool_executes_stream () =
   (* Model that just returns text — the tool was already executed in the initial step *)
@@ -533,48 +391,12 @@ let test_denied_tool_emits_output_denied () =
   (check bool) "no error Tool_result" false has_error_result
 
 let make_mixed_stream_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-mixed-stream"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Doing both." }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Tool_call_delta
-              {
-                tool_call_type = "function";
-                tool_call_id = "tc_safe";
-                tool_name = "safe_action";
-                args_text_delta = {|{"query":"test"}|};
-              }));
-      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_safe" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Tool_call_delta
-              {
-                tool_call_type = "function";
-                tool_call_id = "tc_danger";
-                tool_name = "dangerous_action";
-                args_text_delta = {|{"target":"prod"}|};
-              }));
-      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_danger" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Tool_calls;
-                usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let parts =
+    (stream_start :: Text { text = "Doing both." } :: tool_call_parts ~tool_name:"safe_action" "tc_safe")
+    @ tool_call_parts ~tool_name:"dangerous_action" ~args:{|{"target":"prod"}|} "tc_danger"
+    @ [ finish_part ~finish_reason:Tool_calls (tokens 10 15) ]
+  in
+  fst (Mock.create ~stream:(Return parts) ())
 
 let test_mixed_tools_safe_executes_stream () =
   let model = make_mixed_stream_model () in
@@ -629,41 +451,18 @@ let test_mixed_tools_safe_executes_stream () =
 
 (* Mock model that always streams a tool call, for testing stop_when *)
 let make_multi_step_stream_model () =
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-multi-step-stream"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      incr call_count;
-      let stream, push = Lwt_stream.create () in
-      let tc_id = Printf.sprintf "tc_%d" !call_count in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = Printf.sprintf "Step %d." !call_count }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Tool_call_delta
-              {
-                tool_call_type = "function";
-                tool_call_id = tc_id;
-                tool_name = "search";
-                args_text_delta = Printf.sprintf {|{"query":"step%d"}|} !call_count;
-              }));
-      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = tc_id }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Tool_calls;
-                usage = { input_tokens = 10; output_tokens = 10; total_tokens = Some 20 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let calls = ref 0 in
+  let respond (_ : Ai_provider.Call_options.t) =
+    incr calls;
+    let tool_call =
+      tool_call_parts ~args:(Printf.sprintf {|{"query":"step%d"}|} !calls) (Printf.sprintf "tc_%d" !calls)
+    in
+    Lwt.return
+      (Mock.stream_result
+         ((stream_start :: Text { text = Printf.sprintf "Step %d." !calls } :: tool_call)
+         @ [ finish_part ~finish_reason:Tool_calls (tokens 10 10) ]))
+  in
+  fst (Mock.create ~stream:(Respond respond) ())
 
 let test_stream_stop_when_step_count () =
   let model = make_multi_step_stream_model () in
@@ -680,40 +479,10 @@ let test_stream_stop_when_step_count () =
 
 let test_stream_stop_when_has_tool_call () =
   (* Model that calls "search" on step 1, "done_tool" on step 2 *)
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-tool-switch-stream"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      incr call_count;
-      let stream, push = Lwt_stream.create () in
-      let tool_name =
-        match !call_count with
-        | 2 -> "done_tool"
-        | _ -> "search"
-      in
-      let tc_id = Printf.sprintf "tc_%d" !call_count in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Tool_call_delta
-              { tool_call_type = "function"; tool_call_id = tc_id; tool_name; args_text_delta = {|{"query":"test"}|} }));
-      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = tc_id }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Tool_calls;
-                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  let model = (module M : Ai_provider.Language_model.S) in
+  let step tool_name tool_call_id =
+    (stream_start :: tool_call_parts ~tool_name tool_call_id) @ [ finish_part ~finish_reason:Tool_calls (tokens 10 5) ]
+  in
+  let model, (_ : Mock.t) = Mock.create ~stream:(Sequence [ step "search" "tc_1"; step "done_tool" "tc_2" ]) () in
   let done_tool =
     Ai_core.Core_tool.create ~description:"Done"
       ~parameters:(`Assoc [ "type", `String "object" ])
@@ -769,50 +538,20 @@ let run_lwt f () = Lwt_main.run (f ())
 (* Mock model that fails N times on stream with retryable error, then succeeds *)
 let make_stream_retry_model ~fail_count =
   let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-stream-retry"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content = [];
-          finish_reason = Ai_provider.Finish_reason.Stop;
-          usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = None; model = None; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      incr call_count;
-      if !call_count <= fail_count then
-        Lwt.fail
-          (Ai_provider.Provider_error.Provider_error
-             {
-               provider = "mock";
-               kind = Api_error { status = 529; body = "overloaded" };
-               is_retryable = true;
-               retry_after_s = None;
-             })
-      else begin
-        let stream, push = Lwt_stream.create () in
-        push (Some (Ai_provider.Stream_part.Text { text = "streamed" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Ai_provider.Finish_reason.Stop;
-                  usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
-                  provider_metadata = None;
-                }));
-        push None;
-        Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-      end
-  end in
-  call_count, (module M : Ai_provider.Language_model.S)
+  let respond (_ : Ai_provider.Call_options.t) =
+    incr call_count;
+    if !call_count <= fail_count then
+      Lwt.fail
+        (Ai_provider.Provider_error.Provider_error
+           {
+             provider = "mock";
+             kind = Api_error { status = 529; body = "overloaded" };
+             is_retryable = true;
+             retry_after_s = None;
+           })
+    else Lwt.return (Mock.stream_result [ Text { text = "streamed" }; finish_part (tokens 5 3) ])
+  in
+  call_count, fst (Mock.create ~stream:(Respond respond) ())
 
 let test_stream_retries_on_retryable_error () =
   let call_count, model = make_stream_retry_model ~fail_count:1 in
@@ -1012,35 +751,20 @@ let test_stream_telemetry_root_attributes () =
    provider attaches metadata to the Finish chunk. Mirrors the cache-metrics
    path on the non-streaming generate_text result. *)
 let make_provider_metadata_stream_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-pm"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "hi" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Stop;
-                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-                provider_metadata =
-                  Some
-                    (Ai_provider.Provider_options.of_provider_metadata
-                       (`Assoc
-                          [
-                            ( "anthropic",
-                              `Assoc [ "cache_creation_input_tokens", `Int 20; "cache_read_input_tokens", `Int 80 ] );
-                          ]));
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let provider_metadata =
+    Ai_provider.Provider_options.of_provider_metadata
+      (`Assoc [ "anthropic", `Assoc [ "cache_creation_input_tokens", `Int 20; "cache_read_input_tokens", `Int 80 ] ])
+  in
+  fst
+    (Mock.create
+       ~stream:
+         (Return
+            [
+              stream_start;
+              Text { text = "hi" };
+              Finish { finish_reason = Stop; usage = tokens 10 5; provider_metadata = Some provider_metadata };
+            ])
+       ())
 
 let test_stream_surfaces_provider_metadata () =
   let model = make_provider_metadata_stream_model () in
@@ -1056,52 +780,20 @@ let test_stream_surfaces_provider_metadata () =
 (* The first call streams a call to the [search] tool. Later calls stream
    "Found" and then hang like a slow provider until the abort signal fires,
    which ends the stream without a Finish part, as Stream_pump.pump does.
-   [calls] counts model calls and [signals] records, per call, whether the
-   call options carried the abort signal. [usage] is the first call's usage. *)
-let make_abort_stream_model ?(tool_call_ids = [ "tc_1" ])
-  ?(usage = { Ai_provider.Usage.input_tokens = 10; output_tokens = 8; total_tokens = Some 18 }) () =
-  let calls = ref 0 in
-  let signals = ref [] in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-abort-stream"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream (opts : Ai_provider.Call_options.t) =
-      incr calls;
-      signals := Option.is_some opts.abort_signal :: !signals;
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      (match !calls with
-      | 1 ->
-        List.iter
-          (fun tool_call_id ->
-            push
-              (Some
-                 (Ai_provider.Stream_part.Tool_call_delta
-                    {
-                      tool_call_type = "function";
-                      tool_call_id;
-                      tool_name = "search";
-                      args_text_delta = {|{"query":"test"}|};
-                    }));
-            push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id })))
-          tool_call_ids;
-        push (Some (Ai_provider.Stream_part.Finish { finish_reason = Tool_calls; usage; provider_metadata = None }));
-        push None
-      | _ ->
-        push (Some (Ai_provider.Stream_part.Text { text = "Found" }));
-        Option.iter
-          (fun signal ->
-            ignore
-              (Ai_provider.Abort_signal.with_on_abort signal (fun () -> push None) (fun () -> Lwt_stream.closed stream)
-                : unit Lwt.t))
-          opts.abort_signal);
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  calls, signals, (module M : Ai_provider.Language_model.S)
+   [usage] is the first call's usage. *)
+let make_abort_stream_model ?(tool_call_ids = [ "tc_1" ]) ?(usage = tokens 10 8) () =
+  let first_call = ref true in
+  let respond options =
+    match !first_call with
+    | true ->
+      first_call := false;
+      Lwt.return
+        (Mock.stream_result
+           ((stream_start :: List.concat_map (fun id -> tool_call_parts id) tool_call_ids)
+           @ [ finish_part ~finish_reason:Tool_calls usage ]))
+    | false -> Mock.hanging_stream [ stream_start; Text { text = "Found" } ] options
+  in
+  Mock.create ~stream:(Respond respond) ()
 
 let part_name (part : Ai_core.Text_stream_part.t) =
   match part with
@@ -1146,7 +838,7 @@ let rec read_until f stream ~acc =
   | Some part -> read_until f stream ~acc:(part :: acc)
 
 let test_abort_mid_stream () =
-  let calls, signals, model = make_abort_stream_model () in
+  let model, mock = make_abort_stream_model () in
   let signal, abort = Lwt.wait () in
   let aborted_with = ref None in
   let step_finishes = ref 0 in
@@ -1201,14 +893,18 @@ let test_abort_mid_stream () =
   (check int) "on_step_finish for the first step only" 1 !step_finishes;
   (check bool) "on_finish not called" false !finished;
   check_result_aborted result;
-  (check int) "model calls" 2 !calls;
-  (check (list bool)) "every call got the signal" [ true; true ] !signals;
+  (check int) "model calls" 2 (model_calls mock);
+  (check (list bool))
+    "every call got the signal" [ true; true ]
+    (List.map
+       (fun (options : Ai_provider.Call_options.t) -> Option.is_some options.abort_signal)
+       (Mock.stream_calls mock));
   Lwt.return_unit
 
 (* As upstream, [Start] comes before the [Abort] part even when the signal
    fired before the call. *)
 let test_abort_before_start () =
-  let calls, (_ : bool list ref), model = make_abort_stream_model () in
+  let model, mock = make_abort_stream_model () in
   let aborted_with = ref None in
   let chunks = ref [] in
   let result =
@@ -1225,13 +921,13 @@ let test_abort_before_start () =
   (check (list string)) "no text" [] texts;
   (check (option int)) "on_abort with no steps" (Some 0) !aborted_with;
   check_result_aborted result;
-  (check int) "model never called" 0 !calls;
+  (check int) "model never called" 0 (model_calls mock);
   Lwt.return_unit
 
 (* The signal's reason reaches the [Abort] part, the UI [abort] chunk and the
    [Aborted] exception. *)
 let test_abort_reason () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let model, (_ : Mock.t) = make_abort_stream_model () in
   let stream_aborted () =
     let signal, abort = Ai_provider.Abort_signal.create () in
     abort ~reason:Exit ();
@@ -1278,7 +974,7 @@ let test_abort_after_finish () =
    tool. Returns the parts, the number of steps on_abort got, the model call
    count and the tool run count. *)
 let run_abort_in_first_step ~in_tool =
-  let calls, (_ : bool list ref), model = make_abort_stream_model () in
+  let model, mock = make_abort_stream_model () in
   let signal, abort = Lwt.wait () in
   let tool_runs = ref 0 in
   let aborted_steps = ref None in
@@ -1304,7 +1000,7 @@ let run_abort_in_first_step ~in_tool =
   let%lwt parts = Lwt_stream.to_list result.full_stream in
   let%lwt () = Lwt.pause () in
   check_result_aborted result;
-  Lwt.return (List.map part_name parts, !aborted_steps, !calls, !tool_runs)
+  Lwt.return (List.map part_name parts, !aborted_steps, model_calls mock, !tool_runs)
 
 let test_abort_in_on_step_finish () =
   let%lwt parts, aborted_steps, calls, tool_runs = run_abort_in_first_step ~in_tool:false in
@@ -1329,7 +1025,7 @@ let test_abort_during_tool () =
 
 (* The UI stream ends with the abort chunk and has no finish chunk. *)
 let test_abort_ui_stream () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let model, (_ : Mock.t) = make_abort_stream_model () in
   let signal, abort = Lwt.wait () in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
@@ -1471,7 +1167,7 @@ let check_ends_with_abort parts =
 
 (* The first of two tool calls fires the signal, so the second never runs. *)
 let test_abort_between_tools () =
-  let calls, (_ : bool list ref), model = make_abort_stream_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let model, mock = make_abort_stream_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
   let signal, (_ : unit Lwt.u) = Lwt.task () in
   let runs = ref 0 in
   let result =
@@ -1482,7 +1178,7 @@ let test_abort_between_tools () =
   let%lwt parts = Lwt_stream.to_list result.full_stream in
   let%lwt () = Lwt.pause () in
   (check int) "one tool run" 1 !runs;
-  (check int) "one model call" 1 !calls;
+  (check int) "one model call" 1 (model_calls mock);
   check_ends_with_abort parts;
   check_result_aborted result;
   Lwt.return_unit
@@ -1490,7 +1186,7 @@ let test_abort_between_tools () =
 (* The first of two approved pending tools fires the signal, so the second
    never runs and the model is never called. *)
 let test_abort_between_pending_approvals () =
-  let calls, (_ : bool list ref), model = make_abort_stream_model () in
+  let model, mock = make_abort_stream_model () in
   let signal, (_ : unit Lwt.u) = Lwt.task () in
   let runs = ref 0 in
   let pending tool_call_id : Ai_core.Generate_text_result.pending_tool_approval =
@@ -1505,7 +1201,7 @@ let test_abort_between_pending_approvals () =
   let%lwt parts = Lwt_stream.to_list result.full_stream in
   let%lwt () = Lwt.pause () in
   (check int) "one tool run" 1 !runs;
-  (check int) "model never called" 0 !calls;
+  (check int) "model never called" 0 (model_calls mock);
   check_ends_with_abort parts;
   check_result_aborted result;
   Lwt.return_unit
@@ -1531,7 +1227,7 @@ let check_aborted_step ~tool_results (steps : Ai_core.Generate_text_result.step 
    the signal and returns. Returns the steps on_abort got, the tools that
    ran, and whether on_step_finish was called. *)
 let run_abort_in_tool_batch ~abort_in =
-  let (_ : int ref), (_ : bool list ref), model =
+  let model, (_ : Mock.t) =
     make_abort_stream_model ~tool_call_ids:[ "tc_1"; "tc_2" ]
       ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
       ()
@@ -1711,7 +1407,7 @@ let test_pending_tool_execute_options () =
 
 (* The abort path ignores exceptions from [on_chunk] and still closes. *)
 let test_abort_on_chunk_raises () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let model, (_ : Mock.t) = make_abort_stream_model () in
   let aborted = ref false in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~abort_signal:Lwt.return_unit
@@ -1741,19 +1437,17 @@ let test_abort_stops_reading_provider () =
             };
         ])
   in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-buffered"
-    let generate _opts = Lwt.fail_with "not implemented"
-    let stream _opts =
-      Lwt.return { Ai_provider.Stream_result.stream = provider_stream; warnings = []; raw_response = None }
-  end in
+  let model, (_ : Mock.t) =
+    Mock.create
+      ~stream:
+        (Respond
+           (fun (_ : Ai_provider.Call_options.t) ->
+             Lwt.return { Ai_provider.Stream_result.stream = provider_stream; warnings = []; raw_response = None }))
+      ()
+  in
   let signal, abort = Lwt.wait () in
   let result =
-    Ai_core.Stream_text.stream_text
-      ~model:(module M)
-      ~prompt:"x" ~abort_signal:signal
+    Ai_core.Stream_text.stream_text ~model ~prompt:"x" ~abort_signal:signal
       ~on_chunk:(function
         | Text_delta _ -> Lwt.wakeup_later abort ()
         | _ -> ())
@@ -1774,7 +1468,7 @@ let test_abort_stops_reading_provider () =
 (* The step that runs pending approvals counts as finished for [on_abort], as it
    does for [steps]. *)
 let test_abort_after_pending_approvals () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let model, (_ : Mock.t) = make_abort_stream_model () in
   let signal, abort = Lwt.wait () in
   let aborted_with = ref None in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
@@ -1804,18 +1498,12 @@ let test_abort_after_pending_approvals () =
    exception it raises there is ignored, so the call still ends with the
    provider's error. *)
 let test_on_chunk_gets_error () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-failing"
-    let generate _opts = Lwt.fail_with "not implemented"
-    let stream _opts = Lwt.fail_with "provider down"
-  end in
+  let model, (_ : Mock.t) =
+    Mock.create ~stream:(Respond (fun (_ : Ai_provider.Call_options.t) -> Lwt.fail_with "provider down")) ()
+  in
   let chunks = ref [] in
   let result =
-    Ai_core.Stream_text.stream_text
-      ~model:(module M)
-      ~prompt:"Hello" ~max_retries:0
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0
       ~on_chunk:(fun part ->
         chunks := part_name part :: !chunks;
         match part with
@@ -1839,19 +1527,7 @@ let test_on_chunk_gets_error () =
 (* A custom model that ignores the abort signal: its stream sends one text part
    and then neither pushes nor closes. *)
 let make_stalled_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-stalled"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Hi" }));
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst (Mock.create ~stream:(Respond (Mock.hanging_stream ~ignore_abort:true [ stream_start; Text { text = "Hi" } ])) ())
 
 (* Records the names of the spans that ended. *)
 let make_exit_collector () =
@@ -1961,20 +1637,14 @@ let test_abort_then_finish () =
 (* A model whose stream call fails with [message]. When [after_abort], it
    first waits for the abort signal in its call options. *)
 let make_failing_stream_model ~after_abort message =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-failing"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream (opts : Ai_provider.Call_options.t) =
-      match after_abort, opts.abort_signal with
-      | true, Some signal ->
-        let%lwt () = Ai_provider.Abort_signal.wait signal in
-        Lwt.fail_with message
-      | true, None | false, (Some _ | None) -> Lwt.fail_with message
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let respond (options : Ai_provider.Call_options.t) =
+    match after_abort, options.abort_signal with
+    | true, Some signal ->
+      let%lwt () = Ai_provider.Abort_signal.wait signal in
+      Lwt.fail_with message
+    | true, None | false, (Some _ | None) -> Lwt.fail_with message
+  in
+  fst (Mock.create ~stream:(Respond respond) ())
 
 (* The error settles the call before [on_chunk] sees the [Error] part, so an
    abort from there does nothing. *)
@@ -2037,58 +1707,23 @@ let test_abort_then_error () =
 (* A model that gives the same two steps to [generate] and [stream]: a
    search tool call, then text. *)
 let make_scripted_model () =
-  let calls = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-scripted"
-
-    let next_step () =
-      incr calls;
-      match !calls with
-      | 1 ->
-        ( [
-            Ai_provider.Content.Tool_call
-              { tool_call_type = "function"; tool_call_id = "tc_1"; tool_name = "search"; args = {|{"query":"test"}|} };
-          ],
-          Ai_provider.Finish_reason.Tool_calls,
-          { Ai_provider.Usage.input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } )
-      | _ ->
-        ( [ Ai_provider.Content.Text { text = "Found it!" } ],
-          Ai_provider.Finish_reason.Stop,
-          { Ai_provider.Usage.input_tokens = 20; output_tokens = 5; total_tokens = Some 25 } )
-
-    let generate _opts =
-      let content, finish_reason, usage = next_step () in
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content;
-          finish_reason;
-          usage;
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = None; model = None; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let content, finish_reason, usage = next_step () in
-      let parts_of_content : Ai_provider.Content.t -> Ai_provider.Stream_part.t list = function
-        | Text { text } -> [ Text { text } ]
-        | Tool_call { tool_call_type; tool_call_id; tool_name; args } ->
-          [
-            Tool_call_delta { tool_call_type; tool_call_id; tool_name; args_text_delta = args };
-            Tool_call_finish { tool_call_id };
-          ]
-        | Reasoning _ | File _ | Source _ -> []
-      in
-      let parts =
-        (Ai_provider.Stream_part.Stream_start { warnings = [] } :: List.concat_map parts_of_content content)
-        @ [ Ai_provider.Stream_part.Finish { finish_reason; usage; provider_metadata = None } ]
-      in
-      Lwt.return { Ai_provider.Stream_result.stream = Lwt_stream.of_list parts; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let generate =
+    [
+      Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 8)
+        [
+          Tool_call
+            { tool_call_type = "function"; tool_call_id = "tc_1"; tool_name = "search"; args = {|{"query":"test"}|} };
+        ];
+      Mock.generate_result ~usage:(tokens 20 5) [ Text { text = "Found it!" } ];
+    ]
+  in
+  let stream =
+    [
+      (stream_start :: tool_call_parts "tc_1") @ [ finish_part ~finish_reason:Tool_calls (tokens 10 8) ];
+      [ stream_start; Text { text = "Found it!" }; finish_part (tokens 20 5) ];
+    ]
+  in
+  fst (Mock.create ~generate:(Sequence generate) ~stream:(Sequence stream) ())
 
 let tool_call_ids (result : Ai_core.Generate_text_result.t) =
   List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_call_id) result.tool_calls
@@ -2139,7 +1774,7 @@ let test_outcome_finished () =
 (* An abort in the second step: the outcome holds the first step, the steps
    on_abort got, and the signal's reason. *)
 let test_outcome_aborted_with_steps () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let model, (_ : Mock.t) = make_abort_stream_model () in
   let signal, abort = Ai_provider.Abort_signal.create () in
   let aborted_steps = ref None in
   let result =
@@ -2206,34 +1841,11 @@ let test_outcome_failed () =
    on to [Finish_step] and [Finish]. That is why [is_terminal] is false for
    [Error]. *)
 let test_provider_error_part_not_terminal () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-error-part"
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let error = Ai_provider.Provider_error.make_api_error ~provider:"mock" ~status:500 ~body:"boom" () in
-      Lwt.return
-        {
-          Ai_provider.Stream_result.stream =
-            Lwt_stream.of_list
-              [
-                Ai_provider.Stream_part.Stream_start { warnings = [] };
-                Text { text = "Hi" };
-                Error { error };
-                Finish
-                  {
-                    finish_reason = Stop;
-                    usage = { input_tokens = 1; output_tokens = 1; total_tokens = Some 2 };
-                    provider_metadata = None;
-                  };
-              ];
-          warnings = [];
-          raw_response = None;
-        }
-  end in
-  let result = Ai_core.Stream_text.stream_text ~model:(module M) ~prompt:"Hello" () in
+  let error = Ai_provider.Provider_error.make_api_error ~provider:"mock" ~status:500 ~body:"boom" () in
+  let model, (_ : Mock.t) =
+    Mock.create ~stream:(Return [ stream_start; Text { text = "Hi" }; Error { error }; finish_part (tokens 1 1) ]) ()
+  in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" () in
   let%lwt parts = to_list_or_hang result.full_stream in
   let%lwt () = Lwt.pause () in
   let parts = Option.value ~default:[] parts in
@@ -2286,7 +1898,7 @@ let test_is_terminal () =
    promises' callbacks anyway, so on_abort also checks that each promise is
    still pending: their state changes at once. *)
 let test_on_abort_before_promises_settle () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let model, (_ : Mock.t) = make_abort_stream_model () in
   let signal, abort = Ai_provider.Abort_signal.create () in
   let events = ref [] in
   let record event = events := event :: !events in

@@ -3,81 +3,43 @@ open Alcotest
 
 type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
+module Mock = Ai_mock.Language_model
+
+(* Token counts whose total is their sum. *)
+let tokens input_tokens output_tokens : Ai_provider.Usage.t =
+  { input_tokens; output_tokens; total_tokens = Some (input_tokens + output_tokens) }
+
+(* [result] with a response that reports [id] and [model], as a provider's does. *)
+let with_response ~id ~model (result : Ai_provider.Generate_result.t) =
+  { result with response = { id = Some id; model = Some model; headers = []; body = `Null } }
+
+let tool_call ?(tool_name = "search") ?(args = {|{"query":"test"}|}) tool_call_id =
+  Ai_provider.Content.Tool_call { tool_call_type = "function"; tool_call_id; tool_name; args }
+
 (* Mock model that returns text *)
 let make_text_model response_text =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-v1"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = response_text } ];
-          finish_reason = Ai_provider.Finish_reason.Stop;
-          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r1"; model = Some "mock-v1"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create ~provider:"mock" ~model_id:"mock-v1"
+       ~generate:
+         (Return
+            (with_response ~id:"r1" ~model:"mock-v1"
+               (Mock.generate_result ~usage:(tokens 10 5) [ Text { text = response_text } ])))
+       ())
 
 (* Mock model that returns a tool call first, then text on second call *)
 let make_tool_model () =
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-tool"
-
-    let generate _opts =
-      incr call_count;
-      if !call_count = 1 then
-        Lwt.return
-          {
-            Ai_provider.Generate_result.content =
-              [
-                Ai_provider.Content.Text { text = "Let me search." };
-                Ai_provider.Content.Tool_call
-                  {
-                    tool_call_type = "function";
-                    tool_call_id = "tc_1";
-                    tool_name = "search";
-                    args = {|{"query":"test"}|};
-                  };
-              ];
-            finish_reason = Ai_provider.Finish_reason.Tool_calls;
-            usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
-            warnings = [];
-            provider_metadata = Ai_provider.Provider_options.empty;
-            request = { body = `Null };
-            response = { id = Some "r1"; model = Some "actual-step-1"; headers = []; body = `Null };
-          }
-      else
-        Lwt.return
-          {
-            Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = "Found the answer!" } ];
-            finish_reason = Ai_provider.Finish_reason.Stop;
-            usage = { input_tokens = 20; output_tokens = 10; total_tokens = Some 30 };
-            warnings = [];
-            provider_metadata = Ai_provider.Provider_options.empty;
-            request = { body = `Null };
-            response = { id = Some "r2"; model = Some "actual-step-2"; headers = []; body = `Null };
-          }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create
+       ~generate:
+         (Sequence
+            [
+              with_response ~id:"r1" ~model:"actual-step-1"
+                (Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 15)
+                   [ Text { text = "Let me search." }; tool_call "tc_1" ]);
+              with_response ~id:"r2" ~model:"actual-step-2"
+                (Mock.generate_result ~usage:(tokens 20 10) [ Text { text = "Found the answer!" } ]);
+            ])
+       ())
 
 let search_tool : Ai_core.Core_tool.t =
   {
@@ -162,29 +124,7 @@ let test_on_step_finish () =
   (check int) "2 callbacks" 2 !step_count
 
 let make_json_model json_str =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-json"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content = [ Text { text = json_str } ];
-          finish_reason = Stop;
-          usage = { input_tokens = 10; output_tokens = 20; total_tokens = Some 30 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r1"; model = Some "mock-json"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst (Mock.create ~generate:(Return (Mock.generate_result ~usage:(tokens 10 20) [ Text { text = json_str } ])) ())
 
 let test_generate_with_object_output () =
   let schema =
@@ -239,39 +179,16 @@ let test_generate_without_output () =
 
 (* Mock model that always returns a single tool call for "dangerous_action" *)
 let make_single_tool_call_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-approval"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content =
-            [
-              Ai_provider.Content.Text { text = "Let me check." };
-              Ai_provider.Content.Tool_call
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "tc_1";
-                  tool_name = "dangerous_action";
-                  args = {|{"target":"prod"}|};
-                };
-            ];
-          finish_reason = Ai_provider.Finish_reason.Tool_calls;
-          usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r1"; model = Some "mock-approval"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create
+       ~generate:
+         (Return
+            (Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 15)
+               [
+                 Text { text = "Let me check." };
+                 tool_call ~tool_name:"dangerous_action" ~args:{|{"target":"prod"}|} "tc_1";
+               ]))
+       ())
 
 let approval_tool : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
@@ -335,54 +252,20 @@ let test_dynamic_approval_conditional () =
 
 let test_approved_tool_executes () =
   (* Model returns tool call for "dangerous_action" on first call, then text on second *)
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-approval-exec"
-
-    let generate _opts =
-      incr call_count;
-      match !call_count with
-      | 1 ->
-        Lwt.return
-          {
-            Ai_provider.Generate_result.content =
-              [
-                Ai_provider.Content.Text { text = "Let me check." };
-                Ai_provider.Content.Tool_call
-                  {
-                    tool_call_type = "function";
-                    tool_call_id = "tc_1";
-                    tool_name = "dangerous_action";
-                    args = {|{"target":"prod"}|};
-                  };
-              ];
-            finish_reason = Ai_provider.Finish_reason.Tool_calls;
-            usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
-            warnings = [];
-            provider_metadata = Ai_provider.Provider_options.empty;
-            request = { body = `Null };
-            response = { id = Some "r1"; model = Some "mock-approval-exec"; headers = []; body = `Null };
-          }
-      | _ ->
-        Lwt.return
-          {
-            Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = "Done!" } ];
-            finish_reason = Ai_provider.Finish_reason.Stop;
-            usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
-            warnings = [];
-            provider_metadata = Ai_provider.Provider_options.empty;
-            request = { body = `Null };
-            response = { id = Some "r2"; model = Some "mock-approval-exec"; headers = []; body = `Null };
-          }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  let model = (module M : Ai_provider.Language_model.S) in
+  let model, (_ : Mock.t) =
+    Mock.create
+      ~generate:
+        (Sequence
+           [
+             Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 15)
+               [
+                 Text { text = "Let me check." };
+                 tool_call ~tool_name:"dangerous_action" ~args:{|{"target":"prod"}|} "tc_1";
+               ];
+             Mock.generate_result ~usage:(tokens 20 5) [ Text { text = "Done!" } ];
+           ])
+      ()
+  in
   (* Tool that always needs approval *)
   let tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
@@ -413,46 +296,17 @@ let test_approved_tool_executes () =
 
 (* Mock model that returns two tool calls — one needing approval, one not *)
 let make_mixed_tool_call_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-mixed"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content =
-            [
-              Ai_provider.Content.Text { text = "Let me do both." };
-              Ai_provider.Content.Tool_call
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "tc_safe";
-                  tool_name = "safe_action";
-                  args = {|{"query":"test"}|};
-                };
-              Ai_provider.Content.Tool_call
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "tc_danger";
-                  tool_name = "dangerous_action";
-                  args = {|{"target":"prod"}|};
-                };
-            ];
-          finish_reason = Ai_provider.Finish_reason.Tool_calls;
-          usage = { input_tokens = 10; output_tokens = 20; total_tokens = Some 30 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r1"; model = Some "mock-mixed"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create
+       ~generate:
+         (Return
+            (Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 20)
+               [
+                 Text { text = "Let me do both." };
+                 tool_call ~tool_name:"safe_action" "tc_safe";
+                 tool_call ~tool_name:"dangerous_action" ~args:{|{"target":"prod"}|} "tc_danger";
+               ]))
+       ())
 
 let test_mixed_tools_safe_executes () =
   let model = make_mixed_tool_call_model () in
@@ -500,42 +354,20 @@ let test_prompt_and_messages_conflict () =
 
 (* Mock model that always returns a tool call, for testing stop_when *)
 let make_multi_step_tool_model () =
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-multi-step"
-
-    let generate _opts =
-      incr call_count;
-      let tc_id = Printf.sprintf "tc_%d" !call_count in
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content =
-            [
-              Ai_provider.Content.Text { text = Printf.sprintf "Step %d" !call_count };
-              Ai_provider.Content.Tool_call
-                {
-                  tool_call_type = "function";
-                  tool_call_id = tc_id;
-                  tool_name = "search";
-                  args = Printf.sprintf {|{"query":"step%d"}|} !call_count;
-                };
-            ];
-          finish_reason = Ai_provider.Finish_reason.Tool_calls;
-          usage = { input_tokens = 10; output_tokens = 10; total_tokens = Some 20 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r"; model = Some "mock-multi-step"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let calls = ref 0 in
+  fst
+    (Mock.create
+       ~generate:
+         (Respond
+            (fun (_ : Ai_provider.Call_options.t) ->
+              incr calls;
+              Lwt.return
+                (Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 10)
+                   [
+                     Text { text = Printf.sprintf "Step %d" !calls };
+                     tool_call ~args:(Printf.sprintf {|{"query":"step%d"}|} !calls) (Printf.sprintf "tc_%d" !calls);
+                   ])))
+       ())
 
 let test_stop_when_step_count () =
   let model = make_multi_step_tool_model () in
@@ -552,45 +384,10 @@ let test_stop_when_step_count () =
 
 let test_stop_when_has_tool_call () =
   (* Model that calls "search" on step 1, "done_tool" on step 2 *)
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-tool-switch"
-
-    let generate _opts =
-      incr call_count;
-      let tool_name =
-        match !call_count with
-        | 2 -> "done_tool"
-        | _ -> "search"
-      in
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content =
-            [
-              Ai_provider.Content.Tool_call
-                {
-                  tool_call_type = "function";
-                  tool_call_id = Printf.sprintf "tc_%d" !call_count;
-                  tool_name;
-                  args = {|{"query":"test"}|};
-                };
-            ];
-          finish_reason = Ai_provider.Finish_reason.Tool_calls;
-          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r"; model = Some "mock-tool-switch"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  let model = (module M : Ai_provider.Language_model.S) in
+  let step tool_name tool_call_id =
+    Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 5) [ tool_call ~tool_name tool_call_id ]
+  in
+  let model, (_ : Mock.t) = Mock.create ~generate:(Sequence [ step "search" "tc_1"; step "done_tool" "tc_2" ]) () in
   let done_tool : Ai_core.Core_tool.t =
     Ai_core.Core_tool.create ~description:"Done"
       ~parameters:(`Assoc [ "type", `String "object" ])
@@ -676,40 +473,20 @@ let test_stop_when_not_set () =
 (* Mock model that fails N times with retryable error, then succeeds *)
 let make_retry_model ~fail_count =
   let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-retry"
-
-    let generate _opts =
-      incr call_count;
-      if !call_count <= fail_count then
-        Lwt.fail
-          (Ai_provider.Provider_error.Provider_error
-             {
-               provider = "mock";
-               kind = Api_error { status = 429; body = "rate limited" };
-               is_retryable = true;
-               retry_after_s = None;
-             })
-      else
-        Lwt.return
-          {
-            Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = "recovered" } ];
-            finish_reason = Ai_provider.Finish_reason.Stop;
-            usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-            warnings = [];
-            provider_metadata = Ai_provider.Provider_options.empty;
-            request = { body = `Null };
-            response = { id = Some "r1"; model = Some "mock-retry"; headers = []; body = `Null };
-          }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  call_count, (module M : Ai_provider.Language_model.S)
+  let respond (_ : Ai_provider.Call_options.t) =
+    incr call_count;
+    if !call_count <= fail_count then
+      Lwt.fail
+        (Ai_provider.Provider_error.Provider_error
+           {
+             provider = "mock";
+             kind = Api_error { status = 429; body = "rate limited" };
+             is_retryable = true;
+             retry_after_s = None;
+           })
+    else Lwt.return (Mock.generate_result ~usage:(tokens 10 5) [ Text { text = "recovered" } ])
+  in
+  call_count, fst (Mock.create ~generate:(Respond respond) ())
 
 let test_generate_retries_on_retryable_error () =
   let call_count, model = make_retry_model ~fail_count:1 in
@@ -1027,27 +804,20 @@ let test_telemetry_attribute_values () =
 
 let test_generate_no_retry_on_non_retryable () =
   let model =
-    let module M : Ai_provider.Language_model.S = struct
-      let specification_version = "V3"
-      let provider = "mock"
-      let model_id = "mock-fail"
-
-      let generate _opts =
-        Lwt.fail
-          (Ai_provider.Provider_error.Provider_error
-             {
-               provider = "mock";
-               kind = Api_error { status = 400; body = "bad" };
-               is_retryable = false;
-               retry_after_s = None;
-             })
-
-      let stream _opts =
-        let s, p = Lwt_stream.create () in
-        p None;
-        Lwt.return { Ai_provider.Stream_result.stream = s; warnings = []; raw_response = None }
-    end in
-    (module M : Ai_provider.Language_model.S)
+    fst
+      (Mock.create
+         ~generate:
+           (Respond
+              (fun (_ : Ai_provider.Call_options.t) ->
+                Lwt.fail
+                  (Ai_provider.Provider_error.Provider_error
+                     {
+                       provider = "mock";
+                       kind = Api_error { status = 400; body = "bad" };
+                       is_retryable = false;
+                       retry_after_s = None;
+                     })))
+         ())
   in
   Lwt_main.run
     (Lwt.catch
@@ -1058,41 +828,15 @@ let test_generate_no_retry_on_non_retryable () =
          | Ai_provider.Provider_error.Provider_error _ -> Lwt.return_unit
          | exn -> Lwt.fail exn))
 
-(* Every call asks for the [search] tool once per id in [tool_call_ids].
-   [calls] counts model calls and [signals] records, per call, whether the call
-   options carried the abort signal. [prompts] gets each call's prompt, latest
-   first. *)
-let make_abort_tool_model ?(tool_call_ids = [ "tc_1" ]) ?(prompts = ref []) () =
-  let calls = ref 0 in
-  let signals = ref [] in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-abort"
+(* A response that asks for the [search] tool once per id in [tool_call_ids]. *)
+let search_call_result ?(tool_call_ids = [ "tc_1" ]) () =
+  Mock.generate_result ~finish_reason:Tool_calls ~usage:(tokens 10 5)
+    (List.map (tool_call ~args:{|{"query":"x"}|}) tool_call_ids)
 
-    let generate (opts : Ai_provider.Call_options.t) =
-      incr calls;
-      signals := Option.is_some opts.abort_signal :: !signals;
-      prompts := opts.prompt :: !prompts;
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content =
-            List.map
-              (fun tool_call_id ->
-                Ai_provider.Content.Tool_call
-                  { tool_call_type = "function"; tool_call_id; tool_name = "search"; args = {|{"query":"x"}|} })
-              tool_call_ids;
-          finish_reason = Ai_provider.Finish_reason.Tool_calls;
-          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = None; model = None; headers = []; body = `Null };
-        }
+(* Every call gets [search_call_result ?tool_call_ids ()]. *)
+let make_abort_tool_model ?tool_call_ids () = Mock.create ~generate:(Return (search_call_result ?tool_call_ids ())) ()
 
-    let stream _opts = Lwt.fail_with "not implemented"
-  end in
-  calls, signals, (module M : Ai_provider.Language_model.S)
+let model_calls mock = List.length (Mock.generate_calls mock)
 
 (* Runs a [generate_text] call and names its outcome: "finished", "aborted"
    for [Aborted], or the exception. *)
@@ -1121,7 +865,7 @@ let counting_search_tool ?abort runs =
 
 (* The tool fires the signal, so the second step never starts. *)
 let test_abort_between_steps () =
-  let calls, signals, model = make_abort_tool_model () in
+  let model, mock = make_abort_tool_model () in
   let signal, abort = Lwt.wait () in
   let tool = counting_search_tool ~abort (ref 0) in
   let outcome =
@@ -1131,12 +875,16 @@ let test_abort_between_steps () =
         ~max_steps:3 ~abort_signal:signal ())
   in
   (check string) "outcome" "aborted" outcome;
-  (check int) "one model call" 1 !calls;
-  (check (list bool)) "the call got the signal" [ true ] !signals
+  (check int) "one model call" 1 (model_calls mock);
+  (check (list bool))
+    "the call got the signal" [ true ]
+    (List.map
+       (fun (options : Ai_provider.Call_options.t) -> Option.is_some options.abort_signal)
+       (Mock.generate_calls mock))
 
 (* The first of two tool calls fires the signal, so the second never runs. *)
 let test_abort_between_tools () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
   let signal, abort = Lwt.wait () in
   let runs = ref 0 in
   let tool = counting_search_tool ~abort runs in
@@ -1148,11 +896,11 @@ let test_abort_between_tools () =
   in
   (check string) "outcome" "aborted" outcome;
   (check int) "one tool run" 1 !runs;
-  (check int) "one model call" 1 !calls
+  (check int) "one model call" 1 (model_calls mock)
 
 (* An approved pending tool does not run once the signal has fired. *)
 let test_abort_before_pending_approval () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model () in
+  let model, mock = make_abort_tool_model () in
   let runs = ref 0 in
   let tool = counting_search_tool runs in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
@@ -1166,7 +914,7 @@ let test_abort_before_pending_approval () =
   in
   (check string) "outcome" "aborted" outcome;
   (check int) "tool never runs" 0 !runs;
-  (check int) "model never called" 0 !calls
+  (check int) "model never called" 0 (model_calls mock)
 
 let ids_of_calls = List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_call_id)
 let ids_of_results = List.map (fun (tr : Ai_core.Generate_text_result.tool_result) -> tr.tool_call_id)
@@ -1190,7 +938,7 @@ let check_aborted_step ~(usage : Ai_provider.Usage.t) ~tool_calls ~tool_results
    called. Returns the steps on_abort got, the tools that ran and the model
    call count. *)
 let run_abort_in_tool ?pending_tool_approvals ~abort_in () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
   let signal, abort = Ai_provider.Abort_signal.create () in
   let ran = ref [] in
   let tool =
@@ -1217,7 +965,7 @@ let run_abort_in_tool ?pending_tool_approvals ~abort_in () =
   in
   (check string) "outcome" "aborted" outcome;
   (check bool) "on_step_finish not called" false !step_finished;
-  !aborted_steps, List.rev !ran, !calls
+  !aborted_steps, List.rev !ran, model_calls mock
 
 (* The first of two tool calls fires the signal. The step keeps the model's
    usage, both calls and the first tool's result, and the second tool never
@@ -1248,7 +996,7 @@ let test_abort_in_pending_approval_keeps_result () =
 (* on_abort is only for the signal: a cancel, or an [Aborted] that a tool
    raises while the signal is pending, does not call it. *)
 let test_on_abort_only_for_signal () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let model, (_ : Mock.t) = make_abort_tool_model () in
   let signal, (_ : ?reason:exn -> unit -> unit) = Ai_provider.Abort_signal.create () in
   let reported = ref false in
   let generate execute =
@@ -1303,8 +1051,7 @@ let has_signal signal (options : Ai_core.Core_tool.execute_options) =
 (* Each run gets the signal, its call id and the messages of the step that
    produced the call, without the system prompt or that step's response. *)
 let test_tool_execute_options () =
-  let prompts = ref [] in
-  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model ~prompts () in
+  let model, mock = make_abort_tool_model () in
   let signal, _abort = Ai_provider.Abort_signal.create () in
   let seen = ref [] in
   let (_ : Ai_core.Generate_text_result.t) =
@@ -1329,7 +1076,7 @@ let test_tool_execute_options () =
       [ "system"; "user"; "assistant"; "tool" ];
       [ "system"; "user"; "assistant"; "tool"; "assistant"; "tool" ];
     ]
-    (List.rev_map roles !prompts)
+    (List.map (fun (options : Ai_provider.Call_options.t) -> roles options.prompt) (Mock.generate_calls mock))
 
 let pending_request_messages : Ai_provider.Prompt.message list =
   [
@@ -1347,7 +1094,7 @@ let pending_request_messages : Ai_provider.Prompt.message list =
 (* An approved pending tool runs before the first step and gets the request's
    messages. *)
 let test_pending_tool_execute_options () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let model, (_ : Mock.t) = make_abort_tool_model () in
   let signal, _abort = Ai_provider.Abort_signal.create () in
   let seen = ref [] in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
@@ -1369,7 +1116,7 @@ let test_pending_tool_execute_options () =
 (* A tool that waits on the signal ends when it fires, so the call fails at
    the abort and not when a tool that ignores the signal would end. *)
 let test_abort_reaches_tool () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let model, (_ : Mock.t) = make_abort_tool_model () in
   let tool =
     {
       search_tool with
@@ -1430,68 +1177,63 @@ let check_cancelled_by_timeout ~timeout_s ~deadline_s ~settle_s run =
 (* The consumer repro: a cancel during a tool used to become the tool's error
    result, and a second model request nobody read went out. *)
 let test_cancel_stops_tool_and_loop () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model () in
+  let model, mock = make_abort_tool_model () in
   let tool = waiting_search_tool (ref 0) (fun () -> Lwt_unix.sleep 1.0) in
   check_cancelled_by_timeout ~timeout_s:0.3 ~deadline_s:0.5 ~settle_s:1.2 (fun () ->
     Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
-  (check int) "one model call" 1 !calls
+  (check int) "one model call" 1 (model_calls mock)
 
 (* A tool that ignores [Lwt.cancel] keeps running, but the call fails at the
    cancel and starts neither the next tool nor the next model request. *)
 let test_cancel_with_uncancelable_tool () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
   let runs = ref 0 in
   let tool = waiting_search_tool runs (fun () -> Lwt.no_cancel (Lwt_unix.sleep 0.4)) in
   check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0.5 (fun () ->
     Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
   (check int) "one tool run" 1 !runs;
-  (check int) "one model call" 1 !calls
+  (check int) "one model call" 1 (model_calls mock)
 
 (* A model call that ignores [Lwt.cancel] returns its tool call after the
    cancel, and the tool never runs. *)
 let test_cancel_with_uncancelable_model () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model () in
-  let module Inner = (val model) in
-  let module Slow = struct
-    include Inner
-
-    let generate opts =
-      let%lwt () = Lwt.no_cancel (Lwt_unix.sleep 0.4) in
-      Inner.generate opts
-  end in
+  let model, mock =
+    Mock.create
+      ~generate:
+        (Respond
+           (fun (_ : Ai_provider.Call_options.t) ->
+             let%lwt () = Lwt.no_cancel (Lwt_unix.sleep 0.4) in
+             Lwt.return (search_call_result ())))
+      ()
+  in
   let runs = ref 0 in
   let tool = waiting_search_tool runs Lwt.return in
   check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0.5 (fun () ->
-    Ai_core.Generate_text.generate_text
-      ~model:(module Slow : Ai_provider.Language_model.S)
-      ~prompt:"Search"
-      ~tools:[ "search", tool ]
-      ~max_steps:3 ());
+    Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
   (check int) "tool never runs" 0 !runs;
-  (check int) "one model call" 1 !calls
+  (check int) "one model call" 1 (model_calls mock)
 
 (* Answers the first call with a tool call, then never answers and ignores
    both the abort signal and [Lwt.cancel]. *)
 let make_model_ignoring_signal () =
-  let calls, (_ : bool list ref), model = make_abort_tool_model () in
-  let module Inner = (val model) in
-  let module Ignoring = struct
-    include Inner
-
-    let generate opts =
-      match !calls with
-      | 0 -> Inner.generate opts
-      | _ ->
-        incr calls;
-        let never, (_ : Ai_provider.Generate_result.t Lwt.u) = Lwt.wait () in
-        never
-  end in
-  calls, (module Ignoring : Ai_provider.Language_model.S)
+  let answered = ref false in
+  Mock.create
+    ~generate:
+      (Respond
+         (fun (_ : Ai_provider.Call_options.t) ->
+           match !answered with
+           | false ->
+             answered := true;
+             Lwt.return (search_call_result ())
+           | true ->
+             let never, (_ : Ai_provider.Generate_result.t Lwt.u) = Lwt.wait () in
+             never))
+    ()
 
 (* The call races the model against the signal, so it fails at the abort and
    reports the first step even though the second model call never returns. *)
 let test_abort_with_model_ignoring_signal () =
-  let calls, model = make_model_ignoring_signal () in
+  let model, mock = make_model_ignoring_signal () in
   let aborted_steps = ref None in
   let started = Unix.gettimeofday () in
   let outcome =
@@ -1505,7 +1247,7 @@ let test_abort_with_model_ignoring_signal () =
   let elapsed = Unix.gettimeofday () -. started in
   (check string) "outcome" "aborted" outcome;
   (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.3);
-  (check int) "two model calls" 2 !calls;
+  (check int) "two model calls" 2 (model_calls mock);
   match !aborted_steps with
   | Some [ step ] -> (check int) "step usage" 10 step.usage.input_tokens
   | Some steps -> Alcotest.failf "on_abort got %d steps, expected 1" (List.length steps)
@@ -1514,7 +1256,7 @@ let test_abort_with_model_ignoring_signal () =
 (* [Lwt.cancel] still ends a call that has a signal while the model ignores
    both, and the cancel does not reach the caller's signal. *)
 let test_cancel_with_signal_and_model_ignoring_it () =
-  let (_ : int ref), model = make_model_ignoring_signal () in
+  let model, (_ : Mock.t) = make_model_ignoring_signal () in
   let signal, (_ : unit Lwt.u) = Lwt.task () in
   check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0. (fun () ->
     Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
@@ -1525,7 +1267,7 @@ let test_cancel_with_signal_and_model_ignoring_it () =
 (* on_abort runs, with the step whose tool fired the signal, before the
    returned promise fails. *)
 let test_on_abort_before_failure () =
-  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let model, (_ : Mock.t) = make_abort_tool_model () in
   let signal, abort = Ai_provider.Abort_signal.create () in
   let events = ref [] in
   let record event = events := event :: !events in

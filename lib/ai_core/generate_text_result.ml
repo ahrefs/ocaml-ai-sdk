@@ -60,3 +60,6 @@ let add_usage (a : Ai_provider.Usage.t) (b : Ai_provider.Usage.t) : Ai_provider.
       | Some x, Some y -> Some (x + y)
       | _ -> Some (input_tokens + output_tokens));
   }
+
+let zero_usage : Ai_provider.Usage.t = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
+let total_usage steps = List.fold_left (fun total (s : step) -> add_usage total s.usage) zero_usage steps

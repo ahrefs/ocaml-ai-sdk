@@ -23,6 +23,7 @@
   ai_provider
   ai_provider_anthropic
   ai_core
+  ai_mock
   alcotest
   lwt
   lwt.unix

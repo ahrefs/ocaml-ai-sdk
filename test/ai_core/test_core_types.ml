@@ -56,6 +56,52 @@ let test_add_usage_no_total () =
   (check int) "output" 15 sum.output_tokens;
   (check (option int)) "total" (Some 45) sum.total_tokens
 
+let step_with_usage (usage : Ai_provider.Usage.t) : Ai_core.Generate_text_result.step =
+  {
+    text = "";
+    reasoning = "";
+    tool_calls = [];
+    tool_results = [];
+    finish_reason = Ai_provider.Finish_reason.Stop;
+    usage;
+    response_model = None;
+    provider_metadata = None;
+  }
+
+let check_usage ~input ~output ~total (usage : Ai_provider.Usage.t) =
+  (check int) "input" input usage.input_tokens;
+  (check int) "output" output usage.output_tokens;
+  (check (option int)) "total" total usage.total_tokens
+
+let test_total_usage_empty () =
+  check_usage ~input:0 ~output:0 ~total:(Some 0) (Ai_core.Generate_text_result.total_usage [])
+
+let test_total_usage_steps () =
+  let steps =
+    List.map step_with_usage
+      [
+        { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
+        { input_tokens = 20; output_tokens = 10; total_tokens = Some 30 };
+        { input_tokens = 1; output_tokens = 2; total_tokens = Some 4 };
+      ]
+  in
+  (* The reported totals are summed, even where one differs from input plus
+     output. *)
+  check_usage ~input:31 ~output:17 ~total:(Some 49) (Ai_core.Generate_text_result.total_usage steps)
+
+let test_total_usage_missing_total () =
+  let steps =
+    List.map step_with_usage
+      [
+        { input_tokens = 10; output_tokens = 5; total_tokens = Some 100 };
+        { input_tokens = 20; output_tokens = 10; total_tokens = None };
+        { input_tokens = 1; output_tokens = 2; total_tokens = Some 4 };
+      ]
+  in
+  (* As in [add_usage], a step with no total resets the total to input plus
+     output so far (45). The next step's total is added to that. *)
+  check_usage ~input:31 ~output:17 ~total:(Some 49) (Ai_core.Generate_text_result.total_usage steps)
+
 let test_step_construction () =
   let step : Ai_core.Generate_text_result.step =
     {
@@ -130,6 +176,9 @@ let () =
         [
           test_case "add_usage" `Quick test_add_usage;
           test_case "add_usage_no_total" `Quick test_add_usage_no_total;
+          test_case "total_usage_empty" `Quick test_total_usage_empty;
+          test_case "total_usage_steps" `Quick test_total_usage_steps;
+          test_case "total_usage_missing_total" `Quick test_total_usage_missing_total;
           test_case "step" `Quick test_step_construction;
           test_case "result" `Quick test_result_construction;
         ] );

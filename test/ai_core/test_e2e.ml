@@ -17,7 +17,7 @@ type weather_result = {
 
     Note: The Anthropic provider's mock fetch always returns JSON (non-streaming),
     so generate_text tests go through the real Anthropic provider with mock fetch,
-    while stream_text tests use mock Language_model.S modules that still exercise
+    while stream_text tests use Ai_mock models that still exercise
     the complete stream_text -> to_ui_message_stream pipeline. *)
 
 (* === Mock Anthropic Provider Responses === *)
@@ -192,212 +192,102 @@ let weather_tool : Ai_core.Core_tool.t =
 
 (* === Mock Language_model for streaming tests === *)
 
+module Mock = Ai_mock.Language_model
+
+(* Token counts whose total is their sum. *)
+let tokens input_tokens output_tokens : Ai_provider.Usage.t =
+  { input_tokens; output_tokens; total_tokens = Some (input_tokens + output_tokens) }
+
+let stream_start = Ai_provider.Stream_part.Stream_start { warnings = [] }
+
+let finish_part ?(finish_reason = Ai_provider.Finish_reason.Stop) usage =
+  Ai_provider.Stream_part.Finish { finish_reason; usage; provider_metadata = None }
+
+(* The parts that stream a [get_weather] call for Paris. *)
+let weather_call_parts tool_call_id =
+  [
+    Ai_provider.Stream_part.Tool_call_delta
+      { tool_call_type = "function"; tool_call_id; tool_name = "get_weather"; args_text_delta = {|{"city":"Paris"}|} };
+    Tool_call_finish { tool_call_id };
+  ]
+
 (* Mock streaming model that emits text character by character *)
 let make_stream_model response_text =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock-anthropic"
-    let model_id = "claude-sonnet-4-6"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = response_text } ];
-          finish_reason = Stop;
-          usage = { input_tokens = 15; output_tokens = 8; total_tokens = Some 23 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "msg_e2e_stream"; model = Some "claude-sonnet-4-6"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      String.iter (fun c -> push (Some (Ai_provider.Stream_part.Text { text = String.make 1 c }))) response_text;
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Stop;
-                usage = { input_tokens = 15; output_tokens = 8; total_tokens = Some 23 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let deltas =
+    List.map
+      (fun c -> Ai_provider.Stream_part.Text { text = String.make 1 c })
+      (List.of_seq (String.to_seq response_text))
+  in
+  fst (Mock.create ~stream:(Return ((stream_start :: deltas) @ [ finish_part (tokens 15 8) ])) ())
 
 (* Mock streaming model with tool calls *)
 let make_tool_stream_model () =
-  let call_count = ref 0 in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock-anthropic"
-    let model_id = "claude-sonnet-4-6"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      incr call_count;
-      let stream, push = Lwt_stream.create () in
-      if !call_count = 1 then begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "Let me look that up." }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Tool_call_delta
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "toolu_1";
-                  tool_name = "get_weather";
-                  args_text_delta = {|{"city":"Paris"}|};
-                }));
-        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "toolu_1" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Tool_calls;
-                  usage = { input_tokens = 20; output_tokens = 15; total_tokens = Some 35 };
-                  provider_metadata = None;
-                }));
-        push None
-      end
-      else begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "The weather in Paris is 22C and sunny." }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Stop;
-                  usage = { input_tokens = 30; output_tokens = 12; total_tokens = Some 42 };
-                  provider_metadata = None;
-                }));
-        push None
-      end;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create
+       ~stream:
+         (Sequence
+            [
+              (stream_start :: Text { text = "Let me look that up." } :: weather_call_parts "toolu_1")
+              @ [ finish_part ~finish_reason:Tool_calls (tokens 20 15) ];
+              [ stream_start; Text { text = "The weather in Paris is 22C and sunny." }; finish_part (tokens 30 12) ];
+            ])
+       ())
 
 (* Mock streaming model with thinking *)
 let make_thinking_stream_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock-anthropic"
-    let model_id = "claude-sonnet-4-6"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Reasoning
-              {
-                text = "Let me count the r's...";
-                signature = None;
-                provider_options = Ai_provider.Provider_options.empty;
-              }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Reasoning
-              {
-                text = "";
-                signature = Some "sig_ui_stream";
-                provider_options =
-                  Ai_provider_anthropic.Convert_response.reasoning_provider_options (Some "sig_ui_stream");
-              }));
-      push (Some (Ai_provider.Stream_part.Text { text = "There are 3 r's in strawberry." }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Stop;
-                usage = { input_tokens = 25; output_tokens = 20; total_tokens = Some 45 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  fst
+    (Mock.create
+       ~stream:
+         (Return
+            [
+              stream_start;
+              Reasoning
+                {
+                  text = "Let me count the r's...";
+                  signature = None;
+                  provider_options = Ai_provider.Provider_options.empty;
+                };
+              Reasoning
+                {
+                  text = "";
+                  signature = Some "sig_ui_stream";
+                  provider_options =
+                    Ai_provider_anthropic.Convert_response.reasoning_provider_options (Some "sig_ui_stream");
+                };
+              Text { text = "There are 3 r's in strawberry." };
+              finish_part (tokens 25 20);
+            ])
+       ())
 
 (* Mock streaming tool loop with Anthropic-style thinking signatures. *)
 let make_thinking_tool_stream_model () =
-  let call_count = ref 0 in
-  let requests = ref [] in
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock-anthropic"
-    let model_id = "claude-sonnet-4-6"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream opts =
-      incr call_count;
-      requests := opts.Ai_provider.Call_options.prompt :: !requests;
-      let stream, push = Lwt_stream.create () in
-      if !call_count = 1 then begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Reasoning
+  Mock.create
+    ~stream:
+      (Sequence
+         [
+           ([
+              stream_start;
+              Reasoning
                 {
                   text = "";
                   signature = None;
                   provider_options =
                     Ai_provider_anthropic.Convert_response.redacted_reasoning_provider_options "redacted_stream";
-                }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Reasoning
-                { text = ""; signature = None; provider_options = Ai_provider.Provider_options.empty }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Reasoning
+                };
+              Reasoning { text = ""; signature = None; provider_options = Ai_provider.Provider_options.empty };
+              Reasoning
                 {
                   text = "";
                   signature = Some "sig_stream";
                   provider_options =
                     Ai_provider_anthropic.Convert_response.reasoning_provider_options (Some "sig_stream");
-                }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Tool_call_delta
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "toolu_stream";
-                  tool_name = "get_weather";
-                  args_text_delta = {|{"city":"Paris"}|};
-                }));
-        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "toolu_stream" }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Tool_calls;
-                  usage = { input_tokens = 20; output_tokens = 15; total_tokens = Some 35 };
-                  provider_metadata = None;
-                }))
-      end
-      else begin
-        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-        push (Some (Ai_provider.Stream_part.Text { text = "The weather is sunny." }));
-        push
-          (Some
-             (Ai_provider.Stream_part.Finish
-                {
-                  finish_reason = Stop;
-                  usage = { input_tokens = 30; output_tokens = 12; total_tokens = Some 42 };
-                  provider_metadata = None;
-                }))
-      end;
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S), requests
+                };
+            ]
+           @ weather_call_parts "toolu_stream")
+           @ [ finish_part ~finish_reason:Tool_calls (tokens 20 15) ];
+           [ stream_start; Text { text = "The weather is sunny." }; finish_part (tokens 30 12) ];
+         ])
+    ()
 
 (* === generate_text E2E tests (through Anthropic provider with mock fetch) === *)
 
@@ -591,14 +481,14 @@ let test_stream_pipeline_with_tools () =
   (check int) "total output" 27 usage.output_tokens
 
 let test_stream_tool_loop_preserves_thinking_signature () =
-  let model, requests = make_thinking_tool_stream_model () in
+  let model, mock = make_thinking_tool_stream_model () in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Weather in Paris?"
       ~tools:[ "get_weather", weather_tool ]
       ~max_steps:5 ()
   in
   ignore (Lwt_main.run result.steps);
-  match List.rev !requests with
+  match List.map (fun (options : Ai_provider.Call_options.t) -> options.prompt) (Mock.stream_calls mock) with
   | _initial :: second_prompt :: _ ->
     (match Ai_provider_anthropic.Convert_prompt.convert_messages second_prompt with
     | [ _; { content = [ A_redacted_thinking { data }; A_thinking { thinking; signature }; A_tool_use _ ] }; _ ] ->

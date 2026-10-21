@@ -1,61 +1,30 @@
 open Alcotest
 
+(* Helper: create a mock model that streams [parts] *)
+let make_parts_stream_model parts = fst (Ai_mock.Language_model.create ~stream:(Return parts) ())
+
+let finish_part input_tokens output_tokens =
+  Ai_provider.Stream_part.Finish
+    {
+      finish_reason = Stop;
+      usage = { input_tokens; output_tokens; total_tokens = Some (input_tokens + output_tokens) };
+      provider_metadata = None;
+    }
+
 (* Helper: create a mock streaming model that emits text *)
 let make_mock_stream_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Hello " }));
-      push (Some (Ai_provider.Stream_part.Text { text = "world!" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Stop;
-                usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  make_parts_stream_model
+    [ Stream_start { warnings = [] }; Text { text = "Hello " }; Text { text = "world!" }; finish_part 10 5 ]
 
 (* Helper: create a mock model that emits reasoning *)
 let make_reasoning_stream_model () =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock"
-
-    let generate _opts = Lwt.fail_with "not implemented"
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Reasoning
-              { text = "thinking..."; signature = None; provider_options = Ai_provider.Provider_options.empty }));
-      push (Some (Ai_provider.Stream_part.Text { text = "Answer" }));
-      push
-        (Some
-           (Ai_provider.Stream_part.Finish
-              {
-                finish_reason = Stop;
-                usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
-                provider_metadata = None;
-              }));
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  make_parts_stream_model
+    [
+      Stream_start { warnings = [] };
+      Reasoning { text = "thinking..."; signature = None; provider_options = Ai_provider.Provider_options.empty };
+      Text { text = "Answer" };
+      finish_part 5 3;
+    ]
 
 let test_text_to_ui_chunks () =
   let model = make_mock_stream_model () in
