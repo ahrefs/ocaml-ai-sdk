@@ -209,7 +209,12 @@ module Ending : sig
   (** Pushes to the partial output stream. Only call it while running. *)
   val push_partial_output : t -> Yojson.Basic.t -> unit
 
-  (** Records a finished step for [on_abort]. *)
+  (** Records the step in progress for [on_abort], once its model response
+      is complete. Call it again to update the step's tool results. *)
+  val set_step_in_progress : t -> Generate_text_result.step -> unit
+
+  (** Records a finished step for [on_abort], in place of the step in
+      progress. *)
   val add_step : t -> Generate_text_result.step -> unit
 
   (** Runs the job with {!abort} attached to the signal. It runs right away
@@ -248,6 +253,7 @@ end = struct
     mutable state : state;
     mutable started : bool;
     mutable completed_steps : Generate_text_result.step list;  (** Newest first. *)
+    mutable step_in_progress : Generate_text_result.step option;
     abort_signal : Ai_provider.Abort_signal.t option;
     on_chunk : (Text_stream_part.t -> unit) option;
     on_abort : (steps:Generate_text_result.step list -> unit) option;
@@ -282,6 +288,7 @@ end = struct
         state = Running;
         started = false;
         completed_steps = [];
+        step_in_progress = None;
         abort_signal;
         on_chunk;
         on_abort;
@@ -320,7 +327,14 @@ end = struct
 
   let emit_start t = start t ~push:(emit t)
   let push_partial_output t json = t.partial_output_push (Some json)
-  let add_step t step = t.completed_steps <- step :: t.completed_steps
+  let set_step_in_progress t step = t.step_in_progress <- Some step
+
+  let add_step t step =
+    t.completed_steps <- step :: t.completed_steps;
+    t.step_in_progress <- None
+
+  (* The steps for [on_abort], in order, the step in progress last. *)
+  let steps_so_far t = List.rev_append t.completed_steps (Option.to_list t.step_in_progress)
 
   let close t =
     t.full_push None;
@@ -372,7 +386,7 @@ end = struct
       let reason = Option.bind t.abort_signal Ai_provider.Abort_signal.reason in
       start t ~push:(push_ignoring_errors t);
       (* Upstream also ignores an exception from onAbort. *)
-      (try Option.iter (fun f -> f ~steps:(List.rev t.completed_steps)) t.on_abort with (_ : exn) -> ());
+      (try Option.iter (fun f -> f ~steps:(steps_so_far t)) t.on_abort with (_ : exn) -> ());
       (* As upstream's onChunk, [on_chunk] never sees the [Abort] part. *)
       t.full_push (Some (Text_stream_part.Abort { reason = Option.map Printexc.to_string reason }));
       close t;
@@ -548,6 +562,20 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
            });
       Lwt.return tr
     in
+    (* Runs a step's tools one after another. [step_with] builds the step from
+       the results so far, and that step stays the step in progress for
+       [on_abort] as each result arrives. *)
+    let run_tool_batch ~step_with run calls =
+      let results = ref [] in
+      Ending.set_step_in_progress ending (step_with []);
+      Tool_batch.run ~abort_signal
+        (fun call ->
+          let%lwt result = run call in
+          results := result :: !results;
+          Ending.set_step_in_progress ending (step_with (List.rev !results));
+          Lwt.return result)
+        calls
+    in
     (* Everything that can raise, [on_chunk] on the [Finish] part included,
        runs before [Ending.finish] settles, so an exception still reaches the
        error handler below with the streams open. [on_finish] runs after the
@@ -649,6 +677,20 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           Lwt.return
             (text, reasoning, reasoning_content, tool_calls, fr, step_usage, response_model, step_provider_metadata)
         in
+        let step_with tool_results : Generate_text_result.step =
+          {
+            text;
+            reasoning;
+            tool_calls;
+            tool_results;
+            finish_reason = fr;
+            usage = step_usage;
+            response_model = step_response_model;
+            provider_metadata = step_provider_metadata;
+          }
+        in
+        (* The response is complete, so an abort from here on reports the step. *)
+        Ending.set_step_in_progress ending (step_with []);
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
           match tool_calls with
@@ -665,9 +707,11 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         in
         if should_continue then begin
           let%lwt blocked_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
-          let%lwt tool_results =
-            Lwt_list.map_s (execute_tool_with_telemetry ~step_num ~messages:step_messages) executable_calls
+          let%lwt batch =
+            run_tool_batch ~step_with (execute_tool_with_telemetry ~step_num ~messages:step_messages) executable_calls
           in
+          let tool_results = Tool_batch.results batch in
+          let%lwt () = Tool_batch.fail_if_aborted ~abort_signal batch in
           (* Emit approval requests only for tools that have needs_approval (not client-only tools) *)
           List.iter
             (fun (tc : Generate_text_result.tool_call) ->
@@ -679,18 +723,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
                      { approval_id; tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
               | _ -> ())
             blocked_calls;
-          let step : Generate_text_result.step =
-            {
-              text;
-              reasoning;
-              tool_calls;
-              tool_results;
-              finish_reason = fr;
-              usage = step_usage;
-              response_model = step_response_model;
-              provider_metadata = step_provider_metadata;
-            }
-          in
+          let step = step_with tool_results in
           let%lwt () = finish_step step in
           let%lwt () =
             Telemetry.maybe_notify telemetry (fun t ->
@@ -737,18 +770,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         end
         else begin
           (* Final step *)
-          let step : Generate_text_result.step =
-            {
-              text;
-              reasoning;
-              tool_calls;
-              tool_results = [];
-              finish_reason = fr;
-              usage = step_usage;
-              response_model = step_response_model;
-              provider_metadata = step_provider_metadata;
-            }
-          in
+          let step = step_with [] in
           let%lwt () = finish_step step in
           let%lwt () =
             Telemetry.maybe_notify telemetry (fun t ->
@@ -778,8 +800,26 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           |> List.filter (fun (ta : Generate_text_result.pending_tool_approval) -> not ta.approved)
           |> List.iter (fun (ta : Generate_text_result.pending_tool_approval) ->
             emit_event (Text_stream_part.Tool_output_denied { tool_call_id = ta.tool_call_id }));
-          let%lwt tool_results =
-            Lwt_list.map_s
+          let tool_calls =
+            List.map
+              (fun (ta : Generate_text_result.pending_tool_approval) ->
+                { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+              approvals
+          in
+          let step_with tool_results : Generate_text_result.step =
+            {
+              text = "";
+              reasoning = "";
+              tool_calls;
+              tool_results;
+              finish_reason = Ai_provider.Finish_reason.Tool_calls;
+              usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+              response_model = None;
+              provider_metadata = None;
+            }
+          in
+          let%lwt batch =
+            run_tool_batch ~step_with
               (fun (ta : Generate_text_result.pending_tool_approval) ->
                 match ta.approved with
                 | false ->
@@ -796,24 +836,9 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
                     { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
               approvals
           in
-          let tool_calls =
-            List.map
-              (fun (ta : Generate_text_result.pending_tool_approval) ->
-                { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
-              approvals
-          in
-          let step : Generate_text_result.step =
-            {
-              text = "";
-              reasoning = "";
-              tool_calls;
-              tool_results;
-              finish_reason = Ai_provider.Finish_reason.Tool_calls;
-              usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
-              response_model = None;
-              provider_metadata = None;
-            }
-          in
+          let tool_results = Tool_batch.results batch in
+          let%lwt () = Tool_batch.fail_if_aborted ~abort_signal batch in
+          let step = step_with tool_results in
           let%lwt () = finish_step step in
           (* Append tool results to messages for the next LLM call *)
           let tool_result_parts =

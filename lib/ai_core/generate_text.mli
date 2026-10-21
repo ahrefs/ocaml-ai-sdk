@@ -19,7 +19,15 @@
       [stop_when] is met, stops nothing, and the call returns its result as
       upstream's generateText does. Tools get the signal in their
       {!Core_tool.execute_options}; a running tool that ignores it finishes
-      first.
+      first. A step whose model response came back is always recorded: when
+      the abort stops its tools, the step keeps the results of the tools
+      that ran, and the calls that did not run stay in its [tool_calls]
+      with no result. [on_step_finish] is not called for that step.
+    @param on_abort Called once when the call fails with
+      [Ai_provider.Abort_signal.Aborted] because [abort_signal] fired, before
+      the returned promise fails, with the steps recorded so far in order. An
+      exception it raises is ignored. It is not called for [Lwt.cancel] or
+      for any other failure.
 
     [Lwt.cancel] on the returned promise, for example from
     [Lwt_unix.with_timeout], fails it with [Lwt.Canceled] at once and
@@ -49,6 +57,7 @@ val generate_text :
   ?headers:(string * string) list ->
   ?provider_options:Ai_provider.Provider_options.t ->
   ?on_step_finish:(Generate_text_result.step -> unit) ->
+  ?on_abort:(steps:Generate_text_result.step list -> unit) ->
   ?telemetry:Telemetry.t ->
   ?pending_tool_approvals:Generate_text_result.pending_tool_approval list ->
   ?abort_signal:Ai_provider.Abort_signal.t ->

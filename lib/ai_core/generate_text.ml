@@ -35,10 +35,40 @@ let cancelable f =
   Lwt.on_cancel call (fun () -> cancelled := true);
   call
 
+(* The step a model response makes, with the results of the tools that ran. *)
+let step_of_response ~text ~reasoning ~tool_calls ~tool_results (result : Ai_provider.Generate_result.t) :
+  Generate_text_result.step =
+  {
+    text;
+    reasoning;
+    tool_calls;
+    tool_results;
+    finish_reason = result.finish_reason;
+    usage = result.usage;
+    response_model = result.response.model;
+    provider_metadata =
+      (match result.provider_metadata with
+      | [] -> None
+      | _ :: _ as pm -> Some pm);
+  }
+
+let is_aborted = Option.fold ~none:false ~some:Ai_provider.Abort_signal.is_aborted
+
+(* Runs [f]. When it fails with [Aborted] because [abort_signal] fired,
+   [on_abort] gets [steps ()] before the failure passes on. As in
+   [stream_text], an exception from [on_abort] is ignored. *)
+let reporting_abort ~abort_signal ~on_abort ~steps f =
+  Lwt.catch f (fun exn ->
+    (match exn with
+    | Ai_provider.Abort_signal.Aborted _ when is_aborted abort_signal ->
+      (try Option.iter (fun report -> report ~steps:(steps ())) on_abort with (_ : exn) -> ())
+    | (_ : exn) -> ());
+    Lwt.fail exn)
+
 let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
   ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
-  ?telemetry ?(pending_tool_approvals = []) ?abort_signal () =
+  ?on_abort ?telemetry ?(pending_tool_approvals = []) ?abort_signal () =
   (* Build initial messages. Tools get the step's messages without the system
      prompt, as upstream does, so the loop prepends it only for the model call. *)
   let request_messages = Prompt_builder.resolve_messages ?prompt ?messages () in
@@ -80,7 +110,11 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           ]
     | None -> []
   in
+  (* Every recorded step, newest first, for [on_abort]. *)
+  let recorded_steps = ref [] in
+  let record_step step = recorded_steps := step :: !recorded_steps in
   cancelable @@ fun ~fail_if_cancelled ->
+  reporting_abort ~abort_signal ~on_abort ~steps:(fun () -> List.rev !recorded_steps) @@ fun () ->
   (* Root span wrapping the entire operation *)
   Telemetry.maybe_span telemetry "ai.generateText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
   let%lwt () =
@@ -93,6 +127,58 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           function_id = tp.function_id_;
           metadata = tp.metadata_;
         })
+  in
+  let run_tool ~step_num ~step_messages (tc : Generate_text_result.tool_call) =
+    let%lwt () = fail_if_cancelled () in
+    Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
+      match telemetry with
+      | Some t ->
+        Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name ~tool_call_id:tc.tool_call_id
+          ~args:tc.args t
+      | None -> [])
+    @@ fun tool_span ->
+    let%lwt () =
+      Telemetry.maybe_notify telemetry (fun t ->
+        Telemetry.notify_on_tool_call_start t
+          {
+            step_number = step_num;
+            model = tp.model_info;
+            tool_name = tc.tool_name;
+            tool_call_id = tc.tool_call_id;
+            args = tc.args;
+            function_id = tp.function_id_;
+            metadata = tp.metadata_;
+          })
+    in
+    let t0 = Unix.gettimeofday () in
+    let%lwt tr =
+      Core_tool.execute_tool ?abort_signal ~tools ~messages:step_messages ~tool_call_id:tc.tool_call_id
+        ~tool_name:tc.tool_name ~args:tc.args ()
+    in
+    let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+    let%lwt () =
+      Telemetry.maybe_notify telemetry (fun t ->
+        let outcome =
+          if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result) else Telemetry.Success tr.result
+        in
+        Telemetry.notify_on_tool_call_finish t
+          {
+            step_number = step_num;
+            model = tp.model_info;
+            tool_name = tc.tool_name;
+            tool_call_id = tc.tool_call_id;
+            args = tc.args;
+            result = outcome;
+            duration_ms;
+            function_id = tp.function_id_;
+            metadata = tp.metadata_;
+          })
+    in
+    (match telemetry with
+    | Some t when Telemetry.enabled t ->
+      Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
+    | _ -> ());
+    Lwt.return tr
   in
   (* Step loop *)
   let rec loop ~step_messages ~steps ~total_usage ~all_tool_calls ~all_tool_results ~step_num =
@@ -176,77 +262,14 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
       in
       if should_continue then begin
         let%lwt blocked_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
-        let%lwt tool_results =
-          Lwt_list.map_s
-            (fun (tc : Generate_text_result.tool_call) ->
-              let%lwt () = fail_if_cancelled () in
-              Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
-                match telemetry with
-                | Some t ->
-                  Telemetry.tool_call_span_data ~model_info:tp.model_info ~tool_name:tc.tool_name
-                    ~tool_call_id:tc.tool_call_id ~args:tc.args t
-                | None -> [])
-              @@ fun tool_span ->
-              let%lwt () =
-                Telemetry.maybe_notify telemetry (fun t ->
-                  Telemetry.notify_on_tool_call_start t
-                    {
-                      step_number = step_num;
-                      model = tp.model_info;
-                      tool_name = tc.tool_name;
-                      tool_call_id = tc.tool_call_id;
-                      args = tc.args;
-                      function_id = tp.function_id_;
-                      metadata = tp.metadata_;
-                    })
-              in
-              let t0 = Unix.gettimeofday () in
-              let%lwt tr =
-                Core_tool.execute_tool ?abort_signal ~tools ~messages:step_messages ~tool_call_id:tc.tool_call_id
-                  ~tool_name:tc.tool_name ~args:tc.args ()
-              in
-              let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
-              let%lwt () =
-                Telemetry.maybe_notify telemetry (fun t ->
-                  let outcome =
-                    if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result)
-                    else Telemetry.Success tr.result
-                  in
-                  Telemetry.notify_on_tool_call_finish t
-                    {
-                      step_number = step_num;
-                      model = tp.model_info;
-                      tool_name = tc.tool_name;
-                      tool_call_id = tc.tool_call_id;
-                      args = tc.args;
-                      result = outcome;
-                      duration_ms;
-                      function_id = tp.function_id_;
-                      metadata = tp.metadata_;
-                    })
-              in
-              (match telemetry with
-              | Some t when Telemetry.enabled t ->
-                Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
-              | _ -> ());
-              Lwt.return tr)
-            executable_calls
-        in
-        let step : Generate_text_result.step =
-          {
-            text;
-            reasoning;
-            tool_calls;
-            tool_results;
-            finish_reason = result.finish_reason;
-            usage = result.usage;
-            response_model = result.response.model;
-            provider_metadata =
-              (match result.provider_metadata with
-              | [] -> None
-              | _ :: _ as pm -> Some pm);
-          }
-        in
+        let%lwt batch = Tool_batch.run ~abort_signal (run_tool ~step_num ~step_messages) executable_calls in
+        let tool_results = Tool_batch.results batch in
+        (* The response came back, so the step counts even when an abort
+           stopped its tools. The calls that did not run stay in
+           [tool_calls] with no result. *)
+        let step = step_of_response ~text ~reasoning ~tool_calls ~tool_results result in
+        record_step step;
+        let%lwt () = Tool_batch.fail_if_aborted ~abort_signal batch in
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
           Telemetry.maybe_notify telemetry (fun t ->
@@ -311,21 +334,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
       end
       else begin
         (* Final step - no more tool calls *)
-        let step : Generate_text_result.step =
-          {
-            text;
-            reasoning;
-            tool_calls;
-            tool_results = [];
-            finish_reason = result.finish_reason;
-            usage = result.usage;
-            response_model = result.response.model;
-            provider_metadata =
-              (match result.provider_metadata with
-              | [] -> None
-              | _ :: _ as pm -> Some pm);
-          }
-        in
+        let step = step_of_response ~text ~reasoning ~tool_calls ~tool_results:[] result in
+        record_step step;
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
           Telemetry.maybe_notify telemetry (fun t ->
@@ -350,64 +360,71 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
       end
     end
   in
-  (* Execute pending tool approvals before the LLM step loop *)
+  (* Runs the pending tool approvals before the LLM step loop. As in a step,
+     an abort that stops them still records the step with the results of the
+     tools that ran. *)
+  let run_pending_approvals approvals =
+    let%lwt batch =
+      Tool_batch.run ~abort_signal
+        (fun (ta : Generate_text_result.pending_tool_approval) ->
+          match ta.approved with
+          | false ->
+            Lwt.return
+              {
+                Generate_text_result.tool_call_id = ta.tool_call_id;
+                tool_name = ta.tool_name;
+                result = Core_tool.denied_result;
+                is_error = false;
+                provider_metadata = None;
+              }
+          | true ->
+            let%lwt () = fail_if_cancelled () in
+            Core_tool.execute_tool ?abort_signal ~tools ~messages:request_messages ~tool_call_id:ta.tool_call_id
+              ~tool_name:ta.tool_name ~args:ta.args ())
+        approvals
+    in
+    let tool_results = Tool_batch.results batch in
+    let tool_calls =
+      List.map
+        (fun (ta : Generate_text_result.pending_tool_approval) ->
+          { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+        approvals
+    in
+    let step : Generate_text_result.step =
+      {
+        text = "";
+        reasoning = "";
+        tool_calls;
+        tool_results;
+        finish_reason = Ai_provider.Finish_reason.Tool_calls;
+        usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+        response_model = None;
+        provider_metadata = None;
+      }
+    in
+    record_step step;
+    let%lwt () = Tool_batch.fail_if_aborted ~abort_signal batch in
+    Option.iter (fun f -> f step) on_step_finish;
+    let tool_result_parts =
+      List.map
+        (fun (tr : Generate_text_result.tool_result) ->
+          {
+            Ai_provider.Prompt.tool_call_id = tr.tool_call_id;
+            tool_name = tr.tool_name;
+            result = tr.result;
+            is_error = tr.is_error;
+            content = [];
+            provider_options = Ai_provider.Provider_options.empty;
+          })
+        tool_results
+    in
+    let updated_messages = request_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
+    Lwt.return (updated_messages, [ step ], tool_calls, tool_results)
+  in
   let%lwt start_messages, initial_steps, initial_tool_calls, initial_tool_results =
     match pending_tool_approvals with
     | [] -> Lwt.return (request_messages, [], [], [])
-    | approvals ->
-      let%lwt tool_results =
-        Lwt_list.map_s
-          (fun (ta : Generate_text_result.pending_tool_approval) ->
-            match ta.approved with
-            | false ->
-              Lwt.return
-                {
-                  Generate_text_result.tool_call_id = ta.tool_call_id;
-                  tool_name = ta.tool_name;
-                  result = Core_tool.denied_result;
-                  is_error = false;
-                  provider_metadata = None;
-                }
-            | true ->
-              let%lwt () = fail_if_cancelled () in
-              Core_tool.execute_tool ?abort_signal ~tools ~messages:request_messages ~tool_call_id:ta.tool_call_id
-                ~tool_name:ta.tool_name ~args:ta.args ())
-          approvals
-      in
-      let tool_calls =
-        List.map
-          (fun (ta : Generate_text_result.pending_tool_approval) ->
-            { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
-          approvals
-      in
-      let step : Generate_text_result.step =
-        {
-          text = "";
-          reasoning = "";
-          tool_calls;
-          tool_results;
-          finish_reason = Ai_provider.Finish_reason.Tool_calls;
-          usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
-          response_model = None;
-          provider_metadata = None;
-        }
-      in
-      Option.iter (fun f -> f step) on_step_finish;
-      let tool_result_parts =
-        List.map
-          (fun (tr : Generate_text_result.tool_result) ->
-            {
-              Ai_provider.Prompt.tool_call_id = tr.tool_call_id;
-              tool_name = tr.tool_name;
-              result = tr.result;
-              is_error = tr.is_error;
-              content = [];
-              provider_options = Ai_provider.Provider_options.empty;
-            })
-          tool_results
-      in
-      let updated_messages = request_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
-      Lwt.return (updated_messages, [ step ], tool_calls, tool_results)
+    | approvals -> run_pending_approvals approvals
   in
   let%lwt final_result =
     loop ~step_messages:start_messages ~steps:(List.rev initial_steps)

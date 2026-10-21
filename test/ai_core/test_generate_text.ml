@@ -1168,6 +1168,110 @@ let test_abort_before_pending_approval () =
   (check int) "tool never runs" 0 !runs;
   (check int) "model never called" 0 !calls
 
+let ids_of_calls = List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_call_id)
+let ids_of_results = List.map (fun (tr : Ai_core.Generate_text_result.tool_result) -> tr.tool_call_id)
+
+(* Checks that on_abort got one step with [usage], [tool_calls] and the
+   results of [tool_results]. *)
+let check_aborted_step ~(usage : Ai_provider.Usage.t) ~tool_calls ~tool_results
+  (steps : Ai_core.Generate_text_result.step list option) =
+  match steps with
+  | Some [ step ] ->
+    (check int) "input tokens" usage.input_tokens step.usage.input_tokens;
+    (check int) "output tokens" usage.output_tokens step.usage.output_tokens;
+    (check (option int)) "total tokens" usage.total_tokens step.usage.total_tokens;
+    (check (list string)) "tool calls" tool_calls (ids_of_calls step.tool_calls);
+    (check (list string)) "tool results" tool_results (ids_of_results step.tool_results)
+  | Some steps -> failf "expected one step, got %d" (List.length steps)
+  | None -> fail "on_abort was not called"
+
+(* Runs a search where the tool of [abort_in] fires the signal and returns.
+   Checks that the call fails with [Aborted] and that on_step_finish is not
+   called. Returns the steps on_abort got, the tools that ran and the model
+   call count. *)
+let run_abort_in_tool ?pending_tool_approvals ~abort_in () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let ran = ref [] in
+  let tool =
+    {
+      search_tool with
+      execute =
+        Some
+          (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
+            ran := options.tool_call_id :: !ran;
+            if String.equal options.tool_call_id abort_in then abort ();
+            Lwt.return (`String "results"));
+    }
+  in
+  let aborted_steps = ref None in
+  let step_finished = ref false in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", tool ]
+        ?pending_tool_approvals ~max_steps:3 ~abort_signal:signal
+        ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> step_finished := true)
+        ~on_abort:(fun ~steps -> aborted_steps := Some steps)
+        ())
+  in
+  (check string) "outcome" "aborted" outcome;
+  (check bool) "on_step_finish not called" false !step_finished;
+  !aborted_steps, List.rev !ran, !calls
+
+(* The first of two tool calls fires the signal. The step keeps the model's
+   usage, both calls and the first tool's result, and the second tool never
+   runs. *)
+let test_abort_in_tool_batch_keeps_step () =
+  let aborted_steps, ran, calls = run_abort_in_tool ~abort_in:"tc_1" () in
+  check_aborted_step
+    ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
+    ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] aborted_steps;
+  (check (list string)) "tools that ran" [ "tc_1" ] ran;
+  (check int) "one model call" 1 calls
+
+(* The first of two approved pending tools fires the signal. Its result is
+   kept in the step, and the model is never called. *)
+let test_abort_in_pending_approval_keeps_result () =
+  let pending tool_call_id : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id; tool_name = "search"; args = `Assoc []; approved = true }
+  in
+  let aborted_steps, ran, calls =
+    run_abort_in_tool ~pending_tool_approvals:[ pending "tc_a"; pending "tc_b" ] ~abort_in:"tc_a" ()
+  in
+  check_aborted_step
+    ~usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
+    ~tool_calls:[ "tc_a"; "tc_b" ] ~tool_results:[ "tc_a" ] aborted_steps;
+  (check (list string)) "tools that ran" [ "tc_a" ] ran;
+  (check int) "model never called" 0 calls
+
+(* on_abort is only for the signal: a cancel, or an [Aborted] that a tool
+   raises while the signal is pending, does not call it. *)
+let test_on_abort_only_for_signal () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let signal, (_ : ?reason:exn -> unit -> unit) = Ai_provider.Abort_signal.create () in
+  let reported = ref false in
+  let generate execute =
+    Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+      ~tools:[ "search", { search_tool with execute = Some execute } ]
+      ~max_steps:3 ~abort_signal:signal
+      ~on_abort:(fun ~steps:(_ : Ai_core.Generate_text_result.step list) -> reported := true)
+      ()
+  in
+  let waiting, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
+  let call = generate (fun (_ : Yojson.Basic.t) _ -> waiting) in
+  Lwt.cancel call;
+  (check bool) "cancelled" true
+    (match Lwt.state call with
+    | Lwt.Fail Lwt.Canceled -> true
+    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
+  let outcome =
+    generate_outcome (fun () ->
+      generate (fun (_ : Yojson.Basic.t) _ -> Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = None })))
+  in
+  (check string) "outcome" "aborted" outcome;
+  (check bool) "on_abort not called" false !reported
+
 (* Names each message by its role. *)
 let roles messages =
   List.map
@@ -1403,6 +1507,9 @@ let () =
           test_case "between_steps" `Quick test_abort_between_steps;
           test_case "between_tools" `Quick test_abort_between_tools;
           test_case "before_pending_approval" `Quick test_abort_before_pending_approval;
+          test_case "in_tool_batch_keeps_step" `Quick test_abort_in_tool_batch_keeps_step;
+          test_case "in_pending_approval_keeps_result" `Quick test_abort_in_pending_approval_keeps_result;
+          test_case "on_abort_only_for_signal" `Quick test_on_abort_only_for_signal;
           test_case "reaches_tool" `Quick test_abort_reaches_tool;
           test_case "cancel_stops_tool_and_loop" `Quick test_cancel_stops_tool_and_loop;
           test_case "cancel_with_uncancelable_tool" `Quick test_cancel_with_uncancelable_tool;

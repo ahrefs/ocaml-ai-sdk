@@ -40,8 +40,10 @@
     @param on_finish Called after the streams close and the result promises
       resolve. An exception it raises is ignored.
     @param on_abort Called once when [abort_signal] fires, after [Start] and
-      before the [Abort] part, with the steps finished so far in order. An
-      exception it raises is ignored. *)
+      before the [Abort] part, with the steps recorded so far in order. A
+      step is recorded once its model response is complete, so the step
+      whose tools were running is there too, with the results of the tools
+      that had returned. An exception it raises is ignored. *)
 
 val stream_text :
   model:Ai_provider.Language_model.t ->
