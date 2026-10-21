@@ -1470,6 +1470,58 @@ let test_cancel_with_uncancelable_model () =
   (check int) "tool never runs" 0 !runs;
   (check int) "one model call" 1 !calls
 
+(* Answers the first call with a tool call, then never answers and ignores
+   both the abort signal and [Lwt.cancel]. *)
+let make_model_ignoring_signal () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model () in
+  let module Inner = (val model) in
+  let module Ignoring = struct
+    include Inner
+
+    let generate opts =
+      match !calls with
+      | 0 -> Inner.generate opts
+      | _ ->
+        incr calls;
+        let never, (_ : Ai_provider.Generate_result.t Lwt.u) = Lwt.wait () in
+        never
+  end in
+  calls, (module Ignoring : Ai_provider.Language_model.S)
+
+(* The call races the model against the signal, so it fails at the abort and
+   reports the first step even though the second model call never returns. *)
+let test_abort_with_model_ignoring_signal () =
+  let calls, model = make_model_ignoring_signal () in
+  let aborted_steps = ref None in
+  let started = Unix.gettimeofday () in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", waiting_search_tool (ref 0) Lwt.return ]
+        ~max_steps:3 ~abort_signal:(Lwt_unix.sleep 0.1)
+        ~on_abort:(fun ~steps -> aborted_steps := Some steps)
+        ())
+  in
+  let elapsed = Unix.gettimeofday () -. started in
+  (check string) "outcome" "aborted" outcome;
+  (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.3);
+  (check int) "two model calls" 2 !calls;
+  match !aborted_steps with
+  | Some [ step ] -> (check int) "step usage" 10 step.usage.input_tokens
+  | Some steps -> Alcotest.failf "on_abort got %d steps, expected 1" (List.length steps)
+  | None -> fail "on_abort was not called"
+
+(* [Lwt.cancel] still ends a call that has a signal while the model ignores
+   both, and the cancel does not reach the caller's signal. *)
+let test_cancel_with_signal_and_model_ignoring_it () =
+  let (_ : int ref), model = make_model_ignoring_signal () in
+  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0. (fun () ->
+    Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+      ~tools:[ "search", waiting_search_tool (ref 0) Lwt.return ]
+      ~max_steps:3 ~abort_signal:signal ());
+  (check bool) "signal still pending" true (Lwt.is_sleeping signal)
+
 let () =
   run "Generate_text"
     [
@@ -1514,6 +1566,8 @@ let () =
           test_case "cancel_stops_tool_and_loop" `Quick test_cancel_stops_tool_and_loop;
           test_case "cancel_with_uncancelable_tool" `Quick test_cancel_with_uncancelable_tool;
           test_case "cancel_with_uncancelable_model" `Quick test_cancel_with_uncancelable_model;
+          test_case "model_ignoring_signal" `Quick test_abort_with_model_ignoring_signal;
+          test_case "cancel_with_signal_and_model_ignoring_it" `Quick test_cancel_with_signal_and_model_ignoring_it;
         ] );
       ( "retry",
         [

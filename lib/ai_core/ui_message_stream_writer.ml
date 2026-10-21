@@ -54,11 +54,18 @@ let create_ui_message_stream ?message_id ?(on_error = Printexc.to_string) ?on_fi
   let writer = { push = push_chunk; error_text; ongoing = Queue.create (); saw_abort = ref false } in
   push_chunk (Ui_message_chunk.Start { message_id; message_metadata = None });
   let execute_failed = ref false in
+  (* The reason [execute] was aborted with, when it raised [Aborted]. *)
+  let execute_aborted = ref None in
   (* As upstream, a failed [execute] is one more ongoing promise: its [Error]
-     chunk goes out at once, and the merges it started still run to the end. *)
+     chunk goes out at once, and the merges it started still run to the end.
+     An [Aborted] from [execute] gets no [Error] chunk. *)
   let executed =
-    try%lwt execute writer
-    with exn ->
+    try%lwt execute writer with
+    | Ai_provider.Abort_signal.Aborted { reason } ->
+      execute_failed := true;
+      execute_aborted := Some reason;
+      Lwt.return_unit
+    | exn ->
       execute_failed := true;
       push_chunk (Ui_message_chunk.Error { error_text = error_text exn });
       Lwt.return_unit
@@ -67,10 +74,12 @@ let create_ui_message_stream ?message_id ?(on_error = Printexc.to_string) ?on_fi
   let finish () =
     let%lwt () = wait_for_ongoing writer in
     (* After an [Abort] chunk the writer adds no [Finish] of its own, as
-       upstream's does. *)
-    (match !(writer.saw_abort) with
-    | true -> ()
-    | false -> push_chunk (Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
+       upstream's does. An aborted [execute] ends the stream with an [Abort]
+       chunk, unless a merged stream already sent one. *)
+    (match !(writer.saw_abort), !execute_aborted with
+    | true, (_ : exn option option) -> ()
+    | false, Some reason -> push_chunk (Ui_message_chunk.Abort { reason = Option.map Printexc.to_string reason })
+    | false, None -> push_chunk (Ui_message_chunk.Finish { finish_reason = None; message_metadata = None }));
     (* A chunk written while [on_finish] runs is dropped. The stream itself
        closes only after [on_finish], as upstream's does. *)
     done_writing := true;

@@ -1134,7 +1134,9 @@ let failed_with_aborted promise =
 let check_result_aborted (result : Ai_core.Stream_text_result.t) =
   (check bool) "usage failed with Aborted" true (failed_with_aborted result.usage);
   (check bool) "finish_reason failed with Aborted" true (failed_with_aborted result.finish_reason);
-  (check bool) "steps failed with Aborted" true (failed_with_aborted result.steps)
+  (check bool) "steps failed with Aborted" true (failed_with_aborted result.steps);
+  (check bool) "output failed with Aborted" true (failed_with_aborted result.output);
+  (check bool) "provider_metadata failed with Aborted" true (failed_with_aborted result.provider_metadata)
 
 (* Reads [stream] up to and including the first part that satisfies [f]. *)
 let rec read_until f stream ~acc =
@@ -1238,10 +1240,14 @@ let test_abort_reason () =
   let result = stream_aborted () in
   let%lwt parts = Lwt_stream.to_list result.full_stream in
   (check (list string)) "parts" [ "start"; "abort:Stdlib.Exit" ] (List.map part_name parts);
-  (check bool) "usage failed with the reason" true
-    (match Lwt.state result.usage with
+  let failed_with_reason promise =
+    match Lwt.state promise with
     | Lwt.Fail (Ai_provider.Abort_signal.Aborted { reason = Some Exit }) -> true
-    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
+    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false
+  in
+  (check bool) "usage failed with the reason" true (failed_with_reason result.usage);
+  (check bool) "output failed with the reason" true (failed_with_reason result.output);
+  (check bool) "provider_metadata failed with the reason" true (failed_with_reason result.provider_metadata);
   let%lwt sse = Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_sse_stream (stream_aborted ())) in
   (check bool) "UI abort chunk carries the reason" true
     (List.exists (fun event -> String.equal (String.trim event) {|data: {"type":"abort","reason":"Stdlib.Exit"}|}) sse);
@@ -1406,10 +1412,8 @@ let test_on_chunk_raises_on_finish () =
   (check bool) "usage fails" true (failed_with_failure "on_chunk failed" result.usage);
   (check bool) "finish_reason fails" true (failed_with_failure "on_chunk failed" result.finish_reason);
   (check bool) "steps fails" true (failed_with_failure "on_chunk failed" result.steps);
-  (check bool) "output resolves to None" true
-    (match Lwt.state result.output with
-    | Lwt.Return None -> true
-    | Lwt.Return (Some _) | Lwt.Fail _ | Lwt.Sleep -> false);
+  (check bool) "output fails" true (failed_with_failure "on_chunk failed" result.output);
+  (check bool) "provider_metadata fails" true (failed_with_failure "on_chunk failed" result.provider_metadata);
   Lwt.return_unit
 
 (* [on_finish] runs after the call has settled, so its exception changes
@@ -1827,6 +1831,9 @@ let test_on_chunk_gets_error () =
     (Option.bind parts (fun parts -> List.nth_opt parts (List.length parts - 1)));
   (check (option (list string))) "on_chunk sees every part" parts (Some (List.rev !chunks));
   (check bool) "usage fails with the provider error" true (failed_with_failure "provider down" result.usage);
+  (check bool) "output fails with the provider error" true (failed_with_failure "provider down" result.output);
+  (check bool) "provider_metadata fails with the provider error" true
+    (failed_with_failure "provider down" result.provider_metadata);
   Lwt.return_unit
 
 (* A custom model that ignores the abort signal: its stream sends one text part

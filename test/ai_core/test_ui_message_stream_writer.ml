@@ -402,8 +402,10 @@ let chunk_type chunk = Yojson.Basic.Util.(to_string (member "type" (Chunk.to_jso
 (* The examples/custom_stream pattern: [execute] merges a stream_text UI stream
    and then awaits [result.usage], which fails with Aborted once the signal
    fires. The writer must wait for the merge before closing, so the merged
-   abort chunk never meets a closed stream. Lwt's default async exception hook
-   stays in place: an exception escaping [Lwt.async] would exit the test. *)
+   abort chunk never meets a closed stream. The [Aborted] from [execute] adds
+   neither an error chunk nor a second abort chunk. Lwt's default async
+   exception hook stays in place: an exception escaping [Lwt.async] would
+   exit the test. *)
 let test_execute_fails_after_merged_abort () =
   let signal, (_ : unit Lwt.u) = Lwt.task () in
   let finished_aborted = ref None in
@@ -440,9 +442,36 @@ let test_execute_fails_after_merged_abort () =
   in
   (check (list string))
     "chunk types"
-    [ "start"; "data-status"; "start"; "start-step"; "text-start"; "text-delta"; "error"; "abort" ]
+    [ "start"; "data-status"; "start"; "start-step"; "text-start"; "text-delta"; "abort" ]
     (List.map chunk_type chunks);
   (check (option bool)) "on_finish is_aborted" (Some true) !finished_aborted
+
+(* [execute] raising [Aborted] ends the stream with an abort chunk carrying
+   the reason, and no error or finish chunk. *)
+let test_execute_aborted () =
+  let run reason =
+    let finished_aborted = ref None in
+    let chunks =
+      collect
+        (Writer.create_ui_message_stream
+           ~on_finish:(fun ~finish_reason:_ ~is_aborted ->
+             finished_aborted := Some is_aborted;
+             Lwt.return_unit)
+           ~execute:(fun writer ->
+             Writer.write writer Chunk.Start_step;
+             Lwt.fail (Ai_provider.Abort_signal.Aborted { reason }))
+           ())
+    in
+    (check (option bool)) "on_finish is_aborted" (Some true) !finished_aborted;
+    match chunks with
+    | Chunk.Start _ :: rest -> List.map (fun chunk -> Yojson.Basic.to_string (Chunk.to_json chunk)) rest
+    | _ -> fail "expected Start as first chunk"
+  in
+  (check (list string))
+    "with a reason"
+    [ {|{"type":"start-step"}|}; {|{"type":"abort","reason":"Stdlib.Exit"}|} ]
+    (run (Some Exit));
+  (check (list string)) "without a reason" [ {|{"type":"start-step"}|}; {|{"type":"abort"}|} ] (run None)
 
 let error_texts chunks =
   List.filter_map
@@ -565,6 +594,7 @@ let () =
           test_case "no finish after merged abort chunk" `Quick test_abort_chunk_merged_no_finish;
           test_case "waits for merges" `Quick test_on_finish_waits_for_merges;
           test_case "execute fails after a merged abort" `Quick test_execute_fails_after_merged_abort;
+          test_case "execute raises Aborted" `Quick test_execute_aborted;
         ] );
       ( "response",
         [

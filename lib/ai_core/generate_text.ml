@@ -233,7 +233,9 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         let%lwt result =
           Retry.with_retries ?abort_signal ?max_retries ?max_retry_delay_ms (fun () ->
             let%lwt () = fail_if_cancelled () in
-            Ai_provider.Language_model.generate model opts)
+            (* Race the call so that a model which ignores the signal in
+               [opts] does not hold the call after an abort. *)
+            Abort_race.race abort_signal (fun () -> Ai_provider.Language_model.generate model opts))
         in
         let text, reasoning, tool_calls = parse_content result.content in
         (* Add response attributes to step span *)

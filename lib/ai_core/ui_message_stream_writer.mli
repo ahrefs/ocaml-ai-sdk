@@ -30,13 +30,17 @@ val merge : t -> Ui_message_chunk.t Lwt_stream.t -> unit
     When [execute] raises, the writer pushes an [Error] chunk right away, as
     upstream's createUIMessageStream does, then waits for the merged streams
     to end before it closes the stream. Chunks those streams push later come
-    after the [Error] chunk. For example, when [execute] merges a
-    {!Stream_text.stream_text} UI stream and then awaits [result.usage], an
-    abort fails [usage] with [Ai_provider.Abort_signal.Aborted], so the
-    stream holds the chunks merged so far, then the [Error] chunk and the
-    merged [Abort] chunk in the order they happened, and no [Finish]. The
-    [Error] chunk tells the client the request failed. To end an aborted
-    request quietly, catch [Aborted] in [execute].
+    after the [Error] chunk.
+
+    When [execute] raises [Ai_provider.Abort_signal.Aborted], the stream ends
+    as an abort instead: no [Error] chunk, and once the merged streams end,
+    an [Abort] chunk in place of [Finish], with the reason's
+    [Printexc.to_string] when it has one. Upstream sends an [error] chunk
+    here. When a merged stream already sent an [Abort] chunk, the writer adds
+    none. For example, when [execute] merges a {!Stream_text.stream_text}
+    UI stream and then awaits [result.usage], an abort fails [usage] with
+    [Aborted], and the stream holds the chunks merged so far and then the
+    merged [Abort] chunk.
 
     @param message_id Optional message ID included in the [Start] chunk.
       Use this for persistence: generate an ID server-side and pass it here

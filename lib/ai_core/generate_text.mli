@@ -15,7 +15,8 @@
       tool starts, approved pending tools included. The returned promise
       fails with [Ai_provider.Abort_signal.Aborted] when the abort stops work
       the call still had to do, such as a provider request in flight or the
-      next step. An abort that comes after the final model response, or once
+      next step. It fails at once even when the model ignores the signal and
+      never returns. An abort that comes after the final model response, or once
       [stop_when] is met, stops nothing, and the call returns its result as
       upstream's generateText does. Tools get the signal in their
       {!Core_tool.execute_options}; a running tool that ignores it finishes

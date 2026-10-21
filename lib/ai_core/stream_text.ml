@@ -344,8 +344,8 @@ end = struct
     Lwt.wakeup_later_exn t.usage_resolver exn;
     Lwt.wakeup_later_exn t.finish_reason_resolver exn;
     Lwt.wakeup_later_exn t.steps_resolver exn;
-    Lwt.wakeup_later t.output_resolver None;
-    Lwt.wakeup_later t.provider_metadata_resolver None
+    Lwt.wakeup_later_exn t.output_resolver exn;
+    Lwt.wakeup_later_exn t.provider_metadata_resolver exn
 
   let finish t ~finish_reason ~usage ~steps ~output =
     emit t (Text_stream_part.Finish { finish_reason; usage });

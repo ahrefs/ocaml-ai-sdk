@@ -16,9 +16,10 @@
       [Abort] part and closes at once, with no [Finish_step], [Finish] or
       [Error] after it, and [text_stream] closes too. As upstream's
       [onChunk], [on_chunk] does not get the [Abort] part. [usage],
-      [finish_reason] and [steps] fail with
-      [Ai_provider.Abort_signal.Aborted], while [output] and
-      [provider_metadata] resolve to [None]. No model call, tool execution or
+      [finish_reason], [steps], [output] and [provider_metadata] fail with
+      [Ai_provider.Abort_signal.Aborted], as they fail with the error when
+      the call fails. They fail even when steps were recorded first; those
+      steps reach [on_abort]. No model call, tool execution or
       step starts after that, no further provider part is processed, and
       [on_step_finish] and [on_finish] are not called. The read of the
       provider stream ends on the abort even when the model ignores the

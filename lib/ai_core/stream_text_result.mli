@@ -12,12 +12,14 @@ type t = {
   warnings : Ai_provider.Warning.t list;
   output : Yojson.Basic.t option Lwt.t;
     (** Final parsed and validated output. Resolves to [Some json] when
-          [?output] with a schema was provided and parsing succeeds, [None] otherwise. *)
+          [?output] with a schema was provided and parsing succeeds, [None] otherwise.
+          Fails like [usage] when the call fails or is aborted. *)
   provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
     (** Provider-specific metadata aggregated from all steps (typically the
         last step's metadata, e.g. Anthropic cache token counts). Resolves
         to [Some _] when at least one step's [Finish] chunk carried metadata,
-        [None] otherwise. Matches the [providerMetadata] promise on upstream's
+        [None] otherwise. Fails like [usage] when the call fails or is
+        aborted. Matches the [providerMetadata] promise on upstream's
         [StreamTextResult]. *)
 }
 
