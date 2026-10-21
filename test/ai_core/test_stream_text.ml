@@ -1058,7 +1058,7 @@ let test_stream_surfaces_provider_metadata () =
    which ends the stream without a Finish part, as Stream_pump.pump does.
    [calls] counts model calls and [signals] records, per call, whether the
    call options carried the abort signal. *)
-let make_abort_stream_model () =
+let make_abort_stream_model ?(tool_call_ids = [ "tc_1" ]) () =
   let calls = ref 0 in
   let signals = ref [] in
   let module M : Ai_provider.Language_model.S = struct
@@ -1075,16 +1075,19 @@ let make_abort_stream_model () =
       push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
       (match !calls with
       | 1 ->
-        push
-          (Some
-             (Ai_provider.Stream_part.Tool_call_delta
-                {
-                  tool_call_type = "function";
-                  tool_call_id = "tc_1";
-                  tool_name = "search";
-                  args_text_delta = {|{"query":"test"}|};
-                }));
-        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
+        List.iter
+          (fun tool_call_id ->
+            push
+              (Some
+                 (Ai_provider.Stream_part.Tool_call_delta
+                    {
+                      tool_call_type = "function";
+                      tool_call_id;
+                      tool_name = "search";
+                      args_text_delta = {|{"query":"test"}|};
+                    }));
+            push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id })))
+          tool_call_ids;
         push
           (Some
              (Ai_provider.Stream_part.Finish
@@ -1224,6 +1227,27 @@ let test_abort_before_start () =
   (check (option int)) "on_abort with no steps" (Some 0) !aborted_with;
   check_result_aborted result;
   (check int) "model never called" 0 !calls;
+  Lwt.return_unit
+
+(* A long-lived signal, such as one for server shutdown, may fire after the
+   request has finished. That must not reach the finished request. *)
+let test_abort_after_finish () =
+  let model = make_text_stream_model "Hello" in
+  let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+  let aborted = ref false in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hi" ~abort_signal ~on_abort:(fun ~steps:_ -> aborted := true) ()
+  in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  let%lwt (_ : Ai_provider.Finish_reason.t) = result.finish_reason in
+  Lwt.cancel abort_signal;
+  let%lwt () = Lwt.pause () in
+  (check (option string)) "last part" (Some "finish") (List.nth_opt (List.rev_map part_name parts) 0);
+  (check bool) "on_abort not called" false !aborted;
+  (match Lwt.state result.finish_reason with
+  | Return reason -> (check string) "finish reason" "stop" (Ai_provider.Finish_reason.to_string reason)
+  | Fail exn -> failf "finish_reason failed: %s" (Printexc.to_string exn)
+  | Sleep -> fail "finish_reason pending");
   Lwt.return_unit
 
 (* Runs a search that fires the abort signal from [on_step_finish] or from the
@@ -1404,6 +1428,64 @@ let test_finish_step_before_on_step_finish () =
   in
   let%lwt (_ : Ai_core.Text_stream_part.t list) = Lwt_stream.to_list result.full_stream in
   (check (list string)) "order" [ "finish-step"; "on_step_finish"; "finish" ] (List.rev !log);
+  Lwt.return_unit
+
+(* A [search] tool that counts its runs and cancels [abort], when given. *)
+let counting_search_tool ?abort runs =
+  {
+    search_tool with
+    execute =
+      Some
+        (fun (_ : Yojson.Basic.t) ->
+          incr runs;
+          Option.iter Lwt.cancel abort;
+          Lwt.return (`String "results"));
+  }
+
+let check_ends_with_abort parts =
+  (check (option string))
+    "last part" (Some "abort")
+    (List.fold_left (fun (_ : string option) part -> Some (part_name part)) None parts)
+
+(* The first of two tool calls fires the signal, so the second never runs. *)
+let test_abort_between_tools () =
+  let calls, (_ : bool list ref), model = make_abort_stream_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let runs = ref 0 in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", counting_search_tool ~abort:signal runs ]
+      ~max_steps:3 ~abort_signal:signal ()
+  in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check int) "one tool run" 1 !runs;
+  (check int) "one model call" 1 !calls;
+  check_ends_with_abort parts;
+  check_result_aborted result;
+  Lwt.return_unit
+
+(* The first of two approved pending tools fires the signal, so the second
+   never runs and the model is never called. *)
+let test_abort_between_pending_approvals () =
+  let calls, (_ : bool list ref), model = make_abort_stream_model () in
+  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let runs = ref 0 in
+  let pending tool_call_id : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id; tool_name = "search"; args = `Assoc []; approved = true }
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", counting_search_tool ~abort:signal runs ]
+      ~pending_tool_approvals:[ pending "tc_a"; pending "tc_b" ]
+      ~max_steps:3 ~abort_signal:signal ()
+  in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check int) "one tool run" 1 !runs;
+  (check int) "model never called" 0 !calls;
+  check_ends_with_abort parts;
+  check_result_aborted result;
   Lwt.return_unit
 
 (* The abort path ignores exceptions from [on_chunk] and still closes. *)
@@ -1654,10 +1736,13 @@ let () =
         [
           test_case "mid_stream" `Quick (run_lwt test_abort_mid_stream);
           test_case "before_start" `Quick (run_lwt test_abort_before_start);
+          test_case "after_finish" `Quick (run_lwt test_abort_after_finish);
           test_case "in_on_step_finish" `Quick (run_lwt test_abort_in_on_step_finish);
           test_case "during_tool" `Quick (run_lwt test_abort_during_tool);
           test_case "ui_stream" `Quick (run_lwt test_abort_ui_stream);
           test_case "on_chunk_raises" `Quick (run_lwt test_abort_on_chunk_raises);
+          test_case "between_tools" `Quick (run_lwt test_abort_between_tools);
+          test_case "between_pending_approvals" `Quick (run_lwt test_abort_between_pending_approvals);
           test_case "stops_reading_provider" `Quick (run_lwt test_abort_stops_reading_provider);
           test_case "after_pending_approvals" `Quick (run_lwt test_abort_after_pending_approvals);
           test_case "stalled_provider" `Quick test_abort_with_stalled_provider;

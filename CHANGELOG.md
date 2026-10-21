@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Breaking changes
+
+- `Ai_core.Text_stream_part.t` has a new `Abort` constructor, so exhaustive
+  matches on it need a new case.
+
 ### Provider HTTP client (`ai_provider`)
 
 - New `Abort_signal` module. A signal is a `unit Lwt.t` that the caller
@@ -66,7 +71,7 @@ All notable changes to this project will be documented in this file.
   calling `on_step_finish`, as upstream does. It used to call
   `on_step_finish` first. An exception from `on_finish` is ignored, since the
   streams and promises have already settled by then.
-- New `Core_tool.execute_tool_unless_aborted`, which fails with `Aborted`
+- New `Core_tool.execute_tool_abortable`, which fails with `Aborted`
   without running the tool once the signal has fired. `generate_text` and
   `stream_text` run every tool through it. `Core_tool.execute_tool` is
   unchanged.

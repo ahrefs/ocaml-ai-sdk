@@ -69,7 +69,7 @@ val execute_tool :
     signal has already fired. [generate_text] and [stream_text] run every tool
     through this function, so neither starts a tool after an abort. The tool
     itself does not get the signal. *)
-val execute_tool_unless_aborted :
+val execute_tool_abortable :
   Ai_provider.Abort_signal.t option ->
   tools:(string * t) list ->
   tool_call_id:string ->

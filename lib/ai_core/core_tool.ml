@@ -63,7 +63,7 @@ let execute_tool ~tools ~tool_call_id ~tool_name ~args =
         provider_metadata = None;
       }
 
-let execute_tool_unless_aborted abort_signal ~tools ~tool_call_id ~tool_name ~args =
+let execute_tool_abortable abort_signal ~tools ~tool_call_id ~tool_name ~args =
   let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
   execute_tool ~tools ~tool_call_id ~tool_name ~args
 
