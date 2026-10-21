@@ -63,3 +63,10 @@ type t =
     }
   | Error of { error : string }
   | Abort of { reason : string option }
+
+let is_terminal = function
+  | Finish _ | Abort _ -> true
+  | Start | Start_step | Text_start _ | Text_delta _ | Text_end _ | Reasoning_start _ | Reasoning_delta _
+  | Reasoning_end _ | Tool_call _ | Tool_call_delta _ | Tool_result _ | Tool_output_denied _ | Tool_approval_request _
+  | Source _ | File _ | Finish_step _ | Error _ ->
+    false

@@ -2034,6 +2034,307 @@ let test_abort_then_error () =
   check_result_aborted result;
   Lwt.return_unit
 
+(* A model that gives the same two steps to [generate] and [stream]: a
+   search tool call, then text. *)
+let make_scripted_model () =
+  let calls = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-scripted"
+
+    let next_step () =
+      incr calls;
+      match !calls with
+      | 1 ->
+        ( [
+            Ai_provider.Content.Tool_call
+              { tool_call_type = "function"; tool_call_id = "tc_1"; tool_name = "search"; args = {|{"query":"test"}|} };
+          ],
+          Ai_provider.Finish_reason.Tool_calls,
+          { Ai_provider.Usage.input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } )
+      | _ ->
+        ( [ Ai_provider.Content.Text { text = "Found it!" } ],
+          Ai_provider.Finish_reason.Stop,
+          { Ai_provider.Usage.input_tokens = 20; output_tokens = 5; total_tokens = Some 25 } )
+
+    let generate _opts =
+      let content, finish_reason, usage = next_step () in
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content;
+          finish_reason;
+          usage;
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = None; model = None; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let content, finish_reason, usage = next_step () in
+      let parts_of_content : Ai_provider.Content.t -> Ai_provider.Stream_part.t list = function
+        | Text { text } -> [ Text { text } ]
+        | Tool_call { tool_call_type; tool_call_id; tool_name; args } ->
+          [
+            Tool_call_delta { tool_call_type; tool_call_id; tool_name; args_text_delta = args };
+            Tool_call_finish { tool_call_id };
+          ]
+        | Reasoning _ | File _ | Source _ -> []
+      in
+      let parts =
+        (Ai_provider.Stream_part.Stream_start { warnings = [] } :: List.concat_map parts_of_content content)
+        @ [ Ai_provider.Stream_part.Finish { finish_reason; usage; provider_metadata = None } ]
+      in
+      Lwt.return { Ai_provider.Stream_result.stream = Lwt_stream.of_list parts; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let tool_call_ids (result : Ai_core.Generate_text_result.t) =
+  List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_call_id) result.tool_calls
+
+let tool_result_ids (result : Ai_core.Generate_text_result.t) =
+  List.map (fun (tr : Ai_core.Generate_text_result.tool_result) -> tr.tool_call_id) result.tool_results
+
+(* A finished call's outcome holds the result [on_finish] gets, and it
+   matches what [generate_text] returns for the same model script. *)
+let test_outcome_finished () =
+  let finished = ref None in
+  let result =
+    Ai_core.Stream_text.stream_text ~model:(make_scripted_model ()) ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3
+      ~on_finish:(fun result -> finished := Some result)
+      ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list option) = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  let%lwt generated =
+    Ai_core.Generate_text.generate_text ~model:(make_scripted_model ()) ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3 ()
+  in
+  match Lwt.state result.outcome with
+  | Lwt.Return (Finished streamed) ->
+    (check bool) "on_finish got the same result" true
+      (match !finished with
+      | Some on_finish_result -> on_finish_result == streamed
+      | None -> false);
+    (check string) "text" generated.text streamed.text;
+    (check string) "text value" "Found it!" streamed.text;
+    (check int) "steps" (List.length generated.steps) (List.length streamed.steps);
+    (check int) "two steps" 2 (List.length streamed.steps);
+    (check int) "input tokens" generated.usage.input_tokens streamed.usage.input_tokens;
+    (check int) "output tokens" generated.usage.output_tokens streamed.usage.output_tokens;
+    (check (option int)) "total tokens" generated.usage.total_tokens streamed.usage.total_tokens;
+    (check (option int)) "total tokens value" (Some 43) streamed.usage.total_tokens;
+    (check string) "finish reason"
+      (Ai_provider.Finish_reason.to_string generated.finish_reason)
+      (Ai_provider.Finish_reason.to_string streamed.finish_reason);
+    (check (list string)) "tool calls" (tool_call_ids generated) (tool_call_ids streamed);
+    (check (list string)) "tool results" (tool_result_ids generated) (tool_result_ids streamed);
+    Lwt.return_unit
+  | Lwt.Return (Aborted _ | Failed _) | Lwt.Fail _ | Lwt.Sleep -> fail "expected Finished"
+
+(* An abort in the second step: the outcome holds the first step, the steps
+   on_abort got, and the signal's reason. *)
+let test_outcome_aborted_with_steps () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let aborted_steps = ref None in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3 ~abort_signal:signal
+      ~on_abort:(fun ~steps -> aborted_steps := Some steps)
+      ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list) =
+    read_until
+      (function
+        | Ai_core.Text_stream_part.Text_delta _ -> true
+        | _ -> false)
+      result.full_stream ~acc:[]
+  in
+  abort ~reason:Exit ();
+  let%lwt (_ : Ai_core.Text_stream_part.t list option) = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  match Lwt.state result.outcome with
+  | Lwt.Return (Aborted { steps = [ step ] as steps; reason = Some Exit }) ->
+    (check bool) "on_abort got the same steps" true
+      (match !aborted_steps with
+      | Some reported -> reported == steps
+      | None -> false);
+    (check int) "step input tokens" 10 step.usage.input_tokens;
+    (check (list string))
+      "step tool results" [ "tc_1" ]
+      (List.map (fun (tr : Ai_core.Generate_text_result.tool_result) -> tr.tool_call_id) step.tool_results);
+    Lwt.return_unit
+  | Lwt.Return (Aborted { steps; reason = _ }) ->
+    failf "expected one step and reason Exit, got %d steps" (List.length steps)
+  | Lwt.Return (Finished _ | Failed _) | Lwt.Fail _ | Lwt.Sleep -> fail "expected Aborted"
+
+(* A signal that fired before the call: no step, and the reason. *)
+let test_outcome_aborted_before_any_step () =
+  let model = make_text_stream_model "Hello" in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  abort ~reason:Exit ();
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~abort_signal:signal () in
+  let%lwt (_ : Ai_core.Text_stream_part.t list option) = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check bool) "outcome" true
+    (match Lwt.state result.outcome with
+    | Lwt.Return (Aborted { steps = []; reason = Some Exit }) -> true
+    | Lwt.Return (Aborted _ | Finished _ | Failed _) | Lwt.Fail _ | Lwt.Sleep -> false);
+  Lwt.return_unit
+
+(* A failed call's outcome holds the exception the result promises fail
+   with. *)
+let test_outcome_failed () =
+  let model = make_failing_stream_model ~after_abort:false "provider down" in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0 () in
+  let%lwt (_ : Ai_core.Text_stream_part.t list option) = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check bool) "outcome holds the exception usage fails with" true
+    (match Lwt.state result.outcome, Lwt.state result.usage with
+    | Lwt.Return (Failed (Failure message as outcome_exn)), Lwt.Fail usage_exn ->
+      String.equal message "provider down" && outcome_exn == usage_exn
+    | Lwt.Return (Failed _ | Finished _ | Aborted _), _ | (Lwt.Fail _ | Lwt.Sleep), _ -> false);
+  Lwt.return_unit
+
+(* A provider error inside a step gives an [Error] part, and the step goes
+   on to [Finish_step] and [Finish]. That is why [is_terminal] is false for
+   [Error]. *)
+let test_provider_error_part_not_terminal () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-error-part"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let error = Ai_provider.Provider_error.make_api_error ~provider:"mock" ~status:500 ~body:"boom" () in
+      Lwt.return
+        {
+          Ai_provider.Stream_result.stream =
+            Lwt_stream.of_list
+              [
+                Ai_provider.Stream_part.Stream_start { warnings = [] };
+                Text { text = "Hi" };
+                Error { error };
+                Finish
+                  {
+                    finish_reason = Stop;
+                    usage = { input_tokens = 1; output_tokens = 1; total_tokens = Some 2 };
+                    provider_metadata = None;
+                  };
+              ];
+          warnings = [];
+          raw_response = None;
+        }
+  end in
+  let result = Ai_core.Stream_text.stream_text ~model:(module M) ~prompt:"Hello" () in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  let parts = Option.value ~default:[] parts in
+  (check (list string))
+    "parts"
+    [ "start"; "start-step"; "text-start"; "text-delta"; "error"; "text-end"; "finish-step"; "finish" ]
+    (List.map part_name parts);
+  (check (list string))
+    "only the last part is terminal" [ "finish" ]
+    (List.map part_name (List.filter Ai_core.Text_stream_part.is_terminal parts));
+  (check bool) "outcome is Finished" true
+    (match Lwt.state result.outcome with
+    | Lwt.Return (Finished _) -> true
+    | Lwt.Return (Aborted _ | Failed _) | Lwt.Fail _ | Lwt.Sleep -> false);
+  Lwt.return_unit
+
+let test_is_terminal () =
+  let usage = { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None } in
+  let parts : (Ai_core.Text_stream_part.t * bool) list =
+    [
+      Start, false;
+      Start_step, false;
+      Text_start { id = "t" }, false;
+      Text_delta { id = "t"; text = "x" }, false;
+      Text_end { id = "t" }, false;
+      Reasoning_start { id = "r"; provider_metadata = None }, false;
+      Reasoning_delta { id = "r"; text = "x"; provider_metadata = None }, false;
+      Reasoning_end { id = "r"; provider_metadata = None }, false;
+      Tool_call { tool_call_id = "tc"; tool_name = "search"; args = `Null }, false;
+      Tool_call_delta { tool_call_id = "tc"; tool_name = "search"; args_text_delta = "" }, false;
+      ( Tool_result
+          { tool_call_id = "tc"; tool_name = "search"; result = `Null; is_error = false; provider_metadata = None },
+        false );
+      Tool_output_denied { tool_call_id = "tc" }, false;
+      Tool_approval_request { approval_id = "a"; tool_call_id = "tc"; tool_name = "search"; args = `Null }, false;
+      Source { source_id = "s"; url = "https://example.com"; title = None }, false;
+      File { url = "https://example.com/f"; media_type = "text/plain" }, false;
+      Finish_step { finish_reason = Stop; usage }, false;
+      Finish { finish_reason = Stop; usage }, true;
+      Error { error = "boom" }, false;
+      Abort { reason = None }, true;
+    ]
+  in
+  List.iter
+    (fun (part, expected) -> (check bool) (part_name part) expected (Ai_core.Text_stream_part.is_terminal part))
+    parts
+
+(* on_abort runs before any result promise rejects and before [outcome]
+   resolves. The abort hook runs inside an Lwt callback, which defers the
+   promises' callbacks anyway, so on_abort also checks that each promise is
+   still pending: their state changes at once. *)
+let test_on_abort_before_promises_settle () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let events = ref [] in
+  let record event = events := event :: !events in
+  let result_ref = ref None in
+  let all_pending (result : Ai_core.Stream_text_result.t) =
+    Lwt.is_sleeping result.usage
+    && Lwt.is_sleeping result.finish_reason
+    && Lwt.is_sleeping result.steps
+    && Lwt.is_sleeping result.output
+    && Lwt.is_sleeping result.provider_metadata
+    && Lwt.is_sleeping result.outcome
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3 ~abort_signal:signal
+      ~on_abort:(fun ~steps:(_ : Ai_core.Generate_text_result.step list) ->
+        match Option.map all_pending !result_ref with
+        | Some true -> record "on_abort"
+        | Some false -> record "on_abort after a promise settled"
+        | None -> record "on_abort before stream_text returned")
+      ()
+  in
+  result_ref := Some result;
+  let on_failure name promise = Lwt.on_failure promise (fun (_ : exn) -> record name) in
+  on_failure "usage" result.usage;
+  on_failure "finish_reason" result.finish_reason;
+  on_failure "steps" result.steps;
+  on_failure "output" result.output;
+  on_failure "provider_metadata" result.provider_metadata;
+  Lwt.on_success result.outcome (fun (_ : Ai_core.Stream_text_result.outcome) -> record "outcome");
+  let%lwt (_ : Ai_core.Text_stream_part.t list) =
+    read_until
+      (function
+        | Ai_core.Text_stream_part.Text_delta _ -> true
+        | _ -> false)
+      result.full_stream ~acc:[]
+  in
+  (check (list string)) "nothing settled before the abort" [] !events;
+  abort ();
+  let%lwt (_ : Ai_core.Text_stream_part.t list option) = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check (list string))
+    "order"
+    [ "on_abort"; "usage"; "finish_reason"; "steps"; "output"; "provider_metadata"; "outcome" ]
+    (List.rev !events);
+  Lwt.return_unit
+
 let () =
   run "Stream_text"
     [
@@ -2114,5 +2415,18 @@ let () =
           test_case "abort_then_finish" `Quick (run_lwt test_abort_then_finish);
           test_case "error_then_abort" `Quick (run_lwt test_error_then_abort);
           test_case "abort_then_error" `Quick (run_lwt test_abort_then_error);
+        ] );
+      ( "outcome",
+        [
+          test_case "finished" `Quick (run_lwt test_outcome_finished);
+          test_case "aborted_with_steps" `Quick (run_lwt test_outcome_aborted_with_steps);
+          test_case "aborted_before_any_step" `Quick (run_lwt test_outcome_aborted_before_any_step);
+          test_case "failed" `Quick (run_lwt test_outcome_failed);
+          test_case "on_abort_before_promises_settle" `Quick (run_lwt test_on_abort_before_promises_settle);
+        ] );
+      ( "terminal_parts",
+        [
+          test_case "is_terminal" `Quick test_is_terminal;
+          test_case "provider_error_part_not_terminal" `Quick (run_lwt test_provider_error_part_not_terminal);
         ] );
     ]

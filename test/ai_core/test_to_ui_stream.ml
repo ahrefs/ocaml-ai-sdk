@@ -189,6 +189,7 @@ let test_tool_approval_request () =
       warnings = [];
       output = Lwt.return_none;
       provider_metadata = Lwt.return_none;
+      outcome = fst (Lwt.wait ());
     }
   in
   let ui_chunks =
@@ -260,6 +261,7 @@ let test_tool_output_denied () =
       warnings = [];
       output = Lwt.return_none;
       provider_metadata = Lwt.return_none;
+      outcome = fst (Lwt.wait ());
     }
   in
   let ui_chunks =

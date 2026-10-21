@@ -44,7 +44,9 @@
       before the [Abort] part, with the steps recorded so far in order. A
       step is recorded once its model response is complete, so the step
       whose tools were running is there too, with the results of the tools
-      that had returned. An exception it raises is ignored. *)
+      that had returned. It runs before [usage], [finish_reason], [steps],
+      [output] and [provider_metadata] fail and before [outcome] resolves.
+      An exception it raises is ignored. *)
 
 val stream_text :
   model:Ai_provider.Language_model.t ->

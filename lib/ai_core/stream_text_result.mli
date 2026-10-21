@@ -1,5 +1,18 @@
 (** Result of streaming text generation. *)
 
+(** How a [stream_text] call ended. *)
+type outcome =
+  | Finished of Generate_text_result.t
+    (** The call finished. The result is the one [on_finish] gets, built as
+          [generate_text] builds its result. *)
+  | Aborted of {
+      steps : Generate_text_result.step list;
+      reason : exn option;
+    }
+    (** The abort signal fired. [steps] are the steps [on_abort] got, and
+          [reason] is the signal's {!Ai_provider.Abort_signal.reason}. *)
+  | Failed of exn  (** The call failed with this exception, the one the result promises fail with. *)
+
 type t = {
   text_stream : string Lwt_stream.t;  (** Just the text deltas. *)
   full_stream : Text_stream_part.t Lwt_stream.t;  (** All events including tool calls, reasoning, finish. *)
@@ -21,6 +34,9 @@ type t = {
         [None] otherwise. Fails like [usage] when the call fails or is
         aborted. Matches the [providerMetadata] promise on upstream's
         [StreamTextResult]. *)
+  outcome : outcome Lwt.t;
+    (** Resolves once the call has finished, failed or been aborted, after
+          the other promises settle. It never fails. *)
 }
 
 (** Transform the full stream into UIMessage protocol chunks

@@ -1522,6 +1522,47 @@ let test_cancel_with_signal_and_model_ignoring_it () =
       ~max_steps:3 ~abort_signal:signal ());
   (check bool) "signal still pending" true (Lwt.is_sleeping signal)
 
+(* on_abort runs, with the step whose tool fired the signal, before the
+   returned promise fails. *)
+let test_on_abort_before_failure () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_tool_model () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let events = ref [] in
+  let record event = events := event :: !events in
+  let tool =
+    {
+      search_tool with
+      execute =
+        Some
+          (fun (_ : Yojson.Basic.t) _ ->
+            let%lwt () = Lwt.pause () in
+            abort ();
+            Lwt.return (`String "results"));
+    }
+  in
+  let call_ref = ref None in
+  Lwt_main.run
+    (let call =
+       Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+         ~tools:[ "search", tool ]
+         ~max_steps:3 ~abort_signal:signal
+         ~on_abort:(fun ~steps ->
+           let pending = Option.fold ~none:false ~some:Lwt.is_sleeping !call_ref in
+           record (Printf.sprintf "on_abort with %d steps, pending %b" (List.length steps) pending))
+         ()
+     in
+     call_ref := Some call;
+     (check bool) "pending before the abort" true (Lwt.is_sleeping call);
+     Lwt.on_failure call (function
+       | Ai_provider.Abort_signal.Aborted _ -> record "failed with Aborted"
+       | exn -> record (Printexc.to_string exn));
+     Lwt.catch
+       (fun () ->
+         let%lwt (_ : Ai_core.Generate_text_result.t) = call in
+         Lwt.return_unit)
+       (fun (_ : exn) -> Lwt.return_unit));
+  (check (list string)) "order" [ "on_abort with 1 steps, pending true"; "failed with Aborted" ] (List.rev !events)
+
 let () =
   run "Generate_text"
     [
@@ -1562,6 +1603,7 @@ let () =
           test_case "in_tool_batch_keeps_step" `Quick test_abort_in_tool_batch_keeps_step;
           test_case "in_pending_approval_keeps_result" `Quick test_abort_in_pending_approval_keeps_result;
           test_case "on_abort_only_for_signal" `Quick test_on_abort_only_for_signal;
+          test_case "on_abort_before_failure" `Quick test_on_abort_before_failure;
           test_case "reaches_tool" `Quick test_abort_reaches_tool;
           test_case "cancel_stops_tool_and_loop" `Quick test_cancel_stops_tool_and_loop;
           test_case "cancel_with_uncancelable_tool" `Quick test_cancel_with_uncancelable_tool;

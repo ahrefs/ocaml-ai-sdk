@@ -18,9 +18,10 @@
       next step. It fails at once even when the model ignores the signal and
       never returns. An abort that comes after the final model response, or once
       [stop_when] is met, stops nothing, and the call returns its result as
-      upstream's generateText does. Tools get the signal in their
-      {!Core_tool.execute_options}; a running tool that ignores it finishes
-      first. A step whose model response came back is always recorded: when
+      upstream's generateText does. A caller that must not go on after an
+      abort checks [Ai_provider.Abort_signal.is_aborted]. Tools get the
+      signal in their {!Core_tool.execute_options}; a running tool that
+      ignores it finishes first. A step whose model response came back is always recorded: when
       the abort stops its tools, the step keeps the results of the tools
       that ran, and the calls that did not run stay in its [tool_calls]
       with no result. [on_step_finish] is not called for that step.

@@ -188,6 +188,7 @@ module Ending : sig
     steps : Generate_text_result.step list Lwt.t;
     output : Yojson.Basic.t option Lwt.t;
     provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
+    outcome : Stream_text_result.outcome Lwt.t;
   }
 
   val create :
@@ -224,23 +225,19 @@ module Ending : sig
   val with_abort_hook : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
 
   (** Emits the [Finish] part, then, if the call is still running, closes the
-      streams and resolves the promises. True when this ended the call. An
-      exception from [on_chunk] on the [Finish] part passes through before
-      anything closes. *)
-  val finish :
-    t ->
-    finish_reason:Ai_provider.Finish_reason.t ->
-    usage:Ai_provider.Usage.t ->
-    steps:Generate_text_result.step list ->
-    output:Yojson.Basic.t option ->
-    bool
+      streams, resolves the promises from the result and resolves [outcome]
+      to [Finished]. True when this ended the call. An exception from
+      [on_chunk] on the [Finish] part passes through before anything
+      closes. *)
+  val finish : t -> Generate_text_result.t -> bool
 
-  (** Ends a running call with an [Error] part, and fails the promises with
-      the exception. *)
+  (** Ends a running call with an [Error] part, fails the promises with the
+      exception and resolves [outcome] to [Failed]. *)
   val fail : t -> exn -> unit
 
   (** Ends a running call with [Start] if it is missing, [on_abort], and an
-      [Abort] part, and fails the promises with [Aborted]. *)
+      [Abort] part, fails the promises with [Aborted] and resolves [outcome]
+      to [Aborted]. [on_abort] runs before any promise settles. *)
   val abort : t -> unit
 end = struct
   type state =
@@ -264,6 +261,7 @@ end = struct
     steps_resolver : Generate_text_result.step list Lwt.u;
     output_resolver : Yojson.Basic.t option Lwt.u;
     provider_metadata_resolver : Ai_provider.Provider_options.t option Lwt.u;
+    outcome_resolver : Stream_text_result.outcome Lwt.u;
   }
 
   type outputs = {
@@ -274,6 +272,7 @@ end = struct
     steps : Generate_text_result.step list Lwt.t;
     output : Yojson.Basic.t option Lwt.t;
     provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
+    outcome : Stream_text_result.outcome Lwt.t;
   }
 
   let create ~abort_signal ~on_chunk ~on_abort =
@@ -284,6 +283,7 @@ end = struct
     let steps, steps_resolver = Lwt.wait () in
     let output, output_resolver = Lwt.wait () in
     let provider_metadata, provider_metadata_resolver = Lwt.wait () in
+    let outcome, outcome_resolver = Lwt.wait () in
     ( {
         state = Running;
         started = false;
@@ -299,8 +299,9 @@ end = struct
         steps_resolver;
         output_resolver;
         provider_metadata_resolver;
+        outcome_resolver;
       },
-      { full_stream; partial_output_stream; usage; finish_reason; steps; output; provider_metadata } )
+      { full_stream; partial_output_stream; usage; finish_reason; steps; output; provider_metadata; outcome } )
 
   let is_running t =
     match t.state with
@@ -340,15 +341,17 @@ end = struct
     t.full_push None;
     t.partial_output_push None
 
-  let reject t exn =
+  (* [outcome] settles last, after the other promises. *)
+  let reject t exn ~outcome =
     Lwt.wakeup_later_exn t.usage_resolver exn;
     Lwt.wakeup_later_exn t.finish_reason_resolver exn;
     Lwt.wakeup_later_exn t.steps_resolver exn;
     Lwt.wakeup_later_exn t.output_resolver exn;
-    Lwt.wakeup_later_exn t.provider_metadata_resolver exn
+    Lwt.wakeup_later_exn t.provider_metadata_resolver exn;
+    Lwt.wakeup_later t.outcome_resolver outcome
 
-  let finish t ~finish_reason ~usage ~steps ~output =
-    emit t (Text_stream_part.Finish { finish_reason; usage });
+  let finish t (result : Generate_text_result.t) =
+    emit t (Text_stream_part.Finish { finish_reason = result.finish_reason; usage = result.usage });
     match t.state with
     | Finished | Failed | Aborted -> false
     | Running ->
@@ -358,15 +361,16 @@ end = struct
          matching upstream's [streamText] which exposes [providerMetadata]
          from the final step on its result object. *)
       let provider_metadata =
-        match List.rev steps with
+        match List.rev result.steps with
         | last :: _ -> last.Generate_text_result.provider_metadata
         | [] -> None
       in
-      Lwt.wakeup_later t.usage_resolver usage;
-      Lwt.wakeup_later t.finish_reason_resolver finish_reason;
-      Lwt.wakeup_later t.steps_resolver steps;
-      Lwt.wakeup_later t.output_resolver output;
+      Lwt.wakeup_later t.usage_resolver result.usage;
+      Lwt.wakeup_later t.finish_reason_resolver result.finish_reason;
+      Lwt.wakeup_later t.steps_resolver result.steps;
+      Lwt.wakeup_later t.output_resolver result.output;
       Lwt.wakeup_later t.provider_metadata_resolver provider_metadata;
+      Lwt.wakeup_later t.outcome_resolver (Stream_text_result.Finished result);
       true
 
   let fail t exn =
@@ -376,7 +380,7 @@ end = struct
       t.state <- Failed;
       push_ignoring_errors t (Text_stream_part.Error { error = Printexc.to_string exn });
       close t;
-      reject t exn
+      reject t exn ~outcome:(Stream_text_result.Failed exn)
 
   let abort t =
     match t.state with
@@ -384,13 +388,14 @@ end = struct
     | Running ->
       t.state <- Aborted;
       let reason = Option.bind t.abort_signal Ai_provider.Abort_signal.reason in
+      let steps = steps_so_far t in
       start t ~push:(push_ignoring_errors t);
       (* Upstream also ignores an exception from onAbort. *)
-      (try Option.iter (fun f -> f ~steps:(steps_so_far t)) t.on_abort with (_ : exn) -> ());
+      (try Option.iter (fun f -> f ~steps) t.on_abort with (_ : exn) -> ());
       (* As upstream's onChunk, [on_chunk] never sees the [Abort] part. *)
       t.full_push (Some (Text_stream_part.Abort { reason = Option.map Printexc.to_string reason }));
       close t;
-      reject t (Ai_provider.Abort_signal.Aborted { reason })
+      reject t (Ai_provider.Abort_signal.Aborted { reason }) ~outcome:(Stream_text_result.Aborted { steps; reason })
 
   let with_abort_hook t job =
     match t.abort_signal with
@@ -582,18 +587,15 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
        streams close and the promises settle, so an exception from it is
        dropped. *)
     let finish_stream ~finish_reason ~usage ~all_steps =
-      let parsed_output = Output.parse_output output all_steps in
-      match Ending.finish ending ~finish_reason ~usage ~steps:all_steps ~output:parsed_output with
+      let result = Final_result.make ~finish_reason ~usage ~output:(Output.parse_output output all_steps) all_steps in
+      match Ending.finish ending result with
       | false -> Lwt.return_unit
       | true ->
         (* Telemetry: final attributes on root span *)
         (match telemetry with
         | Some t when Telemetry.enabled t ->
           Trace_core.add_data_to_span root_span
-            (Telemetry.final_response_attrs
-               ~text:(Generate_text_result.join_text all_steps)
-               ~reasoning:(Generate_text_result.join_reasoning all_steps)
-               ~finish_reason ~usage t)
+            (Telemetry.final_response_attrs ~text:result.text ~reasoning:result.reasoning ~finish_reason ~usage t)
         | _ -> ());
         let%lwt () =
           Telemetry.maybe_notify telemetry (fun t ->
@@ -606,22 +608,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
                 metadata = tp.metadata_;
               })
         in
-        Option.iter
-          (fun f ->
-            f
-              {
-                Generate_text_result.text = Generate_text_result.join_text all_steps;
-                reasoning = Generate_text_result.join_reasoning all_steps;
-                tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps;
-                tool_results = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_results) all_steps;
-                steps = all_steps;
-                finish_reason;
-                usage;
-                response = { id = None; model = None; headers = []; body = `Null };
-                warnings = [];
-                output = parsed_output;
-              })
-          on_finish;
+        Option.iter (fun f -> f result) on_finish;
         Lwt.return_unit
     in
     let%lwt () =
@@ -908,4 +895,5 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
     warnings = [];
     output = outputs.output;
     provider_metadata = outputs.provider_metadata;
+    outcome = outputs.outcome;
   }
