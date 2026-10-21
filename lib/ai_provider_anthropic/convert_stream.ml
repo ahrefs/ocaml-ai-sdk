@@ -73,7 +73,7 @@ let transform events ~warnings =
      omits the cache fields, mirroring upstream @ai-sdk/anthropic. *)
   let start_usage : Convert_usage.anthropic_usage option ref = ref None in
   let stream, push = Lwt_stream.create () in
-  Ai_provider.Stream_part.pump ~provider:"anthropic" ~push
+  Ai_provider.Stream_pump.pump ~provider:"anthropic" ~push
     (fun (evt : Sse.event) ->
       let json = Yojson.Basic.from_string evt.data in
       match evt.event_type with

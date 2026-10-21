@@ -19,6 +19,10 @@ type error_kind =
       elapsed_s : float;
       limit_s : float;
     }
+  | Unexpected_error of { message : string }
+    (** An exception that fits none of the kinds above, such as a bug in a
+          provider's stream converter. [message] is the exception as
+          [Printexc.to_string] prints it. *)
 
 type t = {
   provider : string;

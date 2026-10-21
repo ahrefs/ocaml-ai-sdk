@@ -59,7 +59,7 @@ let transform events ~warnings =
       tool_calls;
     Hashtbl.clear tool_calls
   in
-  Ai_provider.Stream_part.pump ~provider:"openai" ~push
+  Ai_provider.Stream_pump.pump ~provider:"openai" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->

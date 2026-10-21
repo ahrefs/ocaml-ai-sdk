@@ -36,13 +36,3 @@ type t =
               [finish] LanguageModelV4StreamPart. *)
     }
   | Error of { error : Provider_error.t }
-
-(** [pump ~provider ~push f events] runs [f] on each event in the background,
-    then closes the output with [push None], whatever happens.
-
-    When [f] fails to decode an event's JSON, a non-retryable
-    [Deserialization_error] carrying the event's data is pushed and the next
-    event is processed. Any other exception, raised by [events] or by [f], is
-    pushed as an [Error] part and ends the stream: a [Provider_error] as is,
-    anything else as a [Deserialization_error]. *)
-val pump : provider:string -> push:(t option -> unit) -> (Sse.event -> unit) -> Sse.event Lwt_stream.t -> unit

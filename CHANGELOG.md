@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
   below for the cohttp version of a chat route.
 - `Ai_provider.Http_client` has a new API built on libcurl. See Provider HTTP
   client below.
+- `Provider_error.error_kind` has a new `Unexpected_error` constructor, so
+  exhaustive matches on it need a new case.
 - `Openrouter_api.provider_error_of_http_response` takes an
   `Http_client.response`.
 - Transport failures fail with `Provider_error` `Network_error` instead of
@@ -83,11 +85,14 @@ All notable changes to this project will be documented in this file.
   `body_lines` and `Sse.parse_events` read on demand, and a failed read fails
   with the error. The idle timer runs only while a read is waiting, so a
   `body_lines` stream that nobody reads is no longer timed out.
-- New `Stream_part.pump` runs a provider's per-event converter in the
+- New `Stream_pump.pump` runs a provider's per-event converter in the
   background and always closes the output. An event whose JSON fails to decode
-  becomes a `Deserialization_error` part and the stream continues. Any other
-  exception, from the event stream or the converter, becomes an `Error` part
-  and ends the stream. The Anthropic, OpenAI and OpenRouter converters use it.
+  (any Yojson or melange-json decode exception) becomes a
+  `Deserialization_error` part with the event's data, and the stream
+  continues. Any other exception, from the event stream or the converter,
+  becomes an `Error` part and ends the stream: a `Provider_error` as it is,
+  anything else as the new `Unexpected_error` kind. The Anthropic, OpenAI and
+  OpenRouter converters use it.
 - `Language_model.generate` and `stream` return a failed promise when the
   model's function raises before returning one, instead of raising.
 

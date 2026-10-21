@@ -192,7 +192,7 @@ let transform events ~warnings =
       finished := true
     end
   in
-  Ai_provider.Stream_part.pump ~provider:"openrouter" ~push
+  Ai_provider.Stream_pump.pump ~provider:"openrouter" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->

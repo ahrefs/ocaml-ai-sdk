@@ -10,8 +10,8 @@
   test_http_timeouts
   test_http_client
   test_sse
-  test_stream_part)
+  test_stream_pump)
  (package ocaml-ai-sdk)
- (libraries ai_provider alcotest lwt lwt.unix yojson)
+ (libraries ai_provider alcotest lwt lwt.unix yojson melange-json-native)
  (preprocess
   (pps lwt_ppx)))
