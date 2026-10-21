@@ -1,0 +1,6 @@
+(tests
+ (names test_mock)
+ (package ocaml-ai-sdk)
+ (libraries ai_provider ai_mock alcotest lwt lwt.unix)
+ (preprocess
+  (pps lwt_ppx)))

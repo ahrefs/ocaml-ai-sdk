@@ -1,0 +1,4 @@
+(library
+ (name ai_mock)
+ (public_name ocaml-ai-sdk.ai_mock)
+ (libraries ai_provider lwt))
