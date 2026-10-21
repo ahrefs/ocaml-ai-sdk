@@ -16,7 +16,8 @@
   test_output
   test_ui_message_stream_writer
   test_smooth_stream
-  test_telemetry)
+  test_telemetry
+  test_abort_race)
  (package ocaml-ai-sdk)
  (libraries
   ai_provider

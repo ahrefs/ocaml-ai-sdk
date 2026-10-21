@@ -253,15 +253,15 @@ let await_head ~(timeouts : Http_timeouts.t) ~provider ~transfer head_ready =
       in
       Lwt.fail (Provider_error.Provider_error err))
 
+(* The guard's second check matters: the head can wait out a pause in
+   await_head while the abort fires. *)
 let post ?abort_signal ~timeouts ~provider ~headers ~body url =
-  let%lwt () = Abort_signal.fail_if_aborted abort_signal in
-  let%lwt head_ready, transfer, chunks, error_detail =
-    Lwt.wrap (fun () -> start ?abort_signal ~timeouts ~provider ~url ~headers ~body ())
-  in
-  let%lwt head = await_head ~timeouts ~provider ~transfer head_ready in
-  (* The head can wait out a pause in await_head while the abort fires. *)
-  let%lwt () = Abort_signal.fail_if_aborted abort_signal in
-  Lwt.return { head; transfer; chunks; error_detail; timeouts; provider; abort_signal }
+  Abort_signal.guard abort_signal (fun () ->
+    let%lwt head_ready, transfer, chunks, error_detail =
+      Lwt.wrap (fun () -> start ?abort_signal ~timeouts ~provider ~url ~headers ~body ())
+    in
+    let%lwt head = await_head ~timeouts ~provider ~transfer head_ready in
+    Lwt.return { head; transfer; chunks; error_detail; timeouts; provider; abort_signal })
 
 module For_testing = struct
   let response_of_chunks ?abort_signal ~timeouts ~provider ~status ~headers chunks =
@@ -298,26 +298,24 @@ let next_chunk r =
 (* An abort cancels the transfer, which ends the chunk stream early, so the
    end of the body is checked against the signal before the transfer result. *)
 let transfer_result r =
-  let%lwt () = Abort_signal.fail_if_aborted r.abort_signal in
-  let%lwt code = r.transfer in
-  if succeeded code then Lwt.return_unit
-  else Lwt.fail (network_error ~provider:r.provider ~detail:!(r.error_detail) code)
+  Abort_signal.guard r.abort_signal (fun () ->
+    let%lwt code = r.transfer in
+    if succeeded code then Lwt.return_unit
+    else Lwt.fail (network_error ~provider:r.provider ~detail:!(r.error_detail) code))
 
+(* As in [post], the abort can fire while a chunk waits out the pause. *)
 let read_chunk r =
-  let%lwt () = Abort_signal.fail_if_aborted r.abort_signal in
-  cancel_on_failure r.transfer (fun () ->
-    match%lwt next_chunk r with
-    | `Chunk (Some chunk) ->
-      (* As in [post], the abort can fire while the chunk waits out the pause. *)
-      let%lwt () = Abort_signal.fail_if_aborted r.abort_signal in
-      Lwt.return_some chunk
-    | `Chunk None ->
-      let%lwt () = transfer_result r in
-      Lwt.return_none
-    | `Idle ->
-      let limit_s = r.timeouts.stream_idle_timeout in
-      let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
-      Lwt.fail (Provider_error.Provider_error err))
+  Abort_signal.guard r.abort_signal (fun () ->
+    cancel_on_failure r.transfer (fun () ->
+      match%lwt next_chunk r with
+      | `Chunk (Some chunk) -> Lwt.return_some chunk
+      | `Chunk None ->
+        let%lwt () = transfer_result r in
+        Lwt.return_none
+      | `Idle ->
+        let limit_s = r.timeouts.stream_idle_timeout in
+        let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
+        Lwt.fail (Provider_error.Provider_error err)))
 
 (* With lwt_ppx, [match%lwt], and [try%lwt] without a catch-all handler, raise at
    once on a promise that has already failed instead of returning it. [body_string] and
@@ -377,7 +375,7 @@ let body_lines r =
   let reading = ref true in
   (* Lines left over from a chunk read before the abort are dropped too. *)
   let rec next_line () =
-    let%lwt () = Abort_signal.fail_if_aborted r.abort_signal in
+    Abort_signal.guard r.abort_signal @@ fun () ->
     match Queue.take_opt ready, !reading with
     | Some line, (true | false) -> Lwt.return_some line
     | None, false -> Lwt.return_none

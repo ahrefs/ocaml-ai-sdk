@@ -81,6 +81,18 @@ let wait signal =
       | true -> Lwt.fail exn
       | false -> Lwt.return_unit)
 
+let aborted signal = Aborted { reason = reason signal }
+
 let fail_if_aborted = function
-  | Some signal when is_aborted signal -> Lwt.fail (Aborted { reason = reason signal })
+  | Some signal when is_aborted signal -> Lwt.fail (aborted signal)
   | Some _ | None -> Lwt.return_unit
+
+let guard signal f =
+  match signal with
+  | None -> Lwt.apply f ()
+  | Some signal when is_aborted signal -> Lwt.fail (aborted signal)
+  | Some signal ->
+    let%lwt value = Lwt.apply f () in
+    (match is_aborted signal with
+    | true -> Lwt.fail (aborted signal)
+    | false -> Lwt.return value)

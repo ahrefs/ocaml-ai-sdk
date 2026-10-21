@@ -236,6 +236,62 @@ let test_fail_if_aborted () =
     [ "ok"; "ok"; "aborted"; "aborted: Stdlib.Exit" ]
     [ outcome None; outcome (Some pending); outcome (Some Lwt.return_unit); outcome (Some (Lwt.fail Exit)) ]
 
+let outcome_name promise =
+  match Lwt.state promise with
+  | Lwt.Return value -> "ok: " ^ value
+  | Lwt.Fail (Abort_signal.Aborted { reason = None }) -> "aborted"
+  | Lwt.Fail (Abort_signal.Aborted { reason = Some reason }) -> "aborted: " ^ Printexc.to_string reason
+  | Lwt.Fail exn -> Printexc.to_string exn
+  | Lwt.Sleep -> "pending"
+
+let test_guard_already_settled () =
+  let signal, abort = Abort_signal.create () in
+  abort ~reason:Exit ();
+  let ran = ref false in
+  let guarded =
+    Abort_signal.guard (Some signal) (fun () ->
+      ran := true;
+      Lwt.return "value")
+  in
+  (check string) "fails with the reason" "aborted: Stdlib.Exit" (outcome_name guarded);
+  (check bool) "thunk not run" false !ran
+
+let test_guard_settles_during_thunk () =
+  let signal, abort = Abort_signal.create () in
+  let work, finish_work = Lwt.wait () in
+  let guarded = Abort_signal.guard (Some signal) (fun () -> work) in
+  abort ~reason:Exit ();
+  (check string) "waits for the thunk" "pending" (outcome_name guarded);
+  Lwt.wakeup_later finish_work "value";
+  (check string) "value dropped" "aborted: Stdlib.Exit" (outcome_name guarded);
+  let signal, abort = Abort_signal.create () in
+  let work, fail_work = Lwt.wait () in
+  let guarded = Abort_signal.guard (Some signal) (fun () -> work) in
+  abort ();
+  Lwt.wakeup_later_exn fail_work Not_found;
+  (check string) "failure passes through" "Not_found" (outcome_name guarded)
+
+let test_guard_never_settles () =
+  let pending, (_ : unit Lwt.u) = Lwt.wait () in
+  let work, finish_work = Lwt.wait () in
+  let guarded = Abort_signal.guard (Some pending) (fun () -> work) in
+  Lwt.wakeup_later finish_work "value";
+  (check (list string))
+    "outcomes"
+    [ "ok: value"; "Not_found"; "ok: value" ]
+    [
+      outcome_name guarded;
+      outcome_name (Abort_signal.guard (Some pending) (fun () -> Lwt.fail Not_found));
+      outcome_name (Abort_signal.guard None (fun () -> Lwt.return "value"));
+    ]
+
+let test_guard_sync_raise () =
+  let pending, (_ : unit Lwt.u) = Lwt.wait () in
+  let raising () = raise Not_found in
+  (check (list string))
+    "failed promises" [ "Not_found"; "Not_found" ]
+    [ outcome_name (Abort_signal.guard (Some pending) raising); outcome_name (Abort_signal.guard None raising) ]
+
 let test_printer () =
   (check (list string))
     "printed"
@@ -271,6 +327,10 @@ let () =
           test_case "wait resolves on failure" `Quick test_wait_resolves_on_failure;
           test_case "cancelling wait spares the signal" `Quick test_cancelling_wait_spares_signal;
           test_case "fail_if_aborted" `Quick test_fail_if_aborted;
+          test_case "guard when already settled" `Quick test_guard_already_settled;
+          test_case "guard settles during the thunk" `Quick test_guard_settles_during_thunk;
+          test_case "guard never settles" `Quick test_guard_never_settles;
+          test_case "guard with a raising thunk" `Quick test_guard_sync_raise;
           test_case "printer" `Quick test_printer;
         ] );
     ]

@@ -70,3 +70,10 @@ val wait : t -> unit Lwt.t
 
 (** Fails with [Aborted] when the signal is present and has settled. *)
 val fail_if_aborted : t option -> unit Lwt.t
+
+(** [guard signal f] runs [f ()], failing with [Aborted] instead when [signal]
+    has already settled. When [f]'s promise resolves after [signal] settled,
+    it fails with [Aborted] too and drops the value. A failure of [f], raised
+    or returned, passes through unchanged. With no signal it is
+    [Lwt.apply f ()]. *)
+val guard : t option -> (unit -> 'a Lwt.t) -> 'a Lwt.t

@@ -24,17 +24,11 @@ let next_approval_id gen =
    pending [Lwt_stream.get] loses no part: a part pushed later stays in the
    stream. *)
 let next_part_until_abort signal provider_stream =
-  let%lwt part =
-    Lwt.pick
-      [
-        Lwt_stream.get provider_stream;
-        (let%lwt () = Ai_provider.Abort_signal.wait signal in
-         Lwt.return_none);
-      ]
-  in
-  match part with
-  | Some (_ : Ai_provider.Stream_part.t) when Ai_provider.Abort_signal.is_aborted signal -> Lwt.return_none
-  | Some _ | None -> Lwt.return part
+  Lwt.catch
+    (fun () -> Abort_race.race (Some signal) (fun () -> Lwt_stream.get provider_stream))
+    (function
+      | Ai_provider.Abort_signal.Aborted _ when Ai_provider.Abort_signal.is_aborted signal -> Lwt.return_none
+      | exn -> Lwt.fail exn)
 
 (** Consume a provider stream for one step, emitting [Text_stream_part.t] events.
     Returns the accumulated text, reasoning blocks, tool calls, finish reason, and usage.
@@ -179,6 +173,217 @@ let consume_provider_stream ?abort_signal ?(on_text_accumulated = fun (_ : strin
       !usage,
       !provider_metadata )
 
+(* How a [stream_text] call ends. Finish, error and abort each end it. The
+   first one to happen closes the streams and settles the promises. The others
+   then do nothing, and every later emit is dropped, so nothing pushes to a
+   closed stream. *)
+module Ending : sig
+  type t
+
+  type outputs = {
+    full_stream : Text_stream_part.t Lwt_stream.t;
+    partial_output_stream : Yojson.Basic.t Lwt_stream.t;
+    usage : Ai_provider.Usage.t Lwt.t;
+    finish_reason : Ai_provider.Finish_reason.t Lwt.t;
+    steps : Generate_text_result.step list Lwt.t;
+    output : Yojson.Basic.t option Lwt.t;
+    provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
+  }
+
+  val create :
+    abort_signal:Ai_provider.Abort_signal.t option ->
+    on_chunk:(Text_stream_part.t -> unit) option ->
+    on_abort:(steps:Generate_text_result.step list -> unit) option ->
+    t * outputs
+
+  (** True until the call has finished, failed or been aborted. *)
+  val is_running : t -> bool
+
+  (** Pushes the part and passes it to [on_chunk] while the call runs, and
+      drops it afterwards. An exception from [on_chunk] passes through. *)
+  val emit : t -> Text_stream_part.t -> unit
+
+  (** Emits [Start] unless that was done already. *)
+  val emit_start : t -> unit
+
+  (** Pushes to the partial output stream. Only call it while running. *)
+  val push_partial_output : t -> Yojson.Basic.t -> unit
+
+  (** Records a finished step for [on_abort]. *)
+  val add_step : t -> Generate_text_result.step -> unit
+
+  (** Runs the job with {!abort} attached to the signal. It runs right away
+      when the signal has already fired, so the stream holds only [Start] and
+      [Abort]. The hook leaves the signal when the job ends, so a long-lived
+      signal does not keep this call's closures alive. *)
+  val with_abort_hook : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
+
+  (** Emits the [Finish] part, then, if the call is still running, closes the
+      streams and resolves the promises. True when this ended the call. An
+      exception from [on_chunk] on the [Finish] part passes through before
+      anything closes. *)
+  val finish :
+    t ->
+    finish_reason:Ai_provider.Finish_reason.t ->
+    usage:Ai_provider.Usage.t ->
+    steps:Generate_text_result.step list ->
+    output:Yojson.Basic.t option ->
+    bool
+
+  (** Ends a running call with an [Error] part, and fails the promises with
+      the exception. *)
+  val fail : t -> exn -> unit
+
+  (** Ends a running call with [Start] if it is missing, [on_abort], and an
+      [Abort] part, and fails the promises with [Aborted]. *)
+  val abort : t -> unit
+end = struct
+  type state =
+    | Running
+    | Finished
+    | Failed
+    | Aborted
+
+  type t = {
+    mutable state : state;
+    mutable started : bool;
+    mutable completed_steps : Generate_text_result.step list;  (** Newest first. *)
+    abort_signal : Ai_provider.Abort_signal.t option;
+    on_chunk : (Text_stream_part.t -> unit) option;
+    on_abort : (steps:Generate_text_result.step list -> unit) option;
+    full_push : Text_stream_part.t option -> unit;
+    partial_output_push : Yojson.Basic.t option -> unit;
+    usage_resolver : Ai_provider.Usage.t Lwt.u;
+    finish_reason_resolver : Ai_provider.Finish_reason.t Lwt.u;
+    steps_resolver : Generate_text_result.step list Lwt.u;
+    output_resolver : Yojson.Basic.t option Lwt.u;
+    provider_metadata_resolver : Ai_provider.Provider_options.t option Lwt.u;
+  }
+
+  type outputs = {
+    full_stream : Text_stream_part.t Lwt_stream.t;
+    partial_output_stream : Yojson.Basic.t Lwt_stream.t;
+    usage : Ai_provider.Usage.t Lwt.t;
+    finish_reason : Ai_provider.Finish_reason.t Lwt.t;
+    steps : Generate_text_result.step list Lwt.t;
+    output : Yojson.Basic.t option Lwt.t;
+    provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
+  }
+
+  let create ~abort_signal ~on_chunk ~on_abort =
+    let full_stream, full_push = Lwt_stream.create () in
+    let partial_output_stream, partial_output_push = Lwt_stream.create () in
+    let usage, usage_resolver = Lwt.wait () in
+    let finish_reason, finish_reason_resolver = Lwt.wait () in
+    let steps, steps_resolver = Lwt.wait () in
+    let output, output_resolver = Lwt.wait () in
+    let provider_metadata, provider_metadata_resolver = Lwt.wait () in
+    ( {
+        state = Running;
+        started = false;
+        completed_steps = [];
+        abort_signal;
+        on_chunk;
+        on_abort;
+        full_push;
+        partial_output_push;
+        usage_resolver;
+        finish_reason_resolver;
+        steps_resolver;
+        output_resolver;
+        provider_metadata_resolver;
+      },
+      { full_stream; partial_output_stream; usage; finish_reason; steps; output; provider_metadata } )
+
+  let is_running t =
+    match t.state with
+    | Running -> true
+    | Finished | Failed | Aborted -> false
+
+  let push t part =
+    t.full_push (Some part);
+    Option.iter (fun f -> f part) t.on_chunk
+
+  (* For the parts that end the call: the streams must close even if
+     [on_chunk] raises. *)
+  let push_ignoring_errors t part = try push t part with (_ : exn) -> ()
+
+  let emit t part = if is_running t then push t part
+
+  (* [Start] goes first even when the abort comes before the job emits it. *)
+  let start t ~push =
+    match t.started with
+    | true -> ()
+    | false ->
+      t.started <- true;
+      push Text_stream_part.Start
+
+  let emit_start t = start t ~push:(emit t)
+  let push_partial_output t json = t.partial_output_push (Some json)
+  let add_step t step = t.completed_steps <- step :: t.completed_steps
+
+  let close t =
+    t.full_push None;
+    t.partial_output_push None
+
+  let reject t exn =
+    Lwt.wakeup_later_exn t.usage_resolver exn;
+    Lwt.wakeup_later_exn t.finish_reason_resolver exn;
+    Lwt.wakeup_later_exn t.steps_resolver exn;
+    Lwt.wakeup_later t.output_resolver None;
+    Lwt.wakeup_later t.provider_metadata_resolver None
+
+  let finish t ~finish_reason ~usage ~steps ~output =
+    emit t (Text_stream_part.Finish { finish_reason; usage });
+    match t.state with
+    | Finished | Failed | Aborted -> false
+    | Running ->
+      t.state <- Finished;
+      close t;
+      (* Surface the last step's provider metadata as the call-level value,
+         matching upstream's [streamText] which exposes [providerMetadata]
+         from the final step on its result object. *)
+      let provider_metadata =
+        match List.rev steps with
+        | last :: _ -> last.Generate_text_result.provider_metadata
+        | [] -> None
+      in
+      Lwt.wakeup_later t.usage_resolver usage;
+      Lwt.wakeup_later t.finish_reason_resolver finish_reason;
+      Lwt.wakeup_later t.steps_resolver steps;
+      Lwt.wakeup_later t.output_resolver output;
+      Lwt.wakeup_later t.provider_metadata_resolver provider_metadata;
+      true
+
+  let fail t exn =
+    match t.state with
+    | Finished | Failed | Aborted -> ()
+    | Running ->
+      t.state <- Failed;
+      push_ignoring_errors t (Text_stream_part.Error { error = Printexc.to_string exn });
+      close t;
+      reject t exn
+
+  let abort t =
+    match t.state with
+    | Finished | Failed | Aborted -> ()
+    | Running ->
+      t.state <- Aborted;
+      let reason = Option.bind t.abort_signal Ai_provider.Abort_signal.reason in
+      start t ~push:(push_ignoring_errors t);
+      (* Upstream also ignores an exception from onAbort. *)
+      (try Option.iter (fun f -> f ~steps:(List.rev t.completed_steps)) t.on_abort with (_ : exn) -> ());
+      (* As upstream's onChunk, [on_chunk] never sees the [Abort] part. *)
+      t.full_push (Some (Text_stream_part.Abort { reason = Option.map Printexc.to_string reason }));
+      close t;
+      reject t (Ai_provider.Abort_signal.Aborted { reason })
+
+  let with_abort_hook t job =
+    match t.abort_signal with
+    | None -> job ()
+    | Some signal -> Ai_provider.Abort_signal.with_on_abort signal (fun () -> abort t) job
+end
+
 let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option)
   ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k
@@ -194,74 +399,9 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
     Telemetry.precompute ~operation_id:"ai.streamText" ~model ?max_output_tokens ?temperature ?top_p ?top_k
       ?stop_sequences ?seed ?max_retries ?headers telemetry
   in
-  (* Create output streams *)
-  let full_stream, full_push = Lwt_stream.create () in
-  let partial_output_stream, partial_output_push = Lwt_stream.create () in
-  (* Promises for final values *)
-  let usage_promise, usage_resolver = Lwt.wait () in
-  let finish_promise, finish_resolver = Lwt.wait () in
-  let steps_promise, steps_resolver = Lwt.wait () in
-  let output_promise, output_resolver = Lwt.wait () in
-  let provider_metadata_promise, provider_metadata_resolver = Lwt.wait () in
-  (* Finish, error and abort each end the call. The first one to call [settle]
-     closes the streams and settles the promises. The others then do nothing,
-     and every later emit is dropped, so nothing pushes to a closed stream. *)
-  let settled = ref false in
-  let settle () =
-    match !settled with
-    | true -> false
-    | false ->
-      settled := true;
-      true
-  in
+  let ending, outputs = Ending.create ~abort_signal ~on_chunk ~on_abort in
   let is_aborted () = Option.fold ~none:false ~some:Ai_provider.Abort_signal.is_aborted abort_signal in
-  let check_abort () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
-  let push_part part =
-    full_push (Some part);
-    Option.iter (fun f -> f part) on_chunk
-  in
-  (* For the parts that end the call: the streams must close even if [on_chunk]
-     raises. *)
-  let push_part_ignoring_errors part = try push_part part with (_ : exn) -> () in
-  (* [Start] goes first even when the abort comes before the job emits it. *)
-  let started = ref false in
-  let emit_start ~push =
-    match !started with
-    | true -> ()
-    | false ->
-      started := true;
-      push Text_stream_part.Start
-  in
-  (* Finished steps, newest first, for [on_abort]. *)
-  let completed_steps = ref [] in
-  let abort () =
-    match settle () with
-    | false -> ()
-    | true ->
-      let reason = Option.bind abort_signal Ai_provider.Abort_signal.reason in
-      let aborted = Ai_provider.Abort_signal.Aborted { reason } in
-      (* Upstream also ignores an exception from onAbort. *)
-      emit_start ~push:push_part_ignoring_errors;
-      (try Option.iter (fun f -> f ~steps:(List.rev !completed_steps)) on_abort with (_ : exn) -> ());
-      (* As upstream's onChunk, [on_chunk] never sees the [Abort] part. *)
-      full_push (Some (Text_stream_part.Abort { reason = Option.map Printexc.to_string reason }));
-      full_push None;
-      partial_output_push None;
-      Lwt.wakeup_later_exn usage_resolver aborted;
-      Lwt.wakeup_later_exn finish_resolver aborted;
-      Lwt.wakeup_later_exn steps_resolver aborted;
-      Lwt.wakeup_later output_resolver None;
-      Lwt.wakeup_later provider_metadata_resolver None
-  in
-  (* Runs [abort] right away when the signal has already fired, so the stream
-     holds only [Start] and [Abort] and the job below stops before calling the
-     model. The hook leaves the signal when the job ends, so a long-lived signal
-     does not keep this call's closures alive. *)
-  let with_abort_hook job =
-    match abort_signal with
-    | None -> job ()
-    | Some signal -> Ai_provider.Abort_signal.with_on_abort signal abort job
-  in
+  let guard f = Ai_provider.Abort_signal.guard abort_signal f in
   (* Partial output deduplication *)
   let last_partial_json = ref "" in
   let on_text_accumulated =
@@ -272,11 +412,11 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         | Some json ->
           let json_str = Yojson.Basic.to_string json in
           (* Once settled, partial_output_stream is closed. *)
-          (match String.equal json_str !last_partial_json || !settled with
+          (match String.equal json_str !last_partial_json || not (Ending.is_running ending) with
           | true -> ()
           | false ->
             last_partial_json := json_str;
-            partial_output_push (Some json))
+            Ending.push_partial_output ending json)
         | None -> ())
     | _ -> fun (_ : string) -> ()
   in
@@ -310,19 +450,22 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
 
   let id_gen = make_id_gen () in
   Lwt.async (fun () ->
-    with_abort_hook @@ fun () ->
+    Ending.with_abort_hook ending @@ fun () ->
     Telemetry.maybe_span telemetry "ai.streamText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
-    let emit_event part = if not !settled then push_part part in
+    let emit_event part = Ending.emit ending part in
     (* Records a finished step for [on_abort], emits its [Finish_step] and runs
        [on_step_finish], in upstream's order. Fails with [Aborted] instead of
        going on once the signal has fired. *)
     let finish_step (step : Generate_text_result.step) =
-      let%lwt () = check_abort () in
-      completed_steps := step :: !completed_steps;
-      emit_event (Text_stream_part.Finish_step { finish_reason = step.finish_reason; usage = step.usage });
-      let%lwt () = check_abort () in
-      Option.iter (fun f -> f step) on_step_finish;
-      check_abort ()
+      let%lwt () =
+        guard (fun () ->
+          Ending.add_step ending step;
+          emit_event (Text_stream_part.Finish_step { finish_reason = step.finish_reason; usage = step.usage });
+          Lwt.return_unit)
+      in
+      guard (fun () ->
+        Option.iter (fun f -> f step) on_step_finish;
+        Lwt.return_unit)
     in
     let execute_and_emit (tc : Generate_text_result.tool_call) =
       let%lwt tr =
@@ -401,30 +544,15 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       Lwt.return tr
     in
     (* Everything that can raise, [on_chunk] on the [Finish] part included,
-       runs before [settle], so an exception still reaches the error handler
-       below with the streams open. [on_finish] runs after the streams close
-       and the promises settle, so an exception from it is dropped. *)
+       runs before [Ending.finish] settles, so an exception still reaches the
+       error handler below with the streams open. [on_finish] runs after the
+       streams close and the promises settle, so an exception from it is
+       dropped. *)
     let finish_stream ~finish_reason ~usage ~all_steps =
       let parsed_output = Output.parse_output output all_steps in
-      emit_event (Text_stream_part.Finish { finish_reason; usage });
-      match settle () with
+      match Ending.finish ending ~finish_reason ~usage ~steps:all_steps ~output:parsed_output with
       | false -> Lwt.return_unit
       | true ->
-        full_push None;
-        partial_output_push None;
-        (* Surface the last step's provider metadata as the call-level value,
-           matching upstream's [streamText] which exposes [providerMetadata]
-           from the final step on its result object. *)
-        let final_provider_metadata =
-          match List.rev all_steps with
-          | last :: _ -> last.Generate_text_result.provider_metadata
-          | [] -> None
-        in
-        Lwt.wakeup_later usage_resolver usage;
-        Lwt.wakeup_later finish_resolver finish_reason;
-        Lwt.wakeup_later steps_resolver all_steps;
-        Lwt.wakeup_later output_resolver parsed_output;
-        Lwt.wakeup_later provider_metadata_resolver final_provider_metadata;
         (* Telemetry: final attributes on root span *)
         (match telemetry with
         | Some t when Telemetry.enabled t ->
@@ -475,19 +603,21 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           })
     in
     let rec step_loop ~current_messages ~steps ~total_usage ~step_num =
-      let%lwt () = check_abort () in
       if step_num > max_steps then
         finish_stream ~finish_reason:(Ai_provider.Finish_reason.Other "max_steps") ~usage:total_usage
           ~all_steps:(List.rev steps)
       else begin
-        emit_event Text_stream_part.Start_step;
-        let opts =
-          Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
-            ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ?abort_signal
-            ()
-        in
+        (* No step starts once the signal has fired, and an abort ends the
+           provider stream early, so the guard drops the incomplete step. *)
         let%lwt
           text, reasoning, reasoning_content, tool_calls, fr, step_usage, step_response_model, step_provider_metadata =
+          guard @@ fun () ->
+          emit_event Text_stream_part.Start_step;
+          let opts =
+            Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
+              ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers
+              ?abort_signal ()
+          in
           Telemetry.maybe_span telemetry "ai.streamText.doStream" ~__FILE__ ~__LINE__ ~data:(fun () ->
             match telemetry with
             | Some t ->
@@ -513,8 +643,6 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           Lwt.return
             (text, reasoning, reasoning_content, tool_calls, fr, step_usage, response_model, step_provider_metadata)
         in
-        (* An abort ends the provider stream early, so this step is incomplete. *)
-        let%lwt () = check_abort () in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
           match tool_calls with
@@ -624,7 +752,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       end
     in
     try%lwt
-      emit_start ~push:emit_event;
+      Ending.emit_start ending;
       (* Execute pending tool approvals before starting the LLM step loop *)
       let%lwt start_messages, initial_steps =
         match pending_tool_approvals with
@@ -701,26 +829,17 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       (* After an abort, any failure is a side effect of it, such as [Aborted]
          from the provider call, so it is not reported. *)
       (match is_aborted () with
-      | true -> abort ()
+      | true -> Ending.abort ending
       | false ->
-      match settle () with
-      | false -> ()
-      | true ->
-        Trace_core.add_data_to_span root_span [ "error", `Bool true; "error.message", `String (Printexc.to_string exn) ];
-        let msg = Printexc.to_string exn in
-        push_part_ignoring_errors (Text_stream_part.Error { error = msg });
-        full_push None;
-        partial_output_push None;
-        Lwt.wakeup_later_exn usage_resolver exn;
-        Lwt.wakeup_later_exn finish_resolver exn;
-        Lwt.wakeup_later_exn steps_resolver exn;
-        Lwt.wakeup_later output_resolver None;
-        Lwt.wakeup_later provider_metadata_resolver None);
+        if Ending.is_running ending then
+          Trace_core.add_data_to_span root_span
+            [ "error", `Bool true; "error.message", `String (Printexc.to_string exn) ];
+        Ending.fail ending exn);
       Lwt.return_unit);
   let transformed_stream =
     match transform with
-    | Some f -> f full_stream
-    | None -> full_stream
+    | Some f -> f outputs.full_stream
+    | None -> outputs.full_stream
   in
   let consumer_full_stream, consumer_full_push = Lwt_stream.create () in
   let text_stream, text_push = Lwt_stream.create () in
@@ -747,11 +866,11 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   {
     Stream_text_result.text_stream;
     full_stream = consumer_full_stream;
-    partial_output_stream;
-    usage = usage_promise;
-    finish_reason = finish_promise;
-    steps = steps_promise;
+    partial_output_stream = outputs.partial_output_stream;
+    usage = outputs.usage;
+    finish_reason = outputs.finish_reason;
+    steps = outputs.steps;
     warnings = [];
-    output = output_promise;
-    provider_metadata = provider_metadata_promise;
+    output = outputs.output;
+    provider_metadata = outputs.provider_metadata;
   }

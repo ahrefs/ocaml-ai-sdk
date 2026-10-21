@@ -1703,6 +1703,137 @@ let test_abort_with_stalled_provider () =
        (check bool) "ai.streamText.doStream span ended" true (List.mem "ai.streamText.doStream" !exited);
        Lwt.return_unit))
 
+(* Races between the transitions that end the call. Whichever comes first
+   settles the streams and promises, and the other does nothing. *)
+
+let last_part_name parts = Option.bind parts (fun parts -> Option.map part_name (List.nth_opt (List.rev parts) 0))
+
+(* The call has finished when [on_finish] runs, so an abort from there is too
+   late. *)
+let test_finish_then_abort () =
+  let model = make_text_stream_model "Hi" in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let on_abort_calls = ref 0 in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~abort_signal:signal
+      ~on_finish:(fun (_ : Ai_core.Generate_text_result.t) -> abort ~reason:Exit ())
+      ~on_abort:(fun ~steps:_ -> incr on_abort_calls)
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check bool) "signal fired" true (Ai_provider.Abort_signal.is_aborted signal);
+  (check (option string)) "last part" (Some "finish") (last_part_name parts);
+  (check int) "on_abort not called" 0 !on_abort_calls;
+  let%lwt usage = result.usage in
+  let%lwt finish_reason = result.finish_reason in
+  let%lwt steps = result.steps in
+  (check int) "usage" 10 usage.input_tokens;
+  (check string) "finish reason" "stop" (Ai_provider.Finish_reason.to_string finish_reason);
+  (check int) "one step" 1 (List.length steps);
+  Lwt.return_unit
+
+(* An abort from [on_step_finish] on the final step comes before the finish,
+   so the call ends with [Abort] and never finishes. *)
+let test_abort_then_finish () =
+  let model = make_text_stream_model "Hi" in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let on_abort_steps = ref [] in
+  let finished = ref false in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~abort_signal:signal
+      ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> abort ())
+      ~on_finish:(fun (_ : Ai_core.Generate_text_result.t) -> finished := true)
+      ~on_abort:(fun ~steps -> on_abort_steps := List.length steps :: !on_abort_steps)
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check (option (list string)))
+    "parts"
+    (Some [ "start"; "start-step"; "text-start"; "text-delta"; "text-delta"; "text-end"; "finish-step"; "abort" ])
+    (Option.map (List.map part_name) parts);
+  (check (list int)) "on_abort called once with the step" [ 1 ] !on_abort_steps;
+  (check bool) "on_finish not called" false !finished;
+  check_result_aborted result;
+  Lwt.return_unit
+
+(* A model whose stream call fails with [message]. When [after_abort], it
+   first waits for the abort signal in its call options. *)
+let make_failing_stream_model ~after_abort message =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-failing"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream (opts : Ai_provider.Call_options.t) =
+      match after_abort, opts.abort_signal with
+      | true, Some signal ->
+        let%lwt () = Ai_provider.Abort_signal.wait signal in
+        Lwt.fail_with message
+      | true, None | false, (Some _ | None) -> Lwt.fail_with message
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+(* The error settles the call before [on_chunk] sees the [Error] part, so an
+   abort from there does nothing. *)
+let test_error_then_abort () =
+  let model = make_failing_stream_model ~after_abort:false "provider down" in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let on_abort_calls = ref 0 in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0 ~abort_signal:signal
+      ~on_chunk:(function
+        | Error _ -> abort ~reason:Exit ()
+        | _ -> ())
+      ~on_abort:(fun ~steps:_ -> incr on_abort_calls)
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check bool) "signal fired" true (Ai_provider.Abort_signal.is_aborted signal);
+  (check (option (list string)))
+    "parts"
+    (Some [ "start"; "start-step"; "error" ])
+    (Option.map (List.map part_name) parts);
+  (check int) "on_abort not called" 0 !on_abort_calls;
+  (check bool) "usage fails with the provider error" true (failed_with_failure "provider down" result.usage);
+  (check bool) "steps fails with the provider error" true (failed_with_failure "provider down" result.steps);
+  Lwt.return_unit
+
+(* The model fails only after the abort, so its error is a side effect of the
+   abort and is not reported. *)
+let test_abort_then_error () =
+  let model = make_failing_stream_model ~after_abort:true "provider down" in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let on_abort_calls = ref 0 in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0 ~abort_signal:signal
+      ~on_abort:(fun ~steps:_ -> incr on_abort_calls)
+      ()
+  in
+  let%lwt (_ : Ai_core.Text_stream_part.t list) =
+    read_until
+      (function
+        | Ai_core.Text_stream_part.Start_step -> true
+        | _ -> false)
+      result.full_stream ~acc:[]
+  in
+  abort ~reason:Exit ();
+  let%lwt rest = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check (option (list string)))
+    "parts after the abort" (Some [ "abort:Stdlib.Exit" ])
+    (Option.map (List.map part_name) rest);
+  (check int) "on_abort called once" 1 !on_abort_calls;
+  (check bool) "usage fails with Aborted and the reason" true
+    (match Lwt.state result.usage with
+    | Lwt.Fail (Ai_provider.Abort_signal.Aborted { reason = Some Exit }) -> true
+    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
+  check_result_aborted result;
+  Lwt.return_unit
+
 let () =
   run "Stream_text"
     [
@@ -1771,5 +1902,12 @@ let () =
           test_case "stops_reading_provider" `Quick (run_lwt test_abort_stops_reading_provider);
           test_case "after_pending_approvals" `Quick (run_lwt test_abort_after_pending_approvals);
           test_case "stalled_provider" `Quick test_abort_with_stalled_provider;
+        ] );
+      ( "ending_races",
+        [
+          test_case "finish_then_abort" `Quick (run_lwt test_finish_then_abort);
+          test_case "abort_then_finish" `Quick (run_lwt test_abort_then_finish);
+          test_case "error_then_abort" `Quick (run_lwt test_error_then_abort);
+          test_case "abort_then_error" `Quick (run_lwt test_abort_then_error);
         ] );
     ]
