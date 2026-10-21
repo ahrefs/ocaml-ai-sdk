@@ -117,13 +117,26 @@ All notable changes to this project will be documented in this file.
     let%lwt body = Cohttp_lwt.Body.to_string body in
     respond (Ai_core.Server_handler.handle_chat ~model body)
   ```
+- New `Server_handler.parse_chat_request : string -> (chat_request, string)
+  result` parses and checks a `useChat()` request body, as an upstream route
+  does with `validateUIMessages` and `convertToModelMessages`. A
+  `chat_request` holds the prompt messages, the pending tool approvals and the
+  parsed body, for fields such as `id`, `trigger` or custom `body` fields. Use
+  it to inspect or change a request before calling `stream_text`.
+- `handle_chat` now answers `400` with `{"error": message}` for every body
+  that `parse_chat_request` rejects: `messages` missing, empty or not an
+  array, a message whose role is not `system`, `user` or `assistant`, a
+  message with no `parts` array, or a system or user message with no parts,
+  as upstream's `validateUIMessages` checks. Such a body used to reach the
+  model as an empty or partial prompt. Message `id`s are not required, and
+  unknown part types are still skipped. `parse_messages_from_body` and
+  `collect_pending_tool_approvals` are unchanged.
 - `parse_messages_from_body`, and so `handle_chat`, no longer drop the whole
   conversation when a message has a data part (`data-*`) whose `data` is not
   a string, such as an object written with `Ui_message_stream_writer`. Such
   a body used to parse as no messages at all.
-- `handle_chat`'s `400` response to a body that is not JSON now has
-  `content-type: application/json`, and its error message is escaped, so the
-  body is always valid JSON.
+- `handle_chat`'s `400` response now has `content-type: application/json`,
+  and its error message is escaped, so the body is always valid JSON.
 - `stream_text` reports finish reason `error` for a step whose provider stream
   emitted an error, matching upstream `streamText`. It used to report `other`.
   The UI stream's `finish` chunk carries it as `finishReason: "error"`.

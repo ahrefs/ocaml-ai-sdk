@@ -114,6 +114,70 @@ let test_handle_chat_no_cors () =
   (check (option string)) "protocol" (Some "v1") (header response "x-vercel-ai-ui-message-stream");
   ignore (body_string response : string)
 
+let test_handle_chat_invalid_request () =
+  let response = Ai_core.Server_handler.handle_chat ~model:(text_model "unused") {|{"messages":[]}|} in
+  (check int) "status" 400 response.status;
+  (check string) "error body" {|{"error":"Messages array must not be empty"}|} (body_string response)
+
+(* === parse_chat_request tests === *)
+
+let test_parse_chat_request_ok () =
+  let body =
+    {|{"id":"chat-1","trigger":"submit-message","messages":[
+        {"id":"1","role":"user","parts":[{"type":"text","text":"Hi"},{"type":"data-note","data":1}]},
+        {"id":"2","role":"assistant","parts":[]},
+        {"id":"3","role":"assistant","parts":[{"type":"tool-search","toolCallId":"tc1","state":"approval-responded",
+          "input":{"q":"x"},"approval":{"id":"a1","approved":true}}]}]}|}
+  in
+  match Ai_core.Server_handler.parse_chat_request body with
+  | Error msg -> failf "unexpected error: %s" msg
+  | Ok { messages; pending_tool_approvals; body } ->
+    (check (list string))
+      "messages" [ "user"; "assistant" ]
+      (List.map
+         (function
+           | Ai_provider.Prompt.System _ -> "system"
+           | User _ -> "user"
+           | Assistant _ -> "assistant"
+           | Tool _ -> "tool")
+         messages);
+    (check (list (pair string bool)))
+      "approvals"
+      [ "tc1", true ]
+      (List.map
+         (fun (a : Ai_core.Generate_text_result.pending_tool_approval) -> a.tool_call_id, a.approved)
+         pending_tool_approvals);
+    (check string) "custom field" "submit-message" Yojson.Basic.Util.(to_string (member "trigger" body))
+
+let test_parse_chat_request_errors () =
+  let message role parts = Printf.sprintf {|{"id":"1","role":"%s","parts":%s}|} role parts in
+  let text = {|[{"type":"text","text":"Hi"}]|} in
+  List.iter
+    (fun (body, expected) ->
+      match Ai_core.Server_handler.parse_chat_request body with
+      | Ok _ -> failf "accepted %s" body
+      | Error msg -> (check string) body expected msg)
+    [
+      {|[]|}, "Request body must be a JSON object";
+      {|{}|}, "messages parameter must be provided";
+      {|{"messages":null}|}, "messages parameter must be provided";
+      {|{"messages":{}}|}, "messages must be an array";
+      {|{"messages":[]}|}, "Messages array must not be empty";
+      {|{"messages":[1]}|}, "messages[0] must be an object";
+      Printf.sprintf {|{"messages":[%s]}|} (message "tool" text), "messages[0]: Unsupported role: tool";
+      {|{"messages":[{"id":"1","parts":[]}]}|}, "messages[0].role must be a string";
+      ( Printf.sprintf {|{"messages":[%s,{"id":"2","role":"user"}]}|} (message "user" text),
+        "messages[1].parts must be an array" );
+      Printf.sprintf {|{"messages":[%s]}|} (message "user" "[]"), "messages[0]: Message must contain at least one part";
+      ( Printf.sprintf {|{"messages":[%s]}|} (message "system" "[]"),
+        "messages[0]: Message must contain at least one part" );
+      ( Printf.sprintf {|{"messages":[%s]}|} (message "user" {|[{"type":"text","text":5}]|}),
+        "Invalid messages: expected string but got int: 5" );
+    ];
+  match Ai_core.Server_handler.parse_chat_request "{" with
+  | Error msg -> (check bool) "invalid json" true (String.starts_with ~prefix:"Invalid JSON: " msg)
+  | Ok _ -> fail "accepted invalid JSON"
+
 let test_handle_cors_preflight () =
   let response = Ai_core.Server_handler.handle_cors_preflight () in
   (check int) "status" 204 response.status;
@@ -795,8 +859,11 @@ let () =
           test_case "streams sse" `Quick test_handle_chat_streams_sse;
           test_case "invalid json" `Quick test_handle_chat_invalid_json;
           test_case "no cors" `Quick test_handle_chat_no_cors;
+          test_case "invalid request" `Quick test_handle_chat_invalid_request;
           test_case "cors preflight" `Quick test_handle_cors_preflight;
         ] );
+      ( "parse_chat_request",
+        [ test_case "ok" `Quick test_parse_chat_request_ok; test_case "errors" `Quick test_parse_chat_request_errors ] );
       ( "parse_messages: basic",
         [
           test_case "user text only" `Quick test_parse_user_text_only;

@@ -58,6 +58,9 @@ let callback _conn _req body =
   respond (Ai_core.Server_handler.handle_chat ~model body)
 ```
 
+To inspect or change the request before generating, parse it with
+`Server_handler.parse_chat_request` and call `Stream_text.stream_text` yourself.
+
 See [`examples/`](examples/) for complete runnable demos including tool use, thinking, structured output, OpenRouter prompt caching, and full-stack Melange apps.
 
 ## Architecture

@@ -42,7 +42,8 @@ val cors_headers : (string * string) list
       converted to {!Ai_provider.Prompt.Tool_call} and {!Ai_provider.Prompt.Tool}
       messages based on the invocation [state]
 
-    Returns an empty list on parse failure. Unknown part types are skipped. *)
+    Returns an empty list on parse failure. Unknown part types are skipped.
+    {!parse_chat_request} reports the failure instead. *)
 val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
 
 (** Collect pending tool approvals from re-submitted messages.
@@ -53,6 +54,40 @@ val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
     denied tools should produce error results. *)
 val collect_pending_tool_approvals : Yojson.Basic.t -> Generate_text_result.pending_tool_approval list
 
+(** A parsed [useChat()] request. *)
+type chat_request = {
+  messages : Ai_provider.Prompt.message list;  (** The conversation, as {!parse_messages_from_body} converts it. *)
+  pending_tool_approvals : Generate_text_result.pending_tool_approval list;
+    (** As {!collect_pending_tool_approvals} finds them. Pass them to
+          {!Stream_text.stream_text}. *)
+  body : Yojson.Basic.t;
+    (** The whole request body, for other fields [useChat()] sends, such as
+          [id], [trigger] or custom [body] fields. *)
+}
+
+(** [parse_chat_request body] parses and checks a [useChat()] request body,
+    as an upstream route does with [validateUIMessages] and
+    [convertToModelMessages].
+
+    It fails when [body] is not JSON, when ["messages"] is missing, empty or
+    not an array, or when a message has a role other than ["system"],
+    ["user"] or ["assistant"], no ["parts"] array, or no parts at all (only
+    an assistant message may have none). Unlike upstream, it does not
+    require a message [id] and skips unknown part types. The error is a
+    message suitable for a [400] response.
+
+    It is the first step of {!handle_chat}. Call it directly to inspect or
+    change the request before generating:
+
+    {[
+      match Ai_core.Server_handler.parse_chat_request body with
+      | Error msg -> (* respond with 400 *)
+      | Ok { messages; pending_tool_approvals; body = _ } ->
+        let result = Ai_core.Stream_text.stream_text ~model ~messages ~pending_tool_approvals () in
+        Ai_core.Server_handler.make_sse_response (Ai_core.Stream_text_result.to_ui_message_sse_stream result)
+    ]} *)
+val parse_chat_request : string -> (chat_request, string) result
+
 (** [handle_chat ~model body] handles a chat request whose body is [body].
 
     Expects a v6 JSON body with a ["messages"] array where each message
@@ -60,8 +95,8 @@ val collect_pending_tool_approvals : Yojson.Basic.t -> Generate_text_result.pend
 
     Returns an SSE response with UIMessage stream protocol v1 headers.
     When [cors] is [true] (the default), CORS headers are included.
-    Returns [400 Bad Request] with a JSON error body if [body] is not valid
-    JSON.
+    Returns [400 Bad Request] with a [{"error": message}] JSON body when
+    {!parse_chat_request} rejects [body].
 
     Note: generation parameters like [temperature], [top_p], [max_output_tokens]
     are not exposed here. Pass them via [provider_options] or call
