@@ -178,6 +178,65 @@ let test_parse_chat_request_errors () =
   | Error msg -> (check bool) "invalid json" true (String.starts_with ~prefix:"Invalid JSON: " msg)
   | Ok _ -> fail "accepted invalid JSON"
 
+(* Sends "Hi", then nothing until the abort signal fires, and ends without a
+   Finish part, as Stream_pump.pump does on abort. [signal] records the signal
+   the call received. *)
+let hanging_model () =
+  let signal = ref None in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-hanging"
+    let generate _opts = Lwt.fail_with "handle_chat streams"
+
+    let stream (opts : Ai_provider.Call_options.t) =
+      signal := opts.abort_signal;
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = "Hi" }));
+      Option.iter
+        (fun signal -> ignore (Ai_provider.Abort_signal.on_abort signal (fun () -> push None) : unit -> unit))
+        opts.abort_signal;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  signal, (module M : Ai_provider.Language_model.S)
+
+(* Fails the test instead of hanging when [promise] takes over a second. *)
+let within ~what promise =
+  Lwt.pick
+    [
+      promise;
+      (let%lwt () = Lwt_unix.sleep 1. in
+       failf "timed out waiting for %s" what);
+    ]
+
+let sse_type event =
+  match String.trim event with
+  | "data: [DONE]" -> "[DONE]"
+  | line ->
+    let json = Yojson.Basic.from_string (String.sub line 6 (String.length line - 6)) in
+    Yojson.Basic.Util.(to_string (member "type" json))
+
+let test_handle_chat_abort_signal () =
+  Lwt_main.run
+    (let model_signal, model = hanging_model () in
+     let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+     let response = Ai_core.Server_handler.handle_chat ~model ~abort_signal chat_body in
+     let rec read_to_delta () =
+       match%lwt Lwt_stream.get response.body with
+       | Some event when String.equal (sse_type event) "text-delta" -> Lwt.return_unit
+       | Some (_ : string) -> read_to_delta ()
+       | None -> fail "the stream ended before a text delta"
+     in
+     let%lwt () = within ~what:"the first text delta" (read_to_delta ()) in
+     Lwt.cancel abort_signal;
+     let%lwt rest = within ~what:"the end of the stream" (Lwt_stream.to_list response.body) in
+     (check (list string)) "stream tail" [ "abort"; "[DONE]" ] (List.map sse_type rest);
+     (match !model_signal with
+     | Some signal -> (check bool) "model call aborted" true (Ai_provider.Abort_signal.is_aborted signal)
+     | None -> fail "the model call got no abort signal");
+     Lwt.return_unit)
+
 let test_handle_cors_preflight () =
   let response = Ai_core.Server_handler.handle_cors_preflight () in
   (check int) "status" 204 response.status;
@@ -861,6 +920,7 @@ let () =
           test_case "no cors" `Quick test_handle_chat_no_cors;
           test_case "invalid request" `Quick test_handle_chat_invalid_request;
           test_case "cors preflight" `Quick test_handle_cors_preflight;
+          test_case "abort signal" `Quick test_handle_chat_abort_signal;
         ] );
       ( "parse_chat_request",
         [ test_case "ok" `Quick test_parse_chat_request_ok; test_case "errors" `Quick test_parse_chat_request_errors ] );

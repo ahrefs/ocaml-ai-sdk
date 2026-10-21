@@ -88,6 +88,12 @@ All notable changes to this project will be documented in this file.
 - `Prompt_builder.make_call_options` takes `?abort_signal`.
 - `Text_stream_part.t` has a new `Abort` constructor, so exhaustive matches on
   it need a new case.
+- `Server_handler.handle_chat` takes `?abort_signal`, which aborts the
+  request: the SSE stream ends with `{"type":"abort"}` and `data: [DONE]`. To
+  stop the generation when the client disconnects, pass a signal that the web
+  server settles on disconnect. Without one, a disconnect stops nothing, as
+  before and as upstream, which aborts only when the route passes its
+  request's signal as `abortSignal`.
 
 ## 0.7 — 2026-10-19
 

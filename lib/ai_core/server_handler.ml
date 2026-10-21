@@ -362,7 +362,7 @@ let make_sse_response ?(status = 200) ?(extra_headers = []) sse_stream =
 let handle_cors_preflight () = { status = 204; headers = cors_headers; body = Lwt_stream.of_list [] }
 
 let handle_chat ~model ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_when ?system ?system_provider_options
-  ?output ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry body =
+  ?output ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry ?abort_signal body =
   let extra_headers = if cors then cors_headers else [] in
   match parse_chat_request body with
   | Error msg ->
@@ -383,7 +383,7 @@ let handle_chat ~model ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_
     in
     let result =
       Stream_text.stream_text ~model ~messages ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_when ?output
-        ?provider_options ?transform ?telemetry ~pending_tool_approvals ()
+        ?provider_options ?transform ?telemetry ?abort_signal ~pending_tool_approvals ()
     in
     let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
     make_sse_response ~extra_headers sse_stream
