@@ -1291,6 +1291,81 @@ let test_abort_reaches_tool () =
   (check string) "outcome" "aborted" outcome;
   (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.6)
 
+(* A [search] tool that counts its runs and returns after [run]. *)
+let waiting_search_tool runs run =
+  {
+    search_tool with
+    execute =
+      Some
+        (fun (_ : Yojson.Basic.t) _ ->
+          incr runs;
+          let%lwt () = run () in
+          Lwt.return (`String "results"));
+  }
+
+(* Runs [generate_text] under [Lwt_unix.with_timeout timeout_s], checks that
+   it fails with [Timeout] within [deadline_s], then waits [settle_s] for
+   anything the cancel left running. *)
+let check_cancelled_by_timeout ~timeout_s ~deadline_s ~settle_s run =
+  let started = Unix.gettimeofday () in
+  let outcome =
+    Lwt_main.run
+      (Lwt.catch
+         (fun () ->
+           let%lwt (_ : Ai_core.Generate_text_result.t) = Lwt_unix.with_timeout timeout_s run in
+           Lwt.return "finished")
+         (function
+           | Lwt_unix.Timeout -> Lwt.return "timeout"
+           | exn -> Lwt.return (Printexc.to_string exn)))
+  in
+  let elapsed = Unix.gettimeofday () -. started in
+  (check string) "outcome" "timeout" outcome;
+  (check bool) (Printf.sprintf "fails at the timeout (%.2f s)" elapsed) true (elapsed < deadline_s);
+  Lwt_main.run (Lwt_unix.sleep settle_s)
+
+(* The consumer repro: a cancel during a tool used to become the tool's error
+   result, and a second model request nobody read went out. *)
+let test_cancel_stops_tool_and_loop () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model () in
+  let tool = waiting_search_tool (ref 0) (fun () -> Lwt_unix.sleep 1.0) in
+  check_cancelled_by_timeout ~timeout_s:0.3 ~deadline_s:0.5 ~settle_s:1.2 (fun () ->
+    Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
+  (check int) "one model call" 1 !calls
+
+(* A tool that ignores [Lwt.cancel] keeps running, but the call fails at the
+   cancel and starts neither the next tool nor the next model request. *)
+let test_cancel_with_uncancelable_tool () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let runs = ref 0 in
+  let tool = waiting_search_tool runs (fun () -> Lwt.no_cancel (Lwt_unix.sleep 0.4)) in
+  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0.5 (fun () ->
+    Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
+  (check int) "one tool run" 1 !runs;
+  (check int) "one model call" 1 !calls
+
+(* A model call that ignores [Lwt.cancel] returns its tool call after the
+   cancel, and the tool never runs. *)
+let test_cancel_with_uncancelable_model () =
+  let calls, (_ : bool list ref), model = make_abort_tool_model () in
+  let module Inner = (val model) in
+  let module Slow = struct
+    include Inner
+
+    let generate opts =
+      let%lwt () = Lwt.no_cancel (Lwt_unix.sleep 0.4) in
+      Inner.generate opts
+  end in
+  let runs = ref 0 in
+  let tool = waiting_search_tool runs Lwt.return in
+  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0.5 (fun () ->
+    Ai_core.Generate_text.generate_text
+      ~model:(module Slow : Ai_provider.Language_model.S)
+      ~prompt:"Search"
+      ~tools:[ "search", tool ]
+      ~max_steps:3 ());
+  (check int) "tool never runs" 0 !runs;
+  (check int) "one model call" 1 !calls
+
 let () =
   run "Generate_text"
     [
@@ -1329,6 +1404,9 @@ let () =
           test_case "between_tools" `Quick test_abort_between_tools;
           test_case "before_pending_approval" `Quick test_abort_before_pending_approval;
           test_case "reaches_tool" `Quick test_abort_reaches_tool;
+          test_case "cancel_stops_tool_and_loop" `Quick test_cancel_stops_tool_and_loop;
+          test_case "cancel_with_uncancelable_tool" `Quick test_cancel_with_uncancelable_tool;
+          test_case "cancel_with_uncancelable_model" `Quick test_cancel_with_uncancelable_model;
         ] );
       ( "retry",
         [

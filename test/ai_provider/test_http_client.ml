@@ -415,6 +415,40 @@ let test_abort_mid_body ~status read () =
   let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
   Lwt.return_unit
 
+let expect_canceled promise =
+  match%lwt promise with
+  | _ -> fail "expected Canceled"
+  | exception Lwt.Canceled -> Lwt.return_unit
+
+(* As [test_abort_waiting_for_headers], with [Lwt.cancel] on [post] instead of
+   a signal. *)
+let test_cancel_waiting_for_headers () =
+  let%lwt port, request = serve_once (Hold "") in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:30.0 () in
+  let response = post ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let%lwt () = Lwt_unix.sleep 0.2 in
+  (check bool) "waiting for headers" true (Lwt.is_sleeping response);
+  Lwt.cancel response;
+  let%lwt () = expect_canceled response in
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
+(* As [test_abort_mid_body], with [Lwt.cancel] on the read instead of a
+   signal. *)
+let test_cancel_mid_body ~status read () =
+  let%lwt port, request =
+    serve_once (Hold (Printf.sprintf "HTTP/1.1 %d Status\r\nContent-Length: 100\r\n\r\npartial" status))
+  in
+  let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
+  let%lwt response = post ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let body = read response in
+  let%lwt () = Lwt_unix.sleep 0.2 in
+  (check bool) "read waiting for the rest" true (Lwt.is_sleeping body);
+  Lwt.cancel body;
+  let%lwt () = expect_canceled body in
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
 (* The server sends two SSE events and holds the connection open. *)
 let post_sse_then_hold () =
   let%lwt port, request =
@@ -579,6 +613,13 @@ let () =
           test_case "chunk waiting out the pause" `Quick (run_lwt test_abort_while_chunk_pauses);
           test_case "lines still queued" `Quick (run_lwt test_abort_with_queued_lines);
           test_case "SSE events still queued" `Quick (run_lwt test_abort_with_queued_events);
+        ] );
+      ( "cancel",
+        [
+          test_case "while waiting for headers" `Quick (run_lwt test_cancel_waiting_for_headers);
+          test_case "mid body" `Quick (run_lwt (test_cancel_mid_body ~status:200 Ai_provider.Http_client.body_string));
+          test_case "mid error body" `Quick
+            (run_lwt (test_cancel_mid_body ~status:500 Ai_provider.Http_client.error_body));
         ] );
       "proxy", [ test_case "environment ignored" `Quick (run_lwt test_proxy_environment_ignored) ];
     ]

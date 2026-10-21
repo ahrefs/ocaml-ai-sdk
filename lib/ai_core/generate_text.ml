@@ -19,6 +19,22 @@ let parse_content (content : Ai_provider.Content.t list) =
     content;
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
+(* Runs [f ~fail_if_cancelled]. [Lwt.cancel] on the result rejects it with
+   [Canceled] at once and cancels the work, but a promise that ignores
+   [Lwt.cancel], such as a custom fetch or a tool built on [Lwt.wait], keeps
+   the work going. [fail_if_cancelled] fails with [Canceled] after a cancel,
+   so the work checks it before it starts a model request or a tool. *)
+let cancelable f =
+  let cancelled = ref false in
+  let fail_if_cancelled () =
+    match !cancelled with
+    | true -> Lwt.fail Lwt.Canceled
+    | false -> Lwt.return_unit
+  in
+  let call = Lwt.wrap_in_cancelable (f ~fail_if_cancelled) in
+  Lwt.on_cancel call (fun () -> cancelled := true);
+  call
+
 let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
   ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish
@@ -64,6 +80,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           ]
     | None -> []
   in
+  cancelable @@ fun ~fail_if_cancelled ->
   (* Root span wrapping the entire operation *)
   Telemetry.maybe_span telemetry "ai.generateText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
   let%lwt () =
@@ -129,6 +146,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         @@ fun step_span ->
         let%lwt result =
           Retry.with_retries ?abort_signal ?max_retries ?max_retry_delay_ms (fun () ->
+            let%lwt () = fail_if_cancelled () in
             Ai_provider.Language_model.generate model opts)
         in
         let text, reasoning, tool_calls = parse_content result.content in
@@ -161,6 +179,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         let%lwt tool_results =
           Lwt_list.map_s
             (fun (tc : Generate_text_result.tool_call) ->
+              let%lwt () = fail_if_cancelled () in
               Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
                 match telemetry with
                 | Some t ->
@@ -350,6 +369,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
                   provider_metadata = None;
                 }
             | true ->
+              let%lwt () = fail_if_cancelled () in
               Core_tool.execute_tool ?abort_signal ~tools ~messages:request_messages ~tool_call_id:ta.tool_call_id
                 ~tool_name:ta.tool_name ~args:ta.args ())
           approvals

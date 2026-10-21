@@ -105,7 +105,8 @@ type model_info = {
 
     All callbacks are optional — implement only the ones you need.
     Errors in callbacks are caught and ignored (they must not break
-    the generation pipeline). Callbacks are called in order:
+    the generation pipeline), except [Lwt.Canceled], which a cancel of the
+    call raises while a callback runs. Callbacks are called in order:
     global integrations first, then per-call integrations
     (matching upstream). *)
 and integration = {

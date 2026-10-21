@@ -19,7 +19,13 @@
       [stop_when] is met, stops nothing, and the call returns its result as
       upstream's generateText does. Tools get the signal in their
       {!Core_tool.execute_options}; a running tool that ignores it finishes
-      first. *)
+      first.
+
+    [Lwt.cancel] on the returned promise, for example from
+    [Lwt_unix.with_timeout], fails it with [Lwt.Canceled] at once and
+    cancels the provider request, retry sleep or tool in progress. No model
+    request or tool starts after that. A cancel reports no steps, so use
+    [abort_signal] when the usage must be accounted for. *)
 
 val generate_text :
   model:Ai_provider.Language_model.t ->

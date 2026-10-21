@@ -30,7 +30,7 @@ let is_transient_network_error = function
   | _ -> false
 
 let is_abort = function
-  | Ai_provider.Abort_signal.Aborted _ -> true
+  | Ai_provider.Abort_signal.Aborted _ | Lwt.Canceled -> true
   | _ -> false
 
 let is_retryable_error = function

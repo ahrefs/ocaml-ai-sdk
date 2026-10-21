@@ -422,9 +422,12 @@ let notify_all t extract_callback event =
         | Some callback ->
           Lwt.catch
             (fun () -> callback event)
-            (fun exn ->
-              Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
-              Lwt.return_unit))
+            (function
+              (* A cancel of the call lands here while the callback runs. *)
+              | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+              | exn ->
+                Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
+                Lwt.return_unit))
       integrations
 
 let notify_on_start t event = notify_all t (fun i -> i.on_start) event

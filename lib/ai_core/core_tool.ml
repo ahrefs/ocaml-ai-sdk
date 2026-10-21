@@ -60,7 +60,10 @@ let execute_tool ?abort_signal ~tools ~messages ~tool_call_id ~tool_name ~args (
   try%lwt
     let%lwt result = exec args { tool_call_id; messages; abort_signal } in
     Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
-  with exn ->
+  with
+  (* A cancel or an abort stops the call, so it is not the tool's result. *)
+  | (Lwt.Canceled | Ai_provider.Abort_signal.Aborted _) as exn -> Lwt.fail exn
+  | exn ->
     Lwt.return
       {
         Generate_text_result.tool_call_id;

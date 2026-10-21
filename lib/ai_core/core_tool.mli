@@ -68,8 +68,10 @@ val denied_result : Yojson.Basic.t
 
 (** Execute a tool by name from the tools list.
     Returns an error result if the tool is not found, is client-side only, or throws.
-    Fails with [Ai_provider.Abort_signal.Aborted], without running the tool,
-    when [abort_signal] has already fired. [generate_text] and [stream_text]
+    A tool that fails with [Lwt.Canceled] or [Ai_provider.Abort_signal.Aborted]
+    fails the call with it instead. Fails with
+    [Ai_provider.Abort_signal.Aborted], without running the tool, when
+    [abort_signal] has already fired. [generate_text] and [stream_text]
     pass their signal, so neither starts a tool after an abort. The tool gets
     the signal, [messages] and [tool_call_id] in its {!execute_options}. *)
 val execute_tool :

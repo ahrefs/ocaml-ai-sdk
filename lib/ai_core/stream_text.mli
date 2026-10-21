@@ -28,7 +28,8 @@
       fired gives a stream holding [Start] then [Abort], and the model is
       never called. In that case [on_abort] runs before [stream_text]
       returns. Once the call ends, it no longer holds a
-      callback on the signal.
+      callback on the signal. [stream_text] returns no promise for
+      [Lwt.cancel] to act on, so the signal is the only way to cancel it.
     @param on_chunk Called with each part right after it is pushed to
       [full_stream], including the [Error] part of a failed call. An
       exception it raises ends the call like any other error: an [Error] part
