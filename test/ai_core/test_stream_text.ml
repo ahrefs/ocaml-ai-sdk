@@ -1100,7 +1100,10 @@ let make_abort_stream_model ?(tool_call_ids = [ "tc_1" ]) () =
       | _ ->
         push (Some (Ai_provider.Stream_part.Text { text = "Found" }));
         Option.iter
-          (fun signal -> ignore (Ai_provider.Abort_signal.on_abort signal (fun () -> push None) : unit -> unit))
+          (fun signal ->
+            ignore
+              (Ai_provider.Abort_signal.with_on_abort signal (fun () -> push None) (fun () -> Lwt_stream.closed stream)
+                : unit Lwt.t))
           opts.abort_signal);
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in
@@ -1131,7 +1134,7 @@ let part_name (part : Ai_core.Text_stream_part.t) =
 
 let failed_with_aborted promise =
   match Lwt.state promise with
-  | Lwt.Fail Ai_provider.Abort_signal.Aborted -> true
+  | Lwt.Fail (Ai_provider.Abort_signal.Aborted _) -> true
   | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false
 
 let check_result_aborted (result : Ai_core.Stream_text_result.t) =
@@ -1227,6 +1230,27 @@ let test_abort_before_start () =
   (check (option int)) "on_abort with no steps" (Some 0) !aborted_with;
   check_result_aborted result;
   (check int) "model never called" 0 !calls;
+  Lwt.return_unit
+
+(* The signal's reason reaches the [Abort] part, the UI [abort] chunk and the
+   [Aborted] exception. *)
+let test_abort_reason () =
+  let (_ : int ref), (_ : bool list ref), model = make_abort_stream_model () in
+  let stream_aborted () =
+    let signal, abort = Ai_provider.Abort_signal.create () in
+    abort ~reason:Exit ();
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~abort_signal:signal ()
+  in
+  let result = stream_aborted () in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  (check (list string)) "parts" [ "start"; "abort:Stdlib.Exit" ] (List.map part_name parts);
+  (check bool) "usage failed with the reason" true
+    (match Lwt.state result.usage with
+    | Lwt.Fail (Ai_provider.Abort_signal.Aborted { reason = Some Exit }) -> true
+    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
+  let%lwt sse = Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_sse_stream (stream_aborted ())) in
+  (check bool) "UI abort chunk carries the reason" true
+    (List.exists (fun event -> String.equal (String.trim event) {|data: {"type":"abort","reason":"Stdlib.Exit"}|}) sse);
   Lwt.return_unit
 
 (* A long-lived signal, such as one for server shutdown, may fire after the
@@ -1736,6 +1760,7 @@ let () =
         [
           test_case "mid_stream" `Quick (run_lwt test_abort_mid_stream);
           test_case "before_start" `Quick (run_lwt test_abort_before_start);
+          test_case "reason" `Quick (run_lwt test_abort_reason);
           test_case "after_finish" `Quick (run_lwt test_abort_after_finish);
           test_case "in_on_step_finish" `Quick (run_lwt test_abort_in_on_step_finish);
           test_case "during_tool" `Quick (run_lwt test_abort_during_tool);

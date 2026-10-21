@@ -360,7 +360,7 @@ let test_rejected_option_not_retryable () =
 let expect_aborted promise =
   match%lwt promise with
   | _ -> fail "expected Aborted"
-  | exception Ai_provider.Abort_signal.Aborted -> Lwt.return_unit
+  | exception Ai_provider.Abort_signal.Aborted _ -> Lwt.return_unit
 
 (* The server never accepts, so a request that went out would wait for headers
    until request_timeout. *)

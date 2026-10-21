@@ -207,15 +207,11 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
      closes the streams and settles the promises. The others then do nothing,
      and every later emit is dropped, so nothing pushes to a closed stream. *)
   let settled = ref false in
-  (* Removes [abort] from the signal. Settling calls it, so a long-lived signal
-     does not keep this call's closures alive. *)
-  let detach_abort = ref (fun () -> ()) in
   let settle () =
     match !settled with
     | true -> false
     | false ->
       settled := true;
-      !detach_abort ();
       true
   in
   let is_aborted () = Option.fold ~none:false ~some:Ai_provider.Abort_signal.is_aborted abort_signal in
@@ -242,22 +238,30 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
     match settle () with
     | false -> ()
     | true ->
+      let reason = Option.bind abort_signal Ai_provider.Abort_signal.reason in
+      let aborted = Ai_provider.Abort_signal.Aborted { reason } in
       (* Upstream also ignores an exception from onAbort. *)
       emit_start ~push:push_part_ignoring_errors;
       (try Option.iter (fun f -> f ~steps:(List.rev !completed_steps)) on_abort with (_ : exn) -> ());
       (* As upstream's onChunk, [on_chunk] never sees the [Abort] part. *)
-      full_push (Some (Text_stream_part.Abort { reason = None }));
+      full_push (Some (Text_stream_part.Abort { reason = Option.map Printexc.to_string reason }));
       full_push None;
       partial_output_push None;
-      Lwt.wakeup_later_exn usage_resolver Ai_provider.Abort_signal.Aborted;
-      Lwt.wakeup_later_exn finish_resolver Ai_provider.Abort_signal.Aborted;
-      Lwt.wakeup_later_exn steps_resolver Ai_provider.Abort_signal.Aborted;
+      Lwt.wakeup_later_exn usage_resolver aborted;
+      Lwt.wakeup_later_exn finish_resolver aborted;
+      Lwt.wakeup_later_exn steps_resolver aborted;
       Lwt.wakeup_later output_resolver None;
       Lwt.wakeup_later provider_metadata_resolver None
   in
-  (* Runs right away when the signal has already fired, so the stream holds
-     only [Start] and [Abort] and the job below stops before calling the model. *)
-  Option.iter (fun signal -> detach_abort := Ai_provider.Abort_signal.on_abort signal abort) abort_signal;
+  (* Runs [abort] right away when the signal has already fired, so the stream
+     holds only [Start] and [Abort] and the job below stops before calling the
+     model. The hook leaves the signal when the job ends, so a long-lived signal
+     does not keep this call's closures alive. *)
+  let with_abort_hook job =
+    match abort_signal with
+    | None -> job ()
+    | Some signal -> Ai_provider.Abort_signal.with_on_abort signal abort job
+  in
   (* Partial output deduplication *)
   let last_partial_json = ref "" in
   let on_text_accumulated =
@@ -306,6 +310,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
 
   let id_gen = make_id_gen () in
   Lwt.async (fun () ->
+    with_abort_hook @@ fun () ->
     Telemetry.maybe_span telemetry "ai.streamText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
     let emit_event part = if not !settled then push_part part in
     (* Records a finished step for [on_abort], emits its [Finish_step] and runs

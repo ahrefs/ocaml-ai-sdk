@@ -155,7 +155,7 @@ let expect_aborted_call call () =
   in
   match Lwt_main.run (call model opts) with
   | _ -> fail "expected Aborted"
-  | exception Ai_provider.Abort_signal.Aborted -> ()
+  | exception Ai_provider.Abort_signal.Aborted _ -> ()
 
 let () =
   run "Openai_model"

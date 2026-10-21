@@ -337,7 +337,7 @@ let expect_aborted_call call () =
   in
   match Lwt_main.run (call model opts) with
   | _ -> fail "expected Aborted"
-  | exception Ai_provider.Abort_signal.Aborted -> ()
+  | exception Ai_provider.Abort_signal.Aborted _ -> ()
 
 (* [stream] waits for the first completion chunk to read the response info. An
    abort during that wait must end the call with a stream that closes without

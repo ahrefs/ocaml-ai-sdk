@@ -195,7 +195,10 @@ let hanging_model () =
       push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
       push (Some (Ai_provider.Stream_part.Text { text = "Hi" }));
       Option.iter
-        (fun signal -> ignore (Ai_provider.Abort_signal.on_abort signal (fun () -> push None) : unit -> unit))
+        (fun signal ->
+          ignore
+            (Ai_provider.Abort_signal.with_on_abort signal (fun () -> push None) (fun () -> Lwt_stream.closed stream)
+              : unit Lwt.t))
         opts.abort_signal;
       Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
   end in

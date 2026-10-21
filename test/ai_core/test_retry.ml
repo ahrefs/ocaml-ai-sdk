@@ -453,7 +453,7 @@ let test_invalid_max_retry_delay () =
 let describe_outcome promise =
   match Lwt.state promise with
   | Lwt.Return value -> "returned " ^ value
-  | Lwt.Fail Ai_provider.Abort_signal.Aborted -> "aborted"
+  | Lwt.Fail (Ai_provider.Abort_signal.Aborted _) -> "aborted"
   | Lwt.Fail exn -> Printexc.to_string exn
   | Lwt.Sleep -> "pending"
 
@@ -468,7 +468,7 @@ let test_aborted_attempt_not_retried () =
       incr call_count;
       match !call_count with
       | 1 -> Lwt.fail (retryable_error "overloaded")
-      | _ -> Lwt.fail Ai_provider.Abort_signal.Aborted)
+      | _ -> Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = None }))
   in
   let%lwt () = Lwt.pause () in
   (check string) "outcome" "aborted" (describe_outcome result);

@@ -240,7 +240,7 @@ let test_messages_aborted_skips_fetch () =
              ~stream:false
          in
          Lwt.return_false
-       with Ai_provider.Abort_signal.Aborted -> Lwt.return_true)
+       with Ai_provider.Abort_signal.Aborted _ -> Lwt.return_true)
   in
   (check bool) "aborted" true aborted;
   (check bool) "fetch not called" false !called

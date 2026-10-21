@@ -1101,7 +1101,7 @@ let generate_outcome run =
          let%lwt (_ : Ai_core.Generate_text_result.t) = run () in
          Lwt.return "finished")
        (function
-         | Ai_provider.Abort_signal.Aborted -> Lwt.return "aborted"
+         | Ai_provider.Abort_signal.Aborted _ -> Lwt.return "aborted"
          | exn -> Lwt.return (Printexc.to_string exn)))
 
 (* A [search] tool that counts its runs in [runs] and fires the signal from

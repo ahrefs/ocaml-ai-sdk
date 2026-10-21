@@ -30,7 +30,7 @@ let is_transient_network_error = function
   | _ -> false
 
 let is_abort = function
-  | Ai_provider.Abort_signal.Aborted -> true
+  | Ai_provider.Abort_signal.Aborted _ -> true
   | _ -> false
 
 let is_retryable_error = function
@@ -69,7 +69,7 @@ let with_retries ?abort_signal ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(b
           [
             sleep delay_s;
             (let%lwt () = Ai_provider.Abort_signal.wait signal in
-             Lwt.fail Ai_provider.Abort_signal.Aborted);
+             Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = Ai_provider.Abort_signal.reason signal }));
           ]
   in
   let make_retry_error ~reason ~errors_rev exn =

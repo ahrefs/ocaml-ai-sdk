@@ -199,30 +199,29 @@ let start ?abort_signal ~timeouts ~provider ~url ~headers ~body () =
       push None
     in
     (* Before the head arrives, the abort fails [post] through head_ready.
-       Body reads check the signal themselves, so the callback is detached once
-       the transfer settles. *)
-    let detach_abort =
-      Option.fold ~none:Fun.id
-        ~some:(fun signal ->
-          Abort_signal.on_abort signal (fun () ->
-            deliver ~state ~head_ready (Error Abort_signal.Aborted);
-            Lwt.cancel transfer))
-        abort_signal
+       Body reads check the signal themselves, so the hook is detached once
+       the transfer settles, before [watched] settles. *)
+    let watched =
+      match abort_signal with
+      | None -> transfer
+      | Some signal ->
+        Abort_signal.with_on_abort signal
+          (fun () ->
+            deliver ~state ~head_ready (Error (Abort_signal.Aborted { reason = Abort_signal.reason signal }));
+            Lwt.cancel transfer)
+          (fun () -> transfer)
     in
     (* Lwt runs curl_lwt's on_cancel, which detaches the handle from the multi,
        before regular callbacks, so cleanup never frees an attached handle. *)
-    Lwt.on_any transfer
+    Lwt.on_any watched
       (fun code ->
-        detach_abort ();
         match !state with
         | Delivered -> release ()
         | Collecting _ ->
           let error = failure_before_head ~provider ~error_detail code in
           release ();
           deliver ~state ~head_ready (Error error))
-      (fun (_ : exn) ->
-        detach_abort ();
-        release ());
+      (fun (_ : exn) -> release ());
     head_ready, transfer, chunks, error_detail
 
 (* Curl data arrives inside libcurl callbacks, where libcurl rejects API calls

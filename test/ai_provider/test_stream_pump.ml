@@ -130,7 +130,7 @@ let test_abort_ends_stream_without_error () =
       | evt :: rest ->
         reads := rest;
         Lwt.return_some evt
-      | [] -> Lwt.fail Ai_provider.Abort_signal.Aborted)
+      | [] -> Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = None }))
   in
   let%lwt parts = pumped_stream (fun (evt : Ai_provider.Sse.event) -> evt.data) events in
   (check (list string)) "parts" [ "text a" ] (List.map describe parts);

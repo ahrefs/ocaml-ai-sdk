@@ -24,6 +24,6 @@ let pump ~provider ~push f events =
     (fun exn ->
       (* The caller asked for the abort, so there is nothing to report. *)
       (match exn with
-      | Abort_signal.Aborted -> ()
+      | Abort_signal.Aborted _ -> ()
       | exn -> fail (stream_failed exn));
       push None)
