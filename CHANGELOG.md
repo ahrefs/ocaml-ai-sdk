@@ -117,6 +117,10 @@ All notable changes to this project will be documented in this file.
     let%lwt body = Cohttp_lwt.Body.to_string body in
     respond (Ai_core.Server_handler.handle_chat ~model body)
   ```
+- `parse_messages_from_body`, and so `handle_chat`, no longer drop the whole
+  conversation when a message has a data part (`data-*`) whose `data` is not
+  a string, such as an object written with `Ui_message_stream_writer`. Such
+  a body used to parse as no messages at all.
 - `handle_chat`'s `400` response to a body that is not JSON now has
   `content-type: application/json`, and its error message is escaped, so the
   body is always valid JSON.

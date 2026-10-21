@@ -67,7 +67,7 @@ type parsed_part = {
   text : string option; [@json.option]
   media_type : string option; [@json.key "mediaType"] [@json.option]
   url : string option; [@json.option]
-  data : string option; [@json.option]
+  data : Melange_json.t option; [@json.option]
   filename : string option; [@json.option]
   tool_call_id : string option; [@json.key "toolCallId"] [@json.option]
   tool_name : string option; [@json.key "toolName"] [@json.option]
@@ -133,8 +133,8 @@ let parse_file_data (p : parsed_part) =
     let data =
       match p.url, p.data with
       | Some url, _ -> Some (Ai_provider.Prompt.Url url)
-      | _, Some d -> Some (Ai_provider.Prompt.Base64 d)
-      | None, None -> None
+      | _, Some (`String d) -> Some (Ai_provider.Prompt.Base64 d)
+      | None, (None | Some _) -> None
     in
     Option.map (fun data -> data, media_type, p.filename) data
   | None -> None

@@ -553,6 +553,21 @@ let test_parse_text_part_missing_text_skipped () =
           ]}]}|}) in
   (check int) "no messages (text without text field)" 0 (List.length msgs)
 
+(* Data parts carry any JSON. One with object data used to fail the whole
+   body, so the conversation parsed as empty. *)
+let test_parse_data_part_with_object_data () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[
+            {"role":"user","parts":[{"type":"text","text":"Hi"}]},
+            {"role":"assistant","parts":[
+              {"type":"data-status","id":"s","data":{"step":1}},
+              {"type":"text","text":"Hello"}]}]}|})
+  in
+  let _, u, a, _ = count_by_role msgs in
+  (check (pair int int)) "user and assistant" (1, 1) (u, a)
+
 let test_parse_extra_request_fields_ignored () =
   (* v6 sends id, messageId, trigger — these should be ignored *)
   let msgs =
@@ -835,6 +850,7 @@ let () =
           test_case "no messages field" `Quick test_parse_no_messages_field;
           test_case "text part missing text" `Quick test_parse_text_part_missing_text_skipped;
           test_case "extra request fields" `Quick test_parse_extra_request_fields_ignored;
+          test_case "data part with object data" `Quick test_parse_data_part_with_object_data;
         ] );
       ( "parse_messages: provider metadata",
         [
