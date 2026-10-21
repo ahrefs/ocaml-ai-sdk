@@ -1,7 +1,7 @@
 open Alcotest
 
 let make_mock_config ?(check_body = fun _ -> ()) response =
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     check_body body;
     Lwt.return response
   in
@@ -211,7 +211,7 @@ let test_extra_body_merging () =
 
 let test_headers () =
   let captured_headers = ref [] in
-  let fetch ~url:_ ~headers ~body:_ =
+  let fetch ~abort_signal:_ ~url:_ ~headers ~body:_ =
     captured_headers := headers;
     Lwt.return basic_response
   in
@@ -381,6 +381,63 @@ let test_abort_before_first_chunk () =
   | true -> fail "expected no Error part after the abort"
   | false -> ()
 
+(* The fetch gets [Call_options.abort_signal]. It waits for the signal and
+   then returns a value anyway, and the call still fails with Aborted. *)
+let expect_abort_during_fetch call () =
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let received = ref None in
+  let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
+    received := Some abort_signal;
+    let%lwt () = Option.fold ~none:Lwt.return_unit ~some:Ai_provider.Abort_signal.wait abort_signal in
+    Lwt.return (`Assoc [])
+  in
+  let config = Ai_provider_openrouter.Config.create ~api_key:"sk-or-test" ~fetch () in
+  let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some signal;
+    }
+  in
+  let pending = call model opts in
+  (check bool) "waiting in fetch" true (Lwt.is_sleeping pending);
+  abort ();
+  (match !received with
+  | Some (Some s) -> (check bool) "fetch got the call's signal" true (s == signal)
+  | Some None | None -> fail "fetch did not get the signal");
+  match Lwt_main.run pending with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted _ -> ()
+
+(* Same as above, through [Openrouter_api.chat_completions] directly. *)
+let test_api_abort_during_fetch () =
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let received = ref None in
+  let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
+    received := Some abort_signal;
+    let%lwt () = Option.fold ~none:Lwt.return_unit ~some:Ai_provider.Abort_signal.wait abort_signal in
+    Lwt.return basic_response
+  in
+  let config = Ai_provider_openrouter.Config.create ~api_key:"sk-or-test" ~fetch () in
+  let body =
+    Ai_provider_openrouter.Openrouter_api.make_request_body ~model:"openai/gpt-4o" ~messages:[] ~stream:false
+      ~compatibility:Compatible ()
+  in
+  let call =
+    Ai_provider_openrouter.Openrouter_api.chat_completions ~abort_signal:signal ~config ~body ~extra_body:[]
+      ~extra_headers:[] ~stream:false ()
+  in
+  (check bool) "waiting in fetch" true (Lwt.is_sleeping call);
+  abort ();
+  (match !received with
+  | Some (Some s) -> (check bool) "fetch got the call's signal" true (s == signal)
+  | Some None | None -> fail "fetch did not get the signal");
+  match Lwt_main.run call with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted _ -> ()
+
 let () =
   run "Openrouter_model"
     [
@@ -400,6 +457,9 @@ let () =
         [
           test_case "generate with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.generate);
           test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
+          test_case "generate during fetch" `Quick (expect_abort_during_fetch Ai_provider.Language_model.generate);
+          test_case "stream during fetch" `Quick (expect_abort_during_fetch Ai_provider.Language_model.stream);
+          test_case "api call during fetch" `Quick test_api_abort_during_fetch;
           test_case "stream before the first chunk" `Quick test_abort_before_first_chunk;
         ] );
     ]

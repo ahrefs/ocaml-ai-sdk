@@ -1,7 +1,7 @@
 open Alcotest
 
 let make_mock_config response =
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch ()
 
 let test_generate_text () =
@@ -157,6 +157,36 @@ let expect_aborted_call call () =
   | _ -> fail "expected Aborted"
   | exception Ai_provider.Abort_signal.Aborted _ -> ()
 
+(* The fetch gets [Call_options.abort_signal]. It waits for the signal and
+   then returns a value anyway, and the call still fails with Aborted. *)
+let expect_abort_during_fetch call () =
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let received = ref None in
+  let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
+    received := Some abort_signal;
+    let%lwt () = Option.fold ~none:Lwt.return_unit ~some:Ai_provider.Abort_signal.wait abort_signal in
+    Lwt.return (`Assoc [])
+  in
+  let config = Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_openai.Openai_model.create ~config ~model:"gpt-4o" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some signal;
+    }
+  in
+  let pending = call model opts in
+  (check bool) "waiting in fetch" true (Lwt.is_sleeping pending);
+  abort ();
+  (match !received with
+  | Some (Some s) -> (check bool) "fetch got the call's signal" true (s == signal)
+  | Some None | None -> fail "fetch did not get the signal");
+  match Lwt_main.run pending with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted _ -> ()
+
 let () =
   run "Openai_model"
     [
@@ -171,5 +201,7 @@ let () =
         [
           test_case "generate with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.generate);
           test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
+          test_case "generate during fetch" `Quick (expect_abort_during_fetch Ai_provider.Language_model.generate);
+          test_case "stream during fetch" `Quick (expect_abort_during_fetch Ai_provider.Language_model.stream);
         ] );
     ]

@@ -177,8 +177,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               in
               let t0 = Unix.gettimeofday () in
               let%lwt tr =
-                Core_tool.execute_tool_abortable abort_signal ~tools ~tool_call_id:tc.tool_call_id
-                  ~tool_name:tc.tool_name ~args:tc.args
+                Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+                  ~args:tc.args ()
               in
               let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
               let%lwt () =
@@ -344,8 +344,8 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
                   provider_metadata = None;
                 }
             | true ->
-              Core_tool.execute_tool_abortable abort_signal ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name
-                ~args:ta.args)
+              Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name
+                ~args:ta.args ())
           approvals
       in
       let tool_calls =

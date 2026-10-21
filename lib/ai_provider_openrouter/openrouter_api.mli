@@ -47,24 +47,15 @@ val provider_error_of_http_response : body:string -> Ai_provider.Http_client.res
 
 (** Send a request to the Chat Completions API.
     Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines).
-    Checks for HTTP 200 error responses (OpenRouter returns errors with 200 status). *)
+    Checks for HTTP 200 error responses (OpenRouter returns errors with 200 status).
+    Fails with [Ai_provider.Abort_signal.Aborted] once [abort_signal] settles.
+    The models pass [Call_options.abort_signal]. *)
 val chat_completions :
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   config:Config.t ->
   body:request_body ->
   extra_body:(string * Yojson.Basic.t) list ->
   extra_headers:(string * string) list ->
   stream:bool ->
-  [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t
-
-(** {!chat_completions}, except that it fails with [Ai_provider.Abort_signal.Aborted]
-    once the signal settles, within the limits that {!Config.fetch_fn}
-    describes for a custom fetch. The models call this one with
-    [Call_options.abort_signal]. *)
-val chat_completions_abortable :
-  Ai_provider.Abort_signal.t option ->
-  config:Config.t ->
-  body:request_body ->
-  extra_body:(string * Yojson.Basic.t) list ->
-  extra_headers:(string * string) list ->
-  stream:bool ->
+  unit ->
   [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t

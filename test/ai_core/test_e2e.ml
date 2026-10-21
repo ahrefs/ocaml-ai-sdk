@@ -153,13 +153,13 @@ let mock_thinking_tool_followup_response =
     ~stop_reason:"end_turn" ~input_tokens:30 ~output_tokens:12
 
 let make_mock_config response =
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch ()
 
 (* Tool-loop mock: returns tool call first, then text *)
 let make_tool_loop_config () =
   let call_count = ref 0 in
-  let fetch ~url:_ ~headers:_ ~body:_ =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ =
     incr call_count;
     if !call_count = 1 then Lwt.return mock_tool_call_response else Lwt.return mock_followup_response
   in
@@ -168,7 +168,7 @@ let make_tool_loop_config () =
 let make_thinking_tool_loop_config () =
   let call_count = ref 0 in
   let bodies = ref [] in
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     incr call_count;
     bodies := Yojson.Basic.from_string body :: !bodies;
     if !call_count = 1 then Lwt.return mock_thinking_tool_call_response

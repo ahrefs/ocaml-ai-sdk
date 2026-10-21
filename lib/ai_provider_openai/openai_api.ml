@@ -97,14 +97,16 @@ let make_headers ~(config : Config.t) ~extra_headers =
   in
   base_headers @ auth_headers @ org_headers @ project_headers @ config.default_headers @ extra_headers
 
-let chat_completions_abortable abort_signal ~config ~body ~extra_headers ~stream =
+let chat_completions ?abort_signal ~config ~body ~extra_headers ~stream () =
   let body_json = request_body_to_json body in
   match config.Config.fetch with
   | Some fetch ->
     let headers = make_headers ~config ~extra_headers in
     let body_str = Yojson.Basic.to_string body_json in
-    let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
-    let%lwt json = fetch ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str in
+    let%lwt json =
+      Ai_provider.Abort_signal.guard abort_signal (fun () ->
+        fetch ~abort_signal ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str)
+    in
     Lwt.return (`Json json)
   | None ->
     let headers = make_headers ~config ~extra_headers in
@@ -125,6 +127,3 @@ let chat_completions_abortable abort_signal ~config ~body ~extra_headers ~stream
     | false, false ->
       let%lwt body = Http_client.body_string response in
       Lwt.return (`Json (Yojson.Basic.from_string body)))
-
-let chat_completions ~config ~body ~extra_headers ~stream =
-  chat_completions_abortable None ~config ~body ~extra_headers ~stream

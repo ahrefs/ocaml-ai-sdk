@@ -59,7 +59,7 @@ let mock_tool_response =
 
 (* Helper: create a provider with mock fetch *)
 let make_mock_provider response =
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-e2e-test" ~fetch () in
   let module P = struct
     let name = "anthropic"
@@ -140,7 +140,7 @@ let test_tool_call_response () =
 (* Test 4: Provider options flow through *)
 let test_provider_options_flow () =
   let request_body = ref `Null in
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     request_body := Yojson.Basic.from_string body;
     Lwt.return mock_text_response
   in

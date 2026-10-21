@@ -469,8 +469,8 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
     in
     let execute_and_emit (tc : Generate_text_result.tool_call) =
       let%lwt tr =
-        Core_tool.execute_tool_abortable abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
-          ~args:tc.args
+        Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args
+          ()
       in
       emit_event
         (Text_stream_part.Tool_result
@@ -506,8 +506,8 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       in
       let t0 = Unix.gettimeofday () in
       let%lwt tr =
-        Core_tool.execute_tool_abortable abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
-          ~args:tc.args
+        Core_tool.execute_tool ?abort_signal ~tools ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name ~args:tc.args
+          ()
       in
       let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
       let%lwt () =

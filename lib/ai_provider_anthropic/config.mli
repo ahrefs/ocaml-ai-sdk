@@ -1,10 +1,16 @@
 (** Anthropic provider configuration. *)
 
-(** Custom HTTP function for testing. An abort signal cannot interrupt it: a
-    request whose signal has already settled fails with
-    [Ai_provider.Abort_signal.Aborted] before [fetch] runs, but once [fetch]
-    starts the call runs to the end. *)
-type fetch_fn = url:string -> headers:(string * string) list -> body:string -> Yojson.Basic.t Lwt.t
+(** Custom HTTP function for testing. It receives the call's abort signal
+    and should stop once the signal settles. A call whose signal settles
+    before or during [fetch] fails with [Ai_provider.Abort_signal.Aborted],
+    even when [fetch] ignores the signal and returns a value. An exception
+    from [fetch] passes through unchanged. *)
+type fetch_fn =
+  abort_signal:Ai_provider.Abort_signal.t option ->
+  url:string ->
+  headers:(string * string) list ->
+  body:string ->
+  Yojson.Basic.t Lwt.t
 
 type t = {
   api_key : string option;
