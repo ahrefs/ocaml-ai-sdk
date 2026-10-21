@@ -1,6 +1,7 @@
 (** Custom stream composition using create_ui_message_stream.
 
     Demonstrates:
+    - parse_chat_request to read and check the useChat() request
     - Writing custom Data parts alongside LLM output
     - Data reconciliation (same id updates the part on the client)
     - Merging a stream_text result into a composed stream
@@ -29,13 +30,13 @@ let handler _conn req body =
   match meth, Uri.path uri with
   | `OPTIONS, "/chat" -> respond (Ai_core.Server_handler.handle_cors_preflight ())
   | _, "/chat" ->
-    let%lwt body_str = Cohttp_lwt.Body.to_string body in
-    (match Yojson.Basic.from_string body_str with
-    | exception Yojson.Json_error msg ->
+    let%lwt body = Cohttp_lwt.Body.to_string body in
+    (match Ai_core.Server_handler.parse_chat_request body with
+    | Error msg ->
       let body = Yojson.Basic.to_string (`Assoc [ "error", `String msg ]) in
-      Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request ~body ()
-    | body_json ->
-      let messages = Ai_core.Server_handler.parse_messages_from_body body_json in
+      let headers = Cohttp.Header.of_list [ "content-type", "application/json" ] in
+      Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request ~headers ~body ()
+    | Ok { messages; pending_tool_approvals; body = _ } ->
       let message_id = Printf.sprintf "msg_%d" (Random.int 1_000_000) in
       let stream =
         Ai_core.Ui_message_stream_writer.create_ui_message_stream ~message_id
@@ -48,7 +49,10 @@ let handler _conn req body =
               (Ai_core.Ui_message_chunk.Data
                  { data_type = "status"; id = Some "gen-status"; data = `String "generating" });
             (* 2. Start LLM generation and merge its stream *)
-            let result = Ai_core.Stream_text.stream_text ~model ~messages ~system:"You are a helpful assistant." () in
+            let result =
+              Ai_core.Stream_text.stream_text ~model ~messages ~pending_tool_approvals
+                ~system:"You are a helpful assistant." ()
+            in
             let ui_stream = Ai_core.Stream_text_result.to_ui_message_stream result in
             Ai_core.Ui_message_stream_writer.merge writer ui_stream;
             (* 3. Wait for generation to complete, then write "done" status *)
