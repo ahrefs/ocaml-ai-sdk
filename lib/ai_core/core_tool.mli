@@ -13,7 +13,9 @@ type execute_options = {
     (** The messages sent to the model for the step that produced the call,
         without the system prompt and without that step's response. For an
         approved tool, the request's messages. *)
-  abort_signal : Ai_provider.Abort_signal.t option;  (** The [abort_signal] given to [generate_text] or [stream_text]. *)
+  abort_signal : Ai_provider.Abort_signal.t option;
+    (** The [abort_signal] given to [generate_text] or [stream_text]. A tool
+        that ignores it runs to the end after an abort. *)
 }
 
 type t = {

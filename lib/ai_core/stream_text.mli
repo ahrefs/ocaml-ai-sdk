@@ -11,26 +11,23 @@
       (default 2). Set to 0 to disable retries.
     @param max_retry_delay_ms Caps backoff; a server [Retry-After] above it
       stops retries instead of sleeping. Uncapped by default.
-    @param abort_signal Aborts the call. The signal goes to every provider
-      request and to the retry loop. When it fires, [full_stream] gets an
-      [Abort] part and closes at once, with no [Finish_step], [Finish] or
-      [Error] after it, and [text_stream] closes too. As upstream's
-      [onChunk], [on_chunk] does not get the [Abort] part. [usage],
-      [finish_reason], [steps], [output] and [provider_metadata] fail with
-      [Ai_provider.Abort_signal.Aborted], as they fail with the error when
-      the call fails. They fail even when steps were recorded first; those
-      steps reach [on_abort]. No model call, tool execution or
-      step starts after that, no further provider part is processed, and
-      [on_step_finish] and [on_finish] are not called. The read of the
-      provider stream ends on the abort even when the model ignores the
-      signal and never sends another part. Tools get the signal in their
-      {!Core_tool.execute_options}; a running tool that ignores it finishes
-      first. A signal that has already
-      fired gives a stream holding [Start] then [Abort], and the model is
-      never called. In that case [on_abort] runs before [stream_text]
-      returns. Once the call ends, it no longer holds a
-      callback on the signal. [stream_text] returns no promise for
-      [Lwt.cancel] to act on, so the signal is the only way to cancel it.
+    @param abort_signal Aborts the call. It goes to every provider request,
+      to the retry loop and to each tool in its {!Core_tool.execute_options};
+      a running tool that ignores it finishes first. When it fires,
+      [full_stream] gets an [Abort] part and closes at once, with no
+      [Finish_step], [Finish] or [Error] after it, and [text_stream] closes
+      too. As upstream's [onChunk], [on_chunk] does not get the [Abort] part.
+      [usage], [finish_reason], [steps], [output] and [provider_metadata]
+      fail with [Ai_provider.Abort_signal.Aborted], as they fail with the
+      error when the call fails, even when steps were recorded first; those
+      steps reach [on_abort] and [outcome]. No model call, tool or step
+      starts after the abort, no further provider part is processed, even
+      from a model that ignores the signal, and [on_step_finish] and
+      [on_finish] are not called. A signal that has already fired gives a
+      stream holding [Start] then [Abort] without calling the model, and
+      [on_abort] runs before [stream_text] returns. Once the call ends, it no
+      longer holds a callback on the signal. [stream_text] returns no promise
+      for [Lwt.cancel] to act on, so the signal is the only way to cancel it.
     @param on_chunk Called with each part right after it is pushed to
       [full_stream], including the [Error] part of a failed call. An
       exception it raises ends the call like any other error: an [Error] part
@@ -46,7 +43,19 @@
       whose tools were running is there too, with the results of the tools
       that had returned. It runs before [usage], [finish_reason], [steps],
       [output] and [provider_metadata] fail and before [outcome] resolves.
-      An exception it raises is ignored. *)
+      An exception it raises is ignored.
+
+    The work given to {!Ai_provider.Abort_signal.with_timeout} must last until
+    the stream ends, since its timer stops once that promise settles:
+
+    {[
+      Ai_provider.Abort_signal.with_timeout 30. (fun abort_signal ->
+        let result = stream_text ~model ~prompt ~abort_signal () in
+        let%lwt () = Lwt_stream.iter_s Lwt_io.print result.text_stream in
+        result.outcome)
+    ]}
+
+    See docs/guides/cancellation.md. *)
 
 val stream_text :
   model:Ai_provider.Language_model.t ->

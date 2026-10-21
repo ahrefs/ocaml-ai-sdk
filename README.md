@@ -11,6 +11,7 @@ Type-safe, provider-agnostic AI model abstraction for OCaml, inspired by the [Ve
 | `ai_provider_openai` | `ocaml-ai-sdk.ai_provider_openai` | OpenAI Chat Completions API — streaming SSE, tool calling with strict mode, GPT-4o/o1/o3/o4-mini catalog |
 | `ai_provider_openrouter` | `ocaml-ai-sdk.ai_provider_openrouter` | OpenRouter Chat Completions API — model routing, provider preferences, reasoning, web search, usage accounting, prompt caching |
 | `ai_core` | `ocaml-ai-sdk.ai_core` | Core SDK — `generate_text`, `stream_text` (with tool loops), UIMessage stream protocol, server handler, structured output |
+| `ai_mock` | `ocaml-ai-sdk.ai_mock` | Mock language model for tests, including models that hang until aborted |
 | `ai_sdk_react` | `ai-sdk-react.ai_sdk_react` | Melange bindings for `@ai-sdk/react` — `useChat`, `useCompletion`, v6 part types |
 
 ## Quick start
@@ -60,6 +61,22 @@ let callback _conn _req body =
 
 To inspect or change the request before generating, parse it with
 `Server_handler.parse_chat_request` and call `Stream_text.stream_text` yourself.
+
+### Cancellation
+
+Pass an `Ai_provider.Abort_signal.t` to stop a call. Tools get the same signal
+in their `execute` options, and `on_abort` receives the steps recorded before
+the abort, so their usage can still be counted:
+
+```ocaml
+let say_hello ~model =
+  Ai_provider.Abort_signal.with_timeout 30. (fun abort_signal ->
+    Ai_core.Generate_text.generate_text ~model ~prompt:"Say hello" ~abort_signal ())
+```
+
+See [the cancellation guide](docs/guides/cancellation.md) for `Lwt.cancel`,
+combining signals, `stream_text` aborts and stopping generation when a web
+client disconnects.
 
 See [`examples/`](examples/) for complete runnable demos including tool use, thinking, structured output, OpenRouter prompt caching, and full-stack Melange apps.
 

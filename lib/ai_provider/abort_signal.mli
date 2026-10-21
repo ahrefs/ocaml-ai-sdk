@@ -5,6 +5,15 @@
     cancelable. {!create} returns a signal and the function that aborts it.
     Library code only observes the signal and never cancels it.
 
+    {[
+      Abort_signal.with_timeout 30. (fun abort_signal ->
+        Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal ())
+    ]}
+
+    See docs/guides/cancellation.md for what each SDK function does on an
+    abort, how a signal differs from [Lwt.cancel], and how to account for the
+    usage of an aborted call.
+
     Two traps when building a signal by hand:
     - [Lwt.cancel] does nothing to a promise from [Lwt.wait], so cancelling
       such a signal never aborts. Use {!create} and its abort function.

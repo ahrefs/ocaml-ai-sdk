@@ -2,106 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
-
-### Breaking changes
-
-- `Ai_core.Text_stream_part.t` has a new `Abort` constructor, so exhaustive
-  matches on it need a new case.
-
-### Provider HTTP client (`ai_provider`)
-
-- New `Abort_signal` module. A signal is a `unit Lwt.t` that the caller
-  resolves or fails to abort. Cancelling it also aborts when the promise is
-  cancelable, as one from `Lwt.task` is. Operations it interrupts fail with
-  `Abort_signal.Aborted`. `Call_options.abort_signal` is now typed
-  `Abort_signal.t option`, the same type as before.
-- `Abort_signal.on_abort : t -> (unit -> unit) -> unit -> unit` returns a
-  detach function. Call it when the operation ends, so a long-lived signal
-  does not keep the callback alive. The callback must not raise: an exception
-  goes to `Lwt.async_exception_hook`, which exits the process by default.
-- `Http_client.post` takes `?abort_signal`. A signal that has already settled
-  fails the call before it connects. An abort before the headers arrive fails
-  `post` at once instead of waiting for `request_timeout`. An abort during the
-  body fails the waiting or next read, `error_body` included. In both cases
-  libcurl drops the transfer and closes its connection.
-- `Stream_pump.pump` ends the stream without an `Error` part when the source
-  fails with `Aborted`.
-
-### Provider wiring (`ai_provider_anthropic`, `ai_provider_openai`, `ai_provider_openrouter`)
-
-- The models pass `Call_options.abort_signal` to the HTTP client.
-- New `Anthropic_api.messages_abortable`,
-  `Openai_api.chat_completions_abortable` and
-  `Openrouter_api.chat_completions_abortable` take the signal as their first
-  argument, and the models call them. `messages` and `chat_completions` keep
-  their signatures and never abort.
-- A custom `fetch` cannot be interrupted. An aborted request fails before
-  calling it, but a call in progress runs to the end.
-
-### Core SDK (`ai_core`)
-
-- `Retry.with_retries` takes `?abort_signal`. No attempt starts once the signal
-  has settled, and an abort cuts a backoff or `retry-after` sleep short. An
-  attempt that fails with `Aborted` is re-raised as is, never retried or
-  wrapped in `Retry_error`.
-- `Generate_text.generate_text` takes `?abort_signal`. The signal goes to every
-  provider request and to the retry loop. Once it has fired, no model call or
-  tool starts, approved pending tools included. The call fails with
-  `Abort_signal.Aborted` when the abort stops work it still had to do. An
-  abort after the final model response, or once `stop_when` is met, stops
-  nothing, and the call returns its result, as upstream's generateText does.
-- `Stream_text.stream_text` takes `?abort_signal` and `?on_abort`, following
-  upstream's streamText. When the signal fires, `on_abort` gets the steps
-  finished so far, then `full_stream` gets a new `Text_stream_part.Abort`
-  part and the stream closes. As upstream's onChunk, `on_chunk` does not get
-  it. No `Finish_step`,
-  `Finish` or `Error` part follows, and `on_step_finish` and `on_finish` are
-  not called again. `usage`, `finish_reason` and `steps` fail with `Aborted`.
-  The job processes no further provider part and starts no model call, tool or
-  step after the abort. A signal that has already fired gives a stream
-  holding `Start` then `Abort`, without calling the model, and runs
-  `on_abort` before `stream_text` returns. The provider stream
-  read ends on the abort even when a custom model ignores the signal and
-  stalls. Tools do not receive the signal yet.
-- `on_chunk` now also gets the `Error` part that ends a failed
-  `stream_text` call, as upstream's onChunk does. An exception it raises on
-  that part is ignored.
-- `Stream_text.stream_text` now pushes each step's `Finish_step` part before
-  calling `on_step_finish`, as upstream does. It used to call
-  `on_step_finish` first. An exception from `on_finish` is ignored, since the
-  streams and promises have already settled by then.
-- New `Core_tool.execute_tool_abortable`, which fails with `Aborted`
-  without running the tool once the signal has fired. `generate_text` and
-  `stream_text` run every tool through it. `Core_tool.execute_tool` is
-  unchanged.
-- `Stream_text_result.to_ui_message_stream` turns the `Abort` part into the
-  `{"type":"abort"}` chunk, with no `finish` chunk after it.
-- `Ui_message_stream_writer.create_ui_message_stream` passes
-  `~is_aborted:true` to `on_finish` when an `Abort` chunk was written or merged,
-  as well as when `execute` raises. After an `Abort` chunk, it no longer
-  pushes its own `finish` chunk.
-- When `execute` raises, the writer now pushes the `error` chunk at once and
-  then waits for the merged streams to end before it closes, as upstream's
-  createUIMessageStream does. It used to close at once, so a merge still
-  running pushed into the closed stream and raised `Lwt_stream.Closed` out
-  of `Lwt.async`, which exits the process by default. A write or merged
-  chunk that comes after the stream closed is now dropped.
-- A chunk written while the writer's `on_finish` runs is now dropped rather
-  than sent after `finish`. The stream still closes only after `on_finish`
-  returns. A merged stream's failure is now formatted by `on_error` too, and
-  when `on_error` itself raises the error chunk reads "An error occurred."
-  instead of the original exception text.
-- `Prompt_builder.make_call_options` takes `?abort_signal`.
-- `Text_stream_part.t` has a new `Abort` constructor, so exhaustive matches on
-  it need a new case.
-- `Server_handler.handle_chat` takes `?abort_signal`, which aborts the
-  request: the SSE stream ends with `{"type":"abort"}` and `data: [DONE]`. To
-  stop the generation when the client disconnects, pass a signal that the web
-  server settles on disconnect. Without one, a disconnect stops nothing, as
-  before and as upstream, which aborts only when the route passes its
-  request's signal as `abortSignal`.
-
 ## 0.7 — 2026-10-19
 
 ### Breaking changes
@@ -134,6 +34,39 @@ All notable changes to this project will be documented in this file.
   `Http_client.response`.
 - Transport failures fail with `Provider_error` `Network_error` instead of
   the exception cohttp raised, such as `Unix.Unix_error`.
+- A tool's `execute` takes a second argument, a `Core_tool.execute_options`
+  record with `tool_call_id`, `messages` and `abort_signal`. This changes the
+  type of `Core_tool.t.execute` and of the `~execute` argument of
+  `Core_tool.create` and `create_with_approval`. A tool written as
+  `fun args -> ...` becomes `fun args _options -> ...`.
+- `Core_tool.execute_tool` takes `~messages` and `?abort_signal`, and a
+  trailing `()`. When a tool fails with `Lwt.Canceled` or
+  `Abort_signal.Aborted`, it fails with that exception instead of returning
+  an error result.
+- `Anthropic_api.messages`, `Openai_api.chat_completions` and
+  `Openrouter_api.chat_completions` take `?abort_signal` and a trailing `()`.
+- `Config.fetch_fn` in the Anthropic, OpenAI and OpenRouter providers takes
+  `~abort_signal:Ai_provider.Abort_signal.t option` before `~url`.
+- `Text_stream_part.t` has a new `Abort` constructor, so exhaustive matches on
+  it need a new case.
+- `Stream_text_result.t` has a new `outcome` field, so code that builds the
+  record needs it.
+- `stream_text`'s `output` and `provider_metadata` fail when the call fails,
+  as `usage`, `finish_reason` and `steps` do. They used to resolve to `None`.
+- For code built against the unreleased `request-abort` branch (PR #20) or
+  the `http-client-curl` branch (PR #19):
+  - `Abort_signal.Aborted` carries `{ reason : exn option }`.
+  - `Abort_signal.on_abort` is replaced by `with_on_abort`, which removes the
+    hook once the work settles.
+  - `Core_tool.execute_tool_abortable`, `Anthropic_api.messages_abortable`,
+    `Openai_api.chat_completions_abortable` and
+    `Openrouter_api.chat_completions_abortable` are removed. The functions
+    without the suffix take `?abort_signal` instead.
+  - On abort, `stream_text`'s `output` and `provider_metadata` fail with
+    `Aborted` instead of resolving to `None`.
+  - When `execute` raises `Aborted`, `Ui_message_stream_writer` ends the
+    stream with an `abort` chunk instead of an `error` chunk.
+  - `Stream_part.pump` moved to `Stream_pump.pump`.
 
 ### Provider HTTP client (`ai_provider`)
 
@@ -197,10 +130,41 @@ All notable changes to this project will be documented in this file.
   `Deserialization_error` part with the event's data, and the stream
   continues. Any other exception, from the event stream or the converter,
   becomes an `Error` part and ends the stream: a `Provider_error` as it is,
-  anything else as the new `Unexpected_error` kind. The Anthropic, OpenAI and
+  anything else as the new `Unexpected_error` kind. `Abort_signal.Aborted`
+  ends the stream without an `Error` part. The Anthropic, OpenAI and
   OpenRouter converters use it.
 - `Language_model.generate` and `stream` return a failed promise when the
   model's function raises before returning one, instead of raising.
+- New `Abort_signal` module for cancelling provider requests, retries and
+  streams. A signal is a `unit Lwt.t` that the caller settles to abort.
+  Operations it interrupts fail with `Abort_signal.Aborted { reason }`.
+  `Call_options.abort_signal` is now typed `Abort_signal.t option`, the same
+  type as before. See the new guide, `docs/guides/cancellation.md`.
+  - `create ()` returns a signal and its abort function,
+    `?reason:exn -> unit -> unit`, like `AbortController`. The signal has
+    settled when the function returns, and a second call does nothing.
+  - `reason` is the exception the signal failed with, if any.
+  - `with_timeout after_s f` runs `f` with a signal that fails with the new
+    `Timeout { after_s }` exception, and stops the timer once `f` settles.
+  - `choose signals f` runs `f` with a signal that aborts when the first of
+    `signals` does, with its reason. It never cancels `signals`, and removes
+    its callbacks from them once `f` settles.
+  - `with_on_abort signal hook f` runs `hook` if the signal settles while `f`
+    runs. `guard`, `wait` and `fail_if_aborted` help code that takes a signal.
+- `Http_client.post` takes `?abort_signal`. A signal that has already settled
+  fails the call before it connects. An abort before the headers arrive fails
+  `post` at once instead of waiting for `request_timeout`. An abort during the
+  body fails the waiting or next read, `error_body` included. In both cases
+  libcurl drops the transfer and closes its connection. Cancelling the
+  promise from `post` or from a body read drops the transfer too.
+
+### Provider wiring (`ai_provider_anthropic`, `ai_provider_openai`, `ai_provider_openrouter`)
+
+- The models pass `Call_options.abort_signal` to the HTTP client, through the
+  API functions' new `?abort_signal`.
+- A custom `fetch` gets the call's signal as `~abort_signal` and should stop
+  once it settles. A call whose signal settles before or during `fetch` fails
+  with `Aborted`, even when `fetch` ignores the signal and returns a value.
 
 ### Core SDK (`ai_core`)
 
@@ -251,6 +215,91 @@ All notable changes to this project will be documented in this file.
 - `stream_text` reports finish reason `error` for a step whose provider stream
   emitted an error, matching upstream `streamText`. It used to report `other`.
   The UI stream's `finish` chunk carries it as `finishReason: "error"`.
+- `Retry.with_retries` takes `?abort_signal`. No attempt starts once the signal
+  has settled, and an abort cuts a backoff or `retry-after` sleep short. An
+  attempt that fails with `Aborted` or `Lwt.Canceled` is re-raised as is,
+  never retried or wrapped in `Retry_error`.
+- `Generate_text.generate_text` takes `?abort_signal` and `?on_abort`. The
+  signal goes to every provider request, to the retry loop and to the tools.
+  Once it has fired, no model call or tool starts, approved pending tools
+  included. The call fails with `Abort_signal.Aborted` when the abort stops
+  work it still had to do, and fails at once even when the model ignores the
+  signal. An abort after the final model response, or once `stop_when` is
+  met, stops nothing, and the call returns its result, as upstream's
+  generateText does. `on_abort` gets the steps recorded so far before the
+  call fails.
+- `Lwt.cancel` on the promise from `generate_text`, for example through
+  `Lwt_unix.with_timeout`, now stops the call: it fails with `Lwt.Canceled`,
+  cancels the provider request, retry sleep or tool in progress, and starts no
+  further model request or tool. It used to turn the cancel into a tool error
+  result and send the next model request. A cancel reports no steps.
+  A telemetry integration callback no longer swallows `Lwt.Canceled`.
+- `Stream_text.stream_text` takes `?abort_signal` and `?on_abort`, following
+  upstream's streamText. When the signal fires, `on_abort` gets the steps
+  recorded so far, then `full_stream` gets a `Text_stream_part.Abort` part
+  with the signal's reason and closes. As upstream's onChunk, `on_chunk` does
+  not get it. No `Finish_step`, `Finish` or `Error` part follows, and
+  `on_step_finish` and `on_finish` are not called again. `usage`,
+  `finish_reason`, `steps`, `output` and `provider_metadata` fail with
+  `Aborted`, after `on_abort` has run. The job processes no further provider
+  part and starts no model call, tool or step after the abort, even when a
+  custom model ignores the signal. A signal that has already fired gives a
+  stream holding `Start` then `Abort`, without calling the model, and runs
+  `on_abort` before `stream_text` returns.
+- New `Stream_text_result.outcome`, a promise that never fails and resolves
+  to `Finished result`, `Aborted { steps; reason }` or `Failed exn` once the
+  call ends.
+- New `Text_stream_part.is_terminal`, true for `Finish` and `Abort`, the parts
+  that end `full_stream`.
+- Tools get a `Core_tool.execute_options` with the call's `abort_signal`, the
+  `tool_call_id` and the `messages` sent to the model for the step, as
+  upstream's tools get `ToolExecutionOptions`. `execute_tool` fails with
+  `Aborted`, without running the tool, once the signal has fired.
+- A step whose model response came back is always recorded, even when the
+  abort lands during its tool batch. It keeps the results of the tools that
+  ran, and reaches `on_abort` and `outcome`.
+- New `Generate_text_result.total_usage` adds up the usage of a list of
+  steps.
+- `on_chunk` now also gets the `Error` part that ends a failed
+  `stream_text` call, as upstream's onChunk does. An exception it raises on
+  that part is ignored.
+- `Stream_text.stream_text` now pushes each step's `Finish_step` part before
+  calling `on_step_finish`, as upstream does. It used to call
+  `on_step_finish` first. An exception from `on_finish` is ignored, since the
+  streams and promises have already settled by then.
+- `Stream_text_result.to_ui_message_stream` turns the `Abort` part into an
+  `abort` chunk carrying the reason, with no `finish` chunk after it.
+- `Ui_message_stream_writer.create_ui_message_stream` passes
+  `~is_aborted:true` to `on_finish` when an `Abort` chunk was written or merged,
+  as well as when `execute` raises. After an `Abort` chunk, it no longer
+  pushes its own `finish` chunk. When `execute` raises `Aborted`, the stream
+  ends with an `abort` chunk and no `error` chunk.
+- When `execute` raises, the writer now pushes the `error` chunk at once and
+  then waits for the merged streams to end before it closes, as upstream's
+  createUIMessageStream does. It used to close at once, so a merge still
+  running pushed into the closed stream and raised `Lwt_stream.Closed` out
+  of `Lwt.async`, which exits the process by default. A write or merged
+  chunk that comes after the stream closed is now dropped.
+- A chunk written while the writer's `on_finish` runs is now dropped rather
+  than sent after `finish`. The stream still closes only after `on_finish`
+  returns. A merged stream's failure is now formatted by `on_error` too, and
+  when `on_error` itself raises the error chunk reads "An error occurred."
+  instead of the original exception text.
+- `Prompt_builder.make_call_options` takes `?abort_signal`.
+- `Server_handler.handle_chat` takes `?abort_signal`, which aborts the
+  request: the SSE stream ends with an `abort` chunk and `data: [DONE]`. To
+  stop the generation when the client disconnects, pass a signal that the web
+  server settles on disconnect. Without one, a disconnect stops nothing, as
+  before and as upstream, which aborts only when the route passes its
+  request's signal as `abortSignal`.
+
+### Mock model (`ai_mock`)
+
+- New `ocaml-ai-sdk.ai_mock` library with `Ai_mock.Language_model`, a
+  language model for tests modelled on upstream's `MockLanguageModelV3`. It
+  returns canned or computed results and records the options of every call.
+  `hang` and `hanging_stream` stand in for a provider that waits until the
+  call is aborted.
 
 ### OpenRouter provider (`ai_provider_openrouter`)
 

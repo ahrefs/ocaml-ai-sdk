@@ -37,10 +37,8 @@ val merge : t -> Ui_message_chunk.t Lwt_stream.t -> unit
     an [Abort] chunk in place of [Finish], with the reason's
     [Printexc.to_string] when it has one. Upstream sends an [error] chunk
     here. When a merged stream already sent an [Abort] chunk, the writer adds
-    none. For example, when [execute] merges a {!Stream_text.stream_text}
-    UI stream and then awaits [result.usage], an abort fails [usage] with
-    [Aborted], and the stream holds the chunks merged so far and then the
-    merged [Abort] chunk.
+    none. See docs/guides/cancellation.md for an [execute] that merges a
+    {!Stream_text.stream_text} call.
 
     @param message_id Optional message ID included in the [Start] chunk.
       Use this for persistence: generate an ID server-side and pass it here

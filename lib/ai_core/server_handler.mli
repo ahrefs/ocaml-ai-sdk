@@ -104,8 +104,9 @@ val parse_chat_request : string -> (chat_request, string) result
     and {!make_sse_response} for full control.
 
     When [abort_signal] fires, the request is aborted: the SSE stream ends
-    with [{"type":"abort"}] and [data: [DONE]], and no further model call or
-    tool starts. See [?abort_signal] on {!Stream_text.stream_text}.
+    with an [abort] chunk, carrying the signal's reason when it has one, and
+    [data: [DONE]], and no further model call or tool starts. See
+    [?abort_signal] on {!Stream_text.stream_text}.
 
     @param abort_signal Aborts the request. To stop the generation when the
       client goes away, as after [useChat().stop()] or a closed tab, pass a
