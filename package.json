@@ -2,7 +2,7 @@
   "name": "ocaml-ai-sdk",
   "private": true,
   "dependencies": {
-    "@ai-sdk/react": "latest",
-    "ai": "latest"
+    "@ai-sdk/react": "3.0.304",
+    "ai": "6.0.301"
   }
 }
