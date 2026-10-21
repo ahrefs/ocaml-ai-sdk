@@ -18,19 +18,23 @@
 
 let model = Ai_provider_anthropic.model "claude-sonnet-4-6"
 
+(* Sends an [Ai_core.Server_handler.response] with cohttp. *)
+let respond (r : Ai_core.Server_handler.response) =
+  Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+    ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
 let handler _conn req body =
   let uri = Cohttp.Request.uri req in
   let meth = Cohttp.Request.meth req in
   match meth, Uri.path uri with
-  | `OPTIONS, "/chat" -> Ai_core.Server_handler.handle_cors_preflight _conn req body
+  | `OPTIONS, "/chat" -> respond (Ai_core.Server_handler.handle_cors_preflight ())
   | _, "/chat" ->
     let%lwt body_str = Cohttp_lwt.Body.to_string body in
-    let body_json = try Ok (Yojson.Basic.from_string body_str) with Yojson.Json_error msg -> Error msg in
-    (match body_json with
-    | Error msg ->
-      let body = Cohttp_lwt.Body.of_string (Printf.sprintf {|{"error":"%s"}|} msg) in
-      Lwt.return (Cohttp.Response.make ~status:`Bad_request (), body)
-    | Ok body_json ->
+    (match Yojson.Basic.from_string body_str with
+    | exception Yojson.Json_error msg ->
+      let body = Yojson.Basic.to_string (`Assoc [ "error", `String msg ]) in
+      Cohttp_lwt_unix.Server.respond_string ~status:`Bad_request ~body ()
+    | body_json ->
       let messages = Ai_core.Server_handler.parse_messages_from_body body_json in
       let message_id = Printf.sprintf "msg_%d" (Random.int 1_000_000) in
       let stream =
@@ -54,10 +58,8 @@ let handler _conn req body =
             Lwt.return_unit)
           ()
       in
-      Ai_core.Ui_message_stream_writer.create_ui_message_stream_response stream)
-  | _ ->
-    let body = Cohttp_lwt.Body.of_string "Not found" in
-    Lwt.return (Cohttp.Response.make ~status:`Not_found (), body)
+      respond (Ai_core.Ui_message_stream_writer.create_ui_message_stream_response stream))
+  | _ -> Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~body:"Not found" ()
 
 let () =
   let port = 28602 in

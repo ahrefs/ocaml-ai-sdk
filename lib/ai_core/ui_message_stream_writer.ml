@@ -52,7 +52,7 @@ let create_ui_message_stream ?message_id ?(on_error = Printexc.to_string) ?on_fi
     Lwt.return_unit);
   stream
 
-let create_ui_message_stream_response ?(status = `OK) ?(headers = []) ?(cors = true) chunks =
+let create_ui_message_stream_response ?(status = 200) ?(headers = []) ?(cors = true) chunks =
   let sse_stream = Ui_message_stream.stream_to_sse chunks in
   let extra_headers =
     match cors with

@@ -44,9 +44,18 @@ let () =
 
 ### Chat server (with UIMessage protocol)
 
+`Server_handler.handle_chat` turns a `useChat()` request body into an SSE
+response. The response is a plain record (status, headers, body stream), so it
+works with any web server. With cohttp:
+
 ```ocaml
-let handler = Server_handler.create ~model ()
-(* Serves SSE responses compatible with useChat() from @ai-sdk/react *)
+let respond (r : Ai_core.Server_handler.response) =
+  Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+    ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+let callback _conn _req body =
+  let%lwt body = Cohttp_lwt.Body.to_string body in
+  respond (Ai_core.Server_handler.handle_chat ~model body)
 ```
 
 See [`examples/`](examples/) for complete runnable demos including tool use, thinking, structured output, OpenRouter prompt caching, and full-stack Melange apps.

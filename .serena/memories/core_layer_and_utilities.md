@@ -55,7 +55,7 @@ type t = {
 - `Ui_message_stream.t` - Full message stream protocol
 - `Text_stream_part.t` - Text token streaming
 
-**Server_handler** - HTTP server utilities for streaming endpoints
+**Server_handler** - framework-agnostic chat endpoint helpers: `handle_chat` takes the request body and returns a `response` record (status, headers, body stream)
 
 **Partial_json** - Streaming JSON parser for partial tool arguments
 

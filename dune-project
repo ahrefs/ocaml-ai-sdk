@@ -76,8 +76,6 @@
    (>= 0.1))
   (melange-json-native
    (>= 2.0))
-  (cohttp-lwt-unix
-   (>= 5.3))
   (curl
    (>= 0.10.0))
   (curl_lwt
@@ -94,7 +92,6 @@
    (>= 17.0))
   (trace
    (>= 0.12))
-  (cohttp-lwt :with-test)
   (alcotest :with-test)))
 
 (package

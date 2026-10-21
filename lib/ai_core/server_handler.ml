@@ -303,33 +303,30 @@ let cors_headers =
     "access-control-expose-headers", "x-vercel-ai-ui-message-stream";
   ]
 
-let make_sse_response ?(status = `OK) ?(extra_headers = []) sse_stream =
-  let headers = Ui_message_stream.headers @ extra_headers |> Cohttp.Header.of_list in
-  let body = Cohttp_lwt.Body.of_stream sse_stream in
-  let response = Cohttp.Response.make ~status ~headers () in
-  Lwt.return (response, body)
+type response = {
+  status : int;
+  headers : (string * string) list;
+  body : string Lwt_stream.t;
+}
 
-let handle_cors_preflight _conn _req _body =
-  let headers = Cohttp.Header.of_list cors_headers in
-  let response = Cohttp.Response.make ~status:`No_content ~headers () in
-  Lwt.return (response, Cohttp_lwt.Body.empty)
+let make_sse_response ?(status = 200) ?(extra_headers = []) sse_stream =
+  { status; headers = Ui_message_stream.headers @ extra_headers; body = sse_stream }
+
+let handle_cors_preflight () = { status = 204; headers = cors_headers; body = Lwt_stream.of_list [] }
 
 let handle_chat ~model ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_when ?system ?system_provider_options
-  ?output ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry _conn _req body =
-  let%lwt body_str = Cohttp_lwt.Body.to_string body in
-  let body_json =
-    try Ok (Yojson.Basic.from_string body_str)
-    with Yojson.Json_error msg ->
-      Printf.eprintf "[ai_core] handle_chat: invalid JSON in request body: %s\n%!" msg;
-      Error msg
-  in
-  match body_json with
-  | Error msg ->
-    let status = `Bad_request in
-    let headers = (if cors then cors_headers else []) |> Cohttp.Header.of_list in
-    let body = Cohttp_lwt.Body.of_string (Printf.sprintf {|{"error":"Invalid JSON: %s"}|} msg) in
-    Lwt.return (Cohttp.Response.make ~status ~headers (), body)
-  | Ok body_json ->
+  ?output ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry body =
+  let extra_headers = if cors then cors_headers else [] in
+  match Yojson.Basic.from_string body with
+  | exception Yojson.Json_error msg ->
+    Printf.eprintf "[ai_core] handle_chat: invalid JSON in request body: %s\n%!" msg;
+    let error = `Assoc [ "error", `String ("Invalid JSON: " ^ msg) ] in
+    {
+      status = 400;
+      headers = ("content-type", "application/json") :: extra_headers;
+      body = Lwt_stream.of_list [ Yojson.Basic.to_string error ];
+    }
+  | body_json ->
     let messages = parse_messages_from_body body_json in
     let messages =
       match system with
@@ -344,5 +341,4 @@ let handle_chat ~model ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_
         ?provider_options ?transform ?telemetry ~pending_tool_approvals ()
     in
     let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
-    let extra_headers = if cors then cors_headers else [] in
     make_sse_response ~extra_headers sse_stream

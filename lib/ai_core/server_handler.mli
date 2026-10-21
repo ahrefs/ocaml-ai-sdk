@@ -1,7 +1,30 @@
-(** Convenience handler for building chat API endpoints with cohttp.
+(** Building blocks for chat API endpoints that serve [useChat()].
 
-    Parses the request body as JSON messages, calls [stream_text],
-    and returns an SSE response compatible with [useChat()]. *)
+    {!handle_chat} parses the request body as JSON messages, calls
+    [stream_text], and returns an SSE response. Responses are plain
+    {!response} values that work with any web server. With cohttp, for
+    example:
+
+    {[
+      let respond (r : Ai_core.Server_handler.response) =
+        Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+          ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+      let callback _conn _req body =
+        let%lwt body = Cohttp_lwt.Body.to_string body in
+        respond (Ai_core.Server_handler.handle_chat ~model body)
+    ]} *)
+
+(** An HTTP response for the web server to send.
+
+    [body] yields the response body in chunks. Send each chunk as it arrives:
+    for an SSE response, each chunk is one event, and the client renders it
+    only once it is sent. The stream can be read once. *)
+type response = {
+  status : int;
+  headers : (string * string) list;
+  body : string Lwt_stream.t;
+}
 
 (** Default CORS headers for cross-origin chat endpoints.
     Allows all origins, POST/OPTIONS methods, and exposes the
@@ -30,14 +53,15 @@ val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
     denied tools should produce error results. *)
 val collect_pending_tool_approvals : Yojson.Basic.t -> Generate_text_result.pending_tool_approval list
 
-(** Handle an incoming chat request.
+(** [handle_chat ~model body] handles a chat request whose body is [body].
 
     Expects a v6 JSON body with a ["messages"] array where each message
     has ["role"] and a ["parts"] array of typed content parts.
 
     Returns an SSE response with UIMessage stream protocol v1 headers.
     When [cors] is [true] (the default), CORS headers are included.
-    Returns [400 Bad Request] if the request body is not valid JSON.
+    Returns [400 Bad Request] with a JSON error body if [body] is not valid
+    JSON.
 
     Note: generation parameters like [temperature], [top_p], [max_output_tokens]
     are not exposed here. Pass them via [provider_options] or call
@@ -59,25 +83,20 @@ val handle_chat :
   ?provider_options:Ai_provider.Provider_options.t ->
   ?transform:(Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t) ->
   ?telemetry:Telemetry.t ->
-  Cohttp_lwt_unix.Server.conn ->
-  Cohttp.Request.t ->
-  Cohttp_lwt.Body.t ->
-  (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+  string ->
+  response
 (** [system_provider_options] attaches per-message provider options to the
     [?system] prompt. Use with
     {!Ai_provider_anthropic.Cache_control_options.with_cache_control} to mark
     the system prompt as a cache breakpoint. *)
 
-(** Handle a CORS preflight OPTIONS request.
-    Returns [204 No Content] with CORS headers.
-    Use this for the OPTIONS route matching your chat endpoint. *)
-val handle_cors_preflight :
-  Cohttp_lwt_unix.Server.conn -> Cohttp.Request.t -> Cohttp_lwt.Body.t -> (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+(** The response to a CORS preflight OPTIONS request: [204 No Content] with
+    {!cors_headers} and an empty body. Use it for the OPTIONS route matching
+    your chat endpoint. *)
+val handle_cors_preflight : unit -> response
 
-(** Create an SSE HTTP response from a string stream.
-    Adds UIMessage stream protocol headers automatically. *)
-val make_sse_response :
-  ?status:Cohttp.Code.status_code ->
-  ?extra_headers:(string * string) list ->
-  string Lwt_stream.t ->
-  (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+(** [make_sse_response sse] is a response whose body is the SSE stream [sse],
+    with the UIMessage stream protocol headers followed by [extra_headers].
+
+    @param status Default [200]. *)
+val make_sse_response : ?status:int -> ?extra_headers:(string * string) list -> string Lwt_stream.t -> response

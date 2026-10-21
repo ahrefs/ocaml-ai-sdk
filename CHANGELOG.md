@@ -6,13 +6,29 @@ All notable changes to this project will be documented in this file.
 
 ## 0.7 — 2026-10-19
 
+### Breaking changes
+
+- The package no longer depends on cohttp or `lwt_ssl`. Projects that use
+  them must depend on them directly.
+- `Ai_core.Server_handler` works with any web server instead of cohttp.
+  `handle_chat` takes the request body as a string, and it, `make_sse_response`,
+  `handle_cors_preflight` (now `unit -> response`) and
+  `Ui_message_stream_writer.create_ui_message_stream_response` return a
+  `Server_handler.response` record. `?status` is an integer code. See Core SDK
+  below for the cohttp version of a chat route.
+- `Ai_provider.Http_client` has a new API built on libcurl. See Provider HTTP
+  client below.
+- `Openrouter_api.provider_error_of_http_response` takes an
+  `Http_client.response`.
+- Transport failures fail with `Provider_error` `Network_error` instead of
+  `Unix.Unix_error`.
+
 ### Provider HTTP client (`ai_provider`)
 
 - Provider requests now go through libcurl (`curl` and `curl_lwt`) instead of
-  cohttp. A system libcurl is required, and `lwt_ssl` is no longer a dependency.
-  The chat server handler in `ai_core` still uses cohttp. The provider libraries
-  no longer link `cohttp-lwt-unix`, so a project that used cohttp or `lwt_ssl`
-  only through them must now depend on those packages itself.
+  cohttp. A system libcurl is required. The package no longer depends on
+  cohttp or `lwt_ssl` (see `Server_handler` under Core SDK), so a project that
+  used them only through it must now depend on them itself.
 - `Http_client` has a new API. `post` takes a string URL, header pairs and a
   string body, and returns an abstract `response` read with `status`, `header`
   (case-insensitive), `body_string`, `error_body` and `body_lines`. `body_lines`
@@ -77,6 +93,33 @@ All notable changes to this project will be documented in this file.
 
 ### Core SDK (`ai_core`)
 
+- `Server_handler` no longer depends on cohttp and works with any web server.
+  Its responses are a new `Server_handler.response` record (`status`,
+  `headers` and a `body : string Lwt_stream.t` to send chunk by chunk), which
+  the app sends with its own server:
+  - `handle_chat` takes the request body as a string instead of cohttp's
+    connection, request and body, and returns a `response` instead of
+    `(Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t`.
+  - `handle_cors_preflight` takes `()` and returns a `response`.
+  - `make_sse_response` and
+    `Ui_message_stream_writer.create_ui_message_stream_response` return a
+    `response`, and their `?status` is an integer code.
+
+  With cohttp, a callback that called `handle_chat ~model conn req body`
+  becomes:
+
+  ```ocaml
+  let respond (r : Ai_core.Server_handler.response) =
+    Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+      ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+  let callback _conn _req body =
+    let%lwt body = Cohttp_lwt.Body.to_string body in
+    respond (Ai_core.Server_handler.handle_chat ~model body)
+  ```
+- `handle_chat`'s `400` response to a body that is not JSON now has
+  `content-type: application/json`, and its error message is escaped, so the
+  body is always valid JSON.
 - `stream_text` reports finish reason `error` for a step whose provider stream
   emitted an error, matching upstream `streamText`. It used to report `other`.
   The UI stream's `finish` chunk carries it as `finishReason: "error"`.

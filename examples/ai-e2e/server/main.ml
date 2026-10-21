@@ -239,6 +239,15 @@ let serve_static path =
 
 (* --- HTTP router --- *)
 
+(* Sends an [Ai_core.Server_handler.response] with cohttp. *)
+let respond (r : Ai_core.Server_handler.response) =
+  Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+    ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+let serve_chat handle_chat body =
+  let%lwt body = Cohttp_lwt.Body.to_string body in
+  respond (handle_chat body)
+
 let handler conn req body =
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
@@ -255,25 +264,31 @@ let handler conn req body =
   match meth, path with
   (* CORS preflight *)
   | `OPTIONS, _ when String.length path >= 9 && String.sub path 0 9 = "/api/chat" ->
-    Ai_core.Server_handler.handle_cors_preflight conn req body
+    respond (Ai_core.Server_handler.handle_cors_preflight ())
   (* Chat endpoints *)
-  | `POST, "/api/chat/basic" -> Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
+  | `POST, "/api/chat/basic" -> serve_chat (Ai_core.Server_handler.handle_chat ~model ~system:basic_system) body
   | `POST, "/api/chat/tools" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:tools_system ~tools ~max_steps:5 conn req body
+    serve_chat (Ai_core.Server_handler.handle_chat ~model ~system:tools_system ~tools ~max_steps:5) body
   | `POST, "/api/chat/reasoning" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:reasoning_system ~send_reasoning:true
-      ~provider_options:anthropic_thinking_options ~max_output_tokens:16384 conn req body
+    serve_chat
+      (Ai_core.Server_handler.handle_chat ~model ~system:reasoning_system ~send_reasoning:true
+         ~provider_options:anthropic_thinking_options ~max_output_tokens:16384)
+      body
   | `POST, "/api/chat/structured" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:structured_system ~tools ~max_steps:5 ~output conn req body
+    serve_chat (Ai_core.Server_handler.handle_chat ~model ~system:structured_system ~tools ~max_steps:5 ~output) body
   | `POST, "/api/chat/client-tools" ->
     (* Sonnet for this demo — Haiku struggles with multi-step tool chaining *)
     let client_tools_model = Ai_provider_anthropic.model "claude-sonnet-4-6" in
-    Ai_core.Server_handler.handle_chat ~model:client_tools_model ~system:client_tools_system ~tools:client_tools_list
-      ~max_steps:5 conn req body
+    serve_chat
+      (Ai_core.Server_handler.handle_chat ~model:client_tools_model ~system:client_tools_system ~tools:client_tools_list
+         ~max_steps:5)
+      body
   | `POST, "/api/chat/completion" -> handle_completion ~model conn req body
   | `POST, "/api/chat/approval" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:approval_system ~tools:approval_tools ~max_steps:5 conn req body
-  | `POST, "/api/chat/web-search" -> Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
+    serve_chat
+      (Ai_core.Server_handler.handle_chat ~model ~system:approval_system ~tools:approval_tools ~max_steps:5)
+      body
+  | `POST, "/api/chat/web-search" -> serve_chat (Ai_core.Server_handler.handle_chat ~model ~system:basic_system) body
   (* Static files *)
   | `GET, "/" -> serve_static "index.html"
   | `GET, p when String.length p > 1 -> serve_static (String.sub p 1 (String.length p - 1))
