@@ -3,15 +3,22 @@
 (** How a [stream_text] call ended. *)
 type outcome =
   | Finished of Generate_text_result.t
-    (** The call finished. The result is the one [on_finish] gets, built as
-          [generate_text] builds its result. *)
+    (** The call finished. The result is the one [on_finish] gets. Its
+          [response] and [warnings] are empty, and with pending tool
+          approvals and [max_steps:1] its finish reason can differ from what
+          [generate_text] reports. *)
   | Aborted of {
       steps : Generate_text_result.step list;
       reason : exn option;
     }
     (** The abort signal fired. [steps] are the steps [on_abort] got, and
           [reason] is the signal's {!Ai_provider.Abort_signal.reason}. *)
-  | Failed of exn  (** The call failed with this exception, the one the result promises fail with. *)
+  | Failed of exn
+    (** The call failed with this exception, the one the result promises fail
+          with. It is [Ai_provider.Abort_signal.Aborted] only when the
+          model or a callback raised it while the call's signal had not
+          fired, for example from a timeout of its own. A tool's own
+          [Aborted] is its error result instead. *)
 
 type t = {
   text_stream : string Lwt_stream.t;  (** Just the text deltas. *)

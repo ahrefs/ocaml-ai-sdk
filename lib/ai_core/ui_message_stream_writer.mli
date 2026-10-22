@@ -37,7 +37,9 @@ val merge : t -> Ui_message_chunk.t Lwt_stream.t -> unit
     an [Abort] chunk in place of [Finish], with the reason's
     [Printexc.to_string] when it has one. Upstream sends an [error] chunk
     here. When a merged stream already sent an [Abort] chunk, the writer adds
-    none. See docs/guides/cancellation.md for an [execute] that merges a
+    none. The
+    {{:https://github.com/ahrefs/ocaml-ai-sdk/blob/main/docs/guides/cancellation.md}
+    cancellation guide} has an [execute] that merges a
     {!Stream_text.stream_text} call.
 
     @param message_id Optional message ID included in the [Start] chunk.

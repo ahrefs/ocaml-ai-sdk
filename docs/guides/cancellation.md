@@ -12,10 +12,10 @@ otherwise.
 
 There are two ways to stop a call.
 
-An abort signal, `Ai_provider.Abort_signal.t`, is a `unit Lwt.t` that you pass
-as `~abort_signal` and settle to abort. The SDK hands it to every provider
-request, to the retry loop and to each tool. When it fires, the call reports
-the steps it recorded before failing, so you can still count their usage.
+An abort signal, `Ai_provider.Abort_signal.t`, is something you pass as
+`~abort_signal` and abort later. The SDK hands it to every provider request,
+to the retry loop and to each tool. When it fires, the call reports the steps
+it recorded before failing, so you can still count their usage.
 
 `Lwt.cancel` on the promise that `generate_text` returns also stops the call,
 for example through `Lwt_unix.with_timeout` or `Lwt.pick`. The promise fails
@@ -28,7 +28,7 @@ other model request or tool. A cancel reports no steps.
 | Stops               | `generate_text`, `stream_text`, `handle_chat`            | `generate_text`                        |
 | The call fails with | `Abort_signal.Aborted { reason }`                        | `Lwt.Canceled`                         |
 | Recorded steps      | Passed to `on_abort`, and to `outcome` for `stream_text` | Lost                                   |
-| Running tool        | Gets the signal in `execute_options`                     | Cancelled if its promise is cancelable |
+| Running tool        | Gets the signal; its promise is cancelled                | Its promise is cancelled               |
 
 `stream_text` returns its result at once and has no promise to cancel, so the
 signal is the only way to stop it. Use the signal whenever you need the usage
@@ -49,20 +49,25 @@ let () = abort ~reason:User_pressed_stop ()
 ```
 
 Without `~reason`, the abort function resolves the signal. With one, it fails
-the signal with that exception. Either way the signal has settled when the
-function returns, so `Abort_signal.is_aborted abort_signal` is true right
-after the call. Calling it again does nothing.
+the signal with that exception. Either way, everything waiting on the signal
+has reacted by the time the function returns: hooks have run, races have
+failed, and `Abort_signal.is_aborted abort_signal` is true. Calling it again
+does nothing.
 
 `Abort_signal.reason signal` is the exception the signal failed with, or
 `None` when it resolved, was cancelled or is still pending. The SDK passes it
 on everywhere: in `Aborted { reason }`, in `stream_text`'s `Abort` part and in
 the UI stream's `abort` chunk, where it appears as `Printexc.to_string` text.
+Register a printer for your own reason exceptions with
+`Printexc.register_printer`, or the UI gets OCaml's generic rendering, such
+as `"Dune__exe__Main.User_pressed_stop"`.
 
 ### Timeouts
 
 `Abort_signal.with_timeout after_s f` runs `f signal`, where `signal` fails
 with `Abort_signal.Timeout { after_s }` after `after_s` seconds. The timer is
-cancelled once `f`'s promise settles.
+cancelled once `f`'s promise settles. A zero or negative `after_s` fires at
+once, and `nan` raises `Invalid_argument`.
 
 ```ocaml
 let summarize ~model text =
@@ -88,15 +93,17 @@ let print_story ~model =
     result.outcome)
 ```
 
-### Two traps
+### A signal from a promise
 
-- `Lwt.cancel` does nothing to a promise from `Lwt.wait`. A signal built that
-  way never aborts when you cancel it. Use `create` and its abort function.
-- `Lwt.pick` cancels the promises that lose. A `Lwt.pick [ signal; work ]` in
-  your own code cancels `signal` when `work` finishes first, and when the
-  signal is cancelable, as one from `Lwt.task` is, that aborts every other
-  call using it. Race `Abort_signal.wait signal` instead, which you can cancel
-  without touching the signal, or combine signals with `choose`.
+`Abort_signal.of_promise promise` makes a signal that aborts when `promise`
+settles, for a source that already is a promise. You abort it by settling
+`promise`. `Lwt.cancel` does nothing to a promise from `Lwt.wait`, so
+cancelling one never aborts its signal. Prefer `create`.
+
+`Abort_signal.t` is a private `unit Lwt.t`, so your code can't bind on a
+signal or put it in `Lwt.pick` by accident. `Lwt.pick` cancels the promises
+that lose, which would abort a cancelable signal for every call sharing it.
+Read a signal with `Abort_signal.wait`, `race` or `guard` instead.
 
 ## Combining sources with `choose`
 
@@ -111,21 +118,21 @@ Abort_signal.choose [ deadline; Daemon.wait_exit () ] @@ fun abort_signal ->
 Agent_runner.run ~abort_signal ~model cfg
 ```
 
-`Daemon.wait_exit ()` stands for a signal your app settles when it shuts
-down, and `Agent_runner.run` for your own function that passes `abort_signal`
-to `generate_text` or `stream_text`. When the deadline fires first, the call
+`Daemon.wait_exit ()` stands for a signal your app aborts when it shuts down,
+and `Agent_runner.run` for your own function that passes `abort_signal` to
+`generate_text` or `stream_text`. When the deadline fires first, the call
 fails with `Aborted { reason = Some (Timeout _) }`. When the daemon exits
 first, the reason is whatever the daemon's signal carries. Matching on the
-reason tells the two apart, with no flags of your own.
+reason tells the two apart, with no flags of your own. When several inputs
+have already fired, the first in the list gives the reason, and `choose []`
+never aborts.
 
-The name follows Lwt. `Lwt.choose` waits for the first of several promises
-and never cancels the others. `Lwt.pick` cancels the losers, and here the
-losers are the caller's own signals: picking between a deadline and
-`Daemon.wait_exit ()` would cancel, and so abort, the daemon's signal for
-every other call that uses it, if that signal is cancelable. `choose` never
-cancels its inputs. Unlike `Lwt.choose`, it removes the callbacks it put on
-them once `f`'s promise settles, so a long-lived signal such as the daemon's
-doesn't collect one callback per call.
+The name follows Lwt: like `Lwt.choose`, `choose` never cancels its inputs.
+Unlike it, it removes the callbacks it put on them once `f`'s promise
+settles, so a long-lived signal such as the daemon's doesn't collect one
+callback per call. The combined signal stops following its inputs then, so,
+as with `with_timeout`, work given to `choose` must last until a
+`stream_text` stream ends.
 
 To run your own code when a signal settles, use
 `Abort_signal.with_on_abort signal hook f`. It runs `f ()` with `hook`
@@ -137,67 +144,79 @@ process by default.
 
 A tool's `execute` gets its arguments and a `Core_tool.execute_options`
 record, as upstream's tools get `ToolExecutionOptions`. It holds
-`tool_call_id`, the `messages` the model saw for the step that made the call,
-and the `abort_signal` given to `generate_text` or `stream_text`.
+`tool_call_id`, the step's `messages` without the system prompt, as upstream
+passes them, and the `abort_signal` given to `generate_text` or
+`stream_text`.
 
-The SDK doesn't interrupt a running tool. A tool that ignores the signal runs
-to the end: `generate_text` fails only once it returns, and `stream_text`
-reports the abort at once and drops the tool's late result. A tool that does
-slow work should stop when the signal settles. If its work goes through a
-function that takes a signal, such as `Ai_provider.Http_client.post`, pass the
-signal on. Otherwise race the work against `Abort_signal.wait`:
+Both functions follow one rule: a tool's result counts only if the tool
+returned before the signal fired. No tool starts once the signal has fired.
+When it fires while a tool runs, the call fails at once and cancels the
+tool's promise, even when the tool ignores the signal, and a result the tool
+returns later is dropped.
+
+Cancelling the promise stops work built on cancelable promises, such as
+`Lwt_unix.sleep` or a provider request. Work that ignores `Lwt.cancel` keeps
+running in the background, so a tool that does slow work should stop when
+the signal fires. If its work goes through a function that takes a signal,
+such as `Ai_provider.Http_client.post`, pass the signal on. Otherwise race
+the work against the signal with `Abort_signal.race`:
 
 ```ocaml
 let lookup_order =
   Ai_core.Core_tool.create ~description:"Look up an order" ~parameters:order_schema
-    ~execute:(fun args { Ai_core.Core_tool.abort_signal; _ } ->
-      match abort_signal with
-      | None -> Orders.lookup args
-      | Some signal ->
-        Lwt.pick
-          [
-            Orders.lookup args;
-            (let%lwt () = Ai_provider.Abort_signal.wait signal in
-             Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = Ai_provider.Abort_signal.reason signal }));
-          ])
+    ~execute:(fun args (opts : Ai_core.Core_tool.execute_options) ->
+      Ai_provider.Abort_signal.race opts.abort_signal (fun () -> Orders.lookup args))
     ()
 ```
 
-`Orders.lookup` and `order_schema` stand for your own code. `Lwt.pick` is
-safe here because it cancels the promise from `Abort_signal.wait`, not the
-signal.
+`Orders.lookup` and `order_schema` stand for your own code. `race` fails with
+`Aborted` as soon as the signal fires and cancels the work, and it never
+cancels the signal.
 
-`Core_tool.execute_tool` turns most exceptions from a tool into an error
-result for the model, but a tool that fails with `Lwt.Canceled` or
-`Abort_signal.Aborted` fails the call with it.
+`Core_tool.execute_tool` turns an exception from a tool into an error result
+for the model. That includes an `Aborted` or `Lwt.Canceled` from the tool's
+own work, such as a sub-agent's own timeout, which therefore doesn't fail a
+call that had no signal. Two failures are not the tool's. Once the call's
+signal has fired, any failure of the tool is the abort, so a tool that
+cancels its own work when the signal fires ends the call as an abort. And a
+cancel of the call itself fails it with `Lwt.Canceled`.
 
 ## Accounting for an aborted call
 
 Providers bill for a response even when the call is aborted later. The SDK
-records a step as soon as its model response is complete, so no billed step
-goes missing. That includes the step whose tools were running when the abort
-came. It keeps the results of the tools that returned before the abort, and
-the calls that never ran stay in its `tool_calls` with no result.
-`on_step_finish` is not called for that step, so count usage from `on_abort`,
-not from `on_step_finish`.
+records a step as soon as its model response is complete, so no completed
+step goes missing. That includes the step whose tools were running when the
+abort came. It keeps the results of the tools that returned before the
+signal fired, and its other calls stay in `tool_calls` with no result. A
+response that the abort cuts off mid-stream is billed too, but its usage
+never arrives, so no step records it. `on_step_finish` is not called for a
+step whose tools an abort stopped, so count usage from `on_abort`, not from
+`on_step_finish`.
 
 Both `generate_text` and `stream_text` take
 `?on_abort:(steps:Generate_text_result.step list -> unit)`. It runs once when
 the signal stops the call, with the steps recorded so far, in order, and
 before any result promise fails. `Generate_text_result.total_usage` adds up
-their usage:
+their usage. When a step has no `total_tokens`, the sum's total falls back to
+its input plus output tokens. To use the steps after `generate_text` fails,
+keep them in a ref:
 
 ```ocaml
-let log_aborted_usage ~steps =
-  let usage = Ai_core.Generate_text_result.total_usage steps in
-  Printf.eprintf "aborted after %d input and %d output tokens\n%!" usage.input_tokens usage.output_tokens
-
 let answer ~model ~abort_signal prompt =
-  Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal ~on_abort:log_aborted_usage ()
+  let aborted_steps = ref [] in
+  try%lwt
+    let%lwt result =
+      Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal
+        ~on_abort:(fun ~steps -> aborted_steps := steps)
+        ()
+    in
+    Lwt.return (Ok result)
+  with Ai_provider.Abort_signal.Aborted _ ->
+    Lwt.return (Error (Ai_core.Generate_text_result.total_usage !aborted_steps))
 ```
 
-`on_abort` is not called for `Lwt.cancel` or for a failure other than the
-abort. An exception it raises is ignored.
+`on_abort` is not called for `Lwt.cancel`, once the call has been cancelled,
+or for a failure other than the abort. An exception it raises is ignored.
 
 `stream_text`'s result also has `outcome`, a promise that never fails and
 says how the call ended. It resolves after the other promises have settled:
@@ -206,12 +225,14 @@ says how the call ended. It resolves after the other promises have settled:
 let usage_of_call (result : Ai_core.Stream_text_result.t) =
   match%lwt result.outcome with
   | Ai_core.Stream_text_result.Finished final -> Lwt.return_some final.usage
-  | Aborted { steps; reason = _ } -> Lwt.return_some (Ai_core.Generate_text_result.total_usage steps)
-  | Failed _ -> Lwt.return_none
+  | Ai_core.Stream_text_result.Aborted { steps; reason = _ } ->
+    Lwt.return_some (Ai_core.Generate_text_result.total_usage steps)
+  | Ai_core.Stream_text_result.Failed _ -> Lwt.return_none
 ```
 
 `Finished` holds the same result that `on_finish` gets, and `Aborted` holds
-the steps that `on_abort` got and the signal's reason.
+the steps that `on_abort` got and the signal's reason. `Failed` holds the
+exception the call failed with.
 
 ## What `stream_text` emits on abort
 
@@ -224,9 +245,10 @@ When the signal fires during a `stream_text` call, in this order:
    `"Abort_signal.Timeout(30s)"`. `on_chunk` doesn't get the `Abort` part,
    as upstream's `onChunk` doesn't.
 3. `usage`, `finish_reason`, `steps`, `output` and `provider_metadata` fail
-   with `Aborted { reason }`, even when steps were recorded. Upstream
-   resolves them from the recorded steps in that case; here the steps reach
-   you through `on_abort` and `outcome`.
+   with `Aborted { reason }`, even when steps were recorded. The steps reach
+   you through `on_abort` and `outcome`. Upstream resolves `steps` from the
+   recorded steps in that case, with an empty total usage, and its `onAbort`
+   never sees a step whose tools were running.
 4. `outcome` resolves to `Aborted { steps; reason }`.
 
 After that, no model call, tool or step starts, `on_step_finish` and
@@ -240,11 +262,11 @@ runs with no steps before `stream_text` returns.
 the signal has none, and sends no `finish` chunk. The SSE stream then ends
 with `data: [DONE]`.
 
-`Text_stream_part.is_terminal` is true for `Finish` and `Abort`, the parts
-that end `full_stream`. It is false for `Error`, because a provider can report
-an error inside a step and the step goes on. A consumer that matches `Finish`
-and `Error` and sends everything else to `| _ ->` silently drops an abort. To
-learn how a call ended, wait for `outcome`.
+To learn how a call ended, wait for `outcome`. `Text_stream_part.is_terminal`
+is true for `Finish` and `Abort`, which always come last in `full_stream`. It
+is false for `Error`, because a provider can report an error inside a step
+and the step goes on. A consumer that matches `Finish` and `Error` and sends
+everything else to `| _ ->` silently drops an abort.
 
 ### Inside `Ui_message_stream_writer`
 
@@ -272,8 +294,8 @@ Upstream's createUIMessageStream sends an `error` chunk here instead.
 
 `generate_text` fails with `Aborted` only when the abort stops work the call
 still had to do: a provider request in flight, a tool batch or the next step.
-It fails at once even when the model ignores the signal, because it races the
-model call against the signal. An abort that comes after the final model
+It fails at once even when the model or a tool ignores the signal, because it
+races them against the signal. An abort that comes after the final model
 response, or once `stop_when` is met, stops nothing, and the call returns its
 result, as upstream's generateText does.
 
@@ -309,14 +331,18 @@ connection closes. The SSE stream then ends with an `abort` chunk and
 `data: [DONE]`, and no further model call or tool starts.
 
 A signal may outlive the request, such as one for server shutdown. Once a
-request's stream ends, the SDK removes the callbacks it put on the signal.
+request's stream ends, the SDK removes the callbacks it put on the signal,
+except that a provider request keeps its callback until its transfer ends.
+On abort, that happens at once. After an error, such as a raising telemetry
+integration, a streaming transfer may run on until its body ends.
 
 ## Custom `fetch` functions
 
 A provider `Config` can take a custom `fetch`, mostly for tests. It gets
-`~abort_signal` and should stop when the signal settles. A call whose signal
-settles before or during `fetch` fails with `Aborted`, even when `fetch`
-ignores the signal and returns a value.
+`~abort_signal` and should stop when the signal fires. A call whose signal
+fires before `fetch` fails with `Aborted` without calling it. One whose
+signal fires during `fetch` fails with `Aborted` at once and cancels
+`fetch`'s promise, even when `fetch` ignores the signal.
 
 ## Testing aborts
 

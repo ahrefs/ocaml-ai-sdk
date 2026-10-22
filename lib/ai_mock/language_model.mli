@@ -9,8 +9,9 @@
         Ai_mock.Language_model.(create ~generate:(Return (generate_result [ Text { text = "Hi" } ])) ())
       in
       let%lwt result = Ai_core.Generate_text.generate_text ~model ~prompt:"Hello" () in
-      (* [Ai_mock.Language_model.generate_calls mock] now holds the options of
+      (* [result.text] is "Hi", and [generate_calls mock] holds the options of
          the one call, including the prompt. *)
+      Lwt.return (result.text, Ai_mock.Language_model.generate_calls mock)
     ]} *)
 
 (** What a call returns. ['result] is the model's return type. ['canned] is a
