@@ -66,8 +66,8 @@ All notable changes to this project will be documented in this file.
 - `stream_text`'s `output` and `provider_metadata` fail when the call fails,
   as `usage`, `finish_reason` and `steps` do. They used to resolve to `None`.
 - An exception from `stream_text`'s `on_chunk` on the `Finish` part is
-  ignored, since `Finish` is always the last part. It used to end the stream
-  with an `Error` part and fail the result promises.
+  ignored, since `Finish` is always the last part. It used to add an `Error`
+  part after `Finish` and fail `usage`, `finish_reason` and `steps`.
 
 ### Provider HTTP client (`ai_provider`)
 
@@ -312,9 +312,10 @@ All notable changes to this project will be documented in this file.
   chunk that comes after the stream closed is now dropped.
 - A chunk written while the writer's `on_finish` runs is now dropped rather
   than sent after `finish`. The stream still closes only after `on_finish`
-  returns. A merged stream's failure is now formatted by `on_error` too, and
-  when `on_error` itself raises the error chunk reads "An error occurred."
-  instead of the original exception text.
+  returns. A merged stream's failure is now formatted by `on_error` too.
+  When `on_error` itself raises, the error chunk reads "An error occurred."
+  and the stream ends normally. The exception used to escape to
+  `Lwt.async_exception_hook`, and the stream never closed.
 - `Prompt_builder.make_call_options` takes `?abort_signal`.
 - `Server_handler.handle_chat` takes `?abort_signal`, which aborts the
   request: the SSE stream ends with an `abort` chunk and `data: [DONE]`. To
