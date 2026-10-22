@@ -2310,9 +2310,7 @@ let () =
           test_case "aborted_before_any_step" `Quick (run_lwt test_outcome_aborted_before_any_step);
           test_case "failed" `Quick (run_lwt test_outcome_failed);
           test_case "on_abort_before_promises_settle" `Quick (run_lwt test_on_abort_before_promises_settle);
-        ] );
-      ( "terminal_parts",
-        [
-          test_case "provider_error_part_does_not_end_stream" `Quick (run_lwt test_provider_error_part_does_not_end_stream);
+          test_case "provider_error_part_does_not_end_stream" `Quick
+            (run_lwt test_provider_error_part_does_not_end_stream);
         ] );
     ]
