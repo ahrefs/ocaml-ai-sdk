@@ -20,10 +20,6 @@ All notable changes to this project will be documented in this file.
   `curl` package pulls in `conf-libcurl`, which checks for them.
 - `Ai_provider.Http_client` has a new API built on libcurl. See Provider HTTP
   client below.
-- OpenRouter's `stream` reports a failure before the first completion chunk
-  as an in-band `Error` part instead of failing the call. `stream_text` no
-  longer retries such a failure, and the call ends normally with finish reason
-  `error`.
 - `Provider_error.error_kind` has a new `Unexpected_error` constructor, so
   exhaustive matches on it need a new case.
 - `Openrouter_api.provider_error_of_http_response` takes an
@@ -47,8 +43,7 @@ All notable changes to this project will be documented in this file.
   send, receive, empty-reply, truncated-body, timeout and HTTP/2 failures are
   marked retryable. A failed TLS handshake is not.
 - A transfer option that libcurl rejects, such as a URL over its 8 MB string
-  limit, fails with a non-retryable `Network_error` instead of raising
-  `Curl.CurlException`.
+  limit, fails with a non-retryable `Network_error`.
 - Only `http` and `https` URLs are accepted, whatever protocols the system
   libcurl was built with.
 - TLS certificates are verified against the system libcurl's default CA file
@@ -73,10 +68,10 @@ All notable changes to this project will be documented in this file.
   `Accept: */*`, and over HTTPS uses HTTP/2 when the provider offers it and the
   system libcurl supports it. A header with an empty value goes out as
   `Name;`, libcurl's form for an empty header.
-- An error response (status 400 or above) whose body stalls or breaks off now
+- An error response (status 400 or above) whose body stalls or breaks off
   still fails with the provider's API error, keeping the status and the
-  `retry-after` headers, instead of a network error or idle timeout. The error
-  body is read for at most 10 seconds and 64 KiB.
+  `retry-after` headers. The error body is read for at most 10 seconds and
+  64 KiB, so a stalled error body no longer hangs the call.
 - As with cohttp, requests never go through a proxy: libcurl's use of the
   `http_proxy`, `https_proxy` and `all_proxy` environment variables is turned
   off.
@@ -87,10 +82,11 @@ All notable changes to this project will be documented in this file.
   `Provider_error`. It used to close silently and re-raise to
   `Lwt.async_exception_hook`, whose default handler exits the process.
   OpenRouter's `stream` reports a failure before the first completion chunk
-  the same way, instead of failing the call.
-  `body_lines` and `Sse.parse_events` read on demand, and a failed read fails
-  with the error. The idle timer runs only while a read is waiting, so a
-  `body_lines` stream that nobody reads is no longer timed out.
+  the same way. `body_lines` and `Sse.parse_events` read on demand, and a
+  failed read fails with the error. The idle timer runs only while a read is
+  waiting, so a stream that nobody reads is not timed out.
+  `wrap_body_with_idle_timeout` timed out a stalled connection whether or not
+  anyone read the stream.
 - New `Stream_pump.pump` runs a provider's per-event converter in the
   background and always closes the output. An event whose JSON fails to decode
   (any Yojson or melange-json decode exception) becomes a
