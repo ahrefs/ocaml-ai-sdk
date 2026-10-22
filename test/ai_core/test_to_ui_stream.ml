@@ -254,6 +254,31 @@ let test_tool_output_denied () =
   in
   (check bool) "no Tool_output_error" false has_error
 
+let error_texts chunks =
+  List.filter_map
+    (function
+      | Ai_core.Ui_message_chunk.Error { error_text } -> Some error_text
+      | _ -> None)
+    chunks
+
+(* The [error] chunk's text is [Printexc.to_string] of the part's error: a
+   provider error's [Provider_error.to_string], and a failed call's
+   exception. *)
+let test_error_text () =
+  let error = Ai_provider.Provider_error.make_api_error ~provider:"mock" ~status:500 ~body:"boom" () in
+  let model = make_parts_stream_model [ Stream_start { warnings = [] }; Error { error }; finish_part 1 1 ] in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" () in
+  let ui_chunks = Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream result)) in
+  (check (list string)) "provider error" [ "[mock] API error (HTTP 500): boom" ] (error_texts ui_chunks);
+  let model, (_ : Ai_mock.Language_model.t) =
+    Ai_mock.Language_model.create
+      ~stream:(Respond (fun (_ : Ai_provider.Call_options.t) -> Lwt.fail_with "provider down"))
+      ()
+  in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0 () in
+  let ui_chunks = Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream result)) in
+  (check (list string)) "failed call" [ {|Failure("provider down")|} ] (error_texts ui_chunks)
+
 let () =
   run "To_ui_stream"
     [
@@ -265,5 +290,6 @@ let () =
           test_case "reasoning_included" `Quick test_reasoning_included;
           test_case "tool_approval_request" `Quick test_tool_approval_request;
           test_case "tool_output_denied" `Quick test_tool_output_denied;
+          test_case "error_text" `Quick test_error_text;
         ] );
     ]

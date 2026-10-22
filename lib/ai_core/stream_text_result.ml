@@ -78,7 +78,7 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
           | Finish_step _ -> push (Some Ui_message_chunk.Finish_step)
           | Finish { finish_reason; usage = _ } ->
             push (Some (Ui_message_chunk.Finish { finish_reason = Some finish_reason; message_metadata = None }))
-          | Error { error } -> push (Some (Ui_message_chunk.Error { error_text = error }))
+          | Error { error } -> push (Some (Ui_message_chunk.Error { error_text = Printexc.to_string error }))
           | Abort { reason } -> push (Some (Ui_message_chunk.Abort { reason })))
         result.full_stream
     in

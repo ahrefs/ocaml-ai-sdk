@@ -63,13 +63,16 @@ type t =
       finish_reason : Ai_provider.Finish_reason.t;
       usage : Ai_provider.Usage.t;
     }  (** The call finished. It is the last part of the stream. *)
-  | Error of { error : string }
-    (** An error. When the call fails, it is the last part of the stream.
-          A provider reports some errors inside a step's stream, and those
-          do not end the call: the step goes on, so more parts follow, such
-          as its [Finish_step]. An [Error] part therefore does not say
-          whether the call is over. [Stream_text_result.outcome] tells how
-          the call ended. *)
+  | Error of { error : exn }
+    (** An error. When the call fails, it is the last part of the stream,
+          and [error] is the exception the call failed with. A provider
+          reports some errors inside a step's stream, as
+          [Ai_provider.Provider_error.Provider_error], and those do not end
+          the call: the step goes on, so more parts follow, such as its
+          [Finish_step]. An [Error] part therefore does not say whether the
+          call is over. [Stream_text_result.outcome] tells how the call
+          ended. [Printexc.to_string error] is the text that
+          [Stream_text_result.to_ui_message_stream] sends. *)
   | Abort of { reason : string option }
     (** The caller's abort signal fired. It is the last part of the stream:
           no [Finish_step] or [Finish] follows. [reason] is the signal's

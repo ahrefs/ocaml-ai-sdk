@@ -2159,6 +2159,45 @@ let test_provider_error_part_does_not_end_stream () =
     | Lwt.Return (Aborted _ | Failed _) | Lwt.Fail _ | Lwt.Sleep -> false);
   Lwt.return_unit
 
+(* The [Error] part of a provider error inside a step carries the provider's
+   [Provider_error], so its fields can be read. *)
+let test_provider_error_part_carries_error () =
+  let error = Ai_provider.Provider_error.make_api_error ~provider:"mock" ~status:429 ~body:"slow down" () in
+  let model, (_ : Mock.t) =
+    Mock.create ~stream:(Return [ stream_start; Error { error }; finish_part (tokens 1 1) ]) ()
+  in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" () in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let errors =
+    List.filter_map
+      (function
+        | Ai_core.Text_stream_part.Error { error } -> Some error
+        | _ -> None)
+      (Option.value ~default:[] parts)
+  in
+  (match errors with
+  | [ Ai_provider.Provider_error.Provider_error { provider; kind = Api_error { status; body }; is_retryable; _ } ] ->
+    (check string) "provider" "mock" provider;
+    (check int) "status" 429 status;
+    (check string) "body" "slow down" body;
+    (check bool) "retryable" true is_retryable
+  | _ -> fail "expected one Error part with an Api_error");
+  Lwt.return_unit
+
+(* A failed call's last part carries the exception the call failed with,
+   the one [outcome] holds. *)
+let test_failed_call_error_part () =
+  let model = make_failing_stream_model ~after_abort:false "provider down" in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0 () in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt () = Lwt.pause () in
+  (check bool) "last part holds the outcome's exception" true
+    (match Option.map List.rev parts, Lwt.state result.outcome with
+    | Some (Error { error = Failure message as error } :: _), Lwt.Return (Failed exn) ->
+      String.equal message "provider down" && error == exn
+    | (Some _ | None), _ -> false);
+  Lwt.return_unit
+
 (* on_abort runs before any result promise rejects and before [outcome]
    resolves. The abort hook runs inside an Lwt callback, which defers the
    promises' callbacks anyway, so on_abort also checks that each promise is
@@ -2312,5 +2351,7 @@ let () =
           test_case "on_abort_before_promises_settle" `Quick (run_lwt test_on_abort_before_promises_settle);
           test_case "provider_error_part_does_not_end_stream" `Quick
             (run_lwt test_provider_error_part_does_not_end_stream);
+          test_case "provider_error_part_carries_error" `Quick (run_lwt test_provider_error_part_carries_error);
+          test_case "failed_call_error_part" `Quick (run_lwt test_failed_call_error_part);
         ] );
     ]

@@ -172,7 +172,7 @@ let consume_provider_stream ?abort_signal ?(on_text_accumulated = fun (_ : strin
           on_finish (response ())
         | Error { error } ->
           finish_reason := Ai_provider.Finish_reason.Error;
-          emit (Text_stream_part.Error { error = Ai_provider.Provider_error.to_string error })
+          emit (Text_stream_part.Error { error = Ai_provider.Provider_error.Provider_error error })
         | File _ | Source _ -> ())
       provider_stream
   in
@@ -392,7 +392,7 @@ end = struct
     | Finished | Failed | Aborted -> ()
     | Running ->
       t.state <- Failed;
-      push_ignoring_errors t (Text_stream_part.Error { error = Printexc.to_string exn });
+      push_ignoring_errors t (Text_stream_part.Error { error = exn });
       close t;
       reject t exn ~outcome:(Stream_text_result.Failed exn)
 
@@ -897,7 +897,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       text_push None;
       Lwt.return_unit
     with exn ->
-      consumer_full_push (Some (Text_stream_part.Error { error = Printexc.to_string exn }));
+      consumer_full_push (Some (Text_stream_part.Error { error = exn }));
       consumer_full_push None;
       text_push None;
       Lwt.return_unit);

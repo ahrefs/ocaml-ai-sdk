@@ -66,6 +66,15 @@ All notable changes to this project will be documented in this file.
   `~abort_signal:Ai_provider.Abort_signal.t option` before `~url`.
 - `Text_stream_part.t` has a new `Abort` constructor, so exhaustive matches on
   it need a new case.
+- `Text_stream_part.Error` carries the exception, `error : exn`, instead of
+  its text. `Printexc.to_string error` gives the text it carried before. A
+  provider error inside a step is `Provider_error.Provider_error err`, so a
+  match on that reads `err`'s provider, kind and retryability, and an API
+  error's status. The `Error` part that ends a failed call carries the
+  exception the call failed with. `on_chunk` gets the same parts, and the
+  `Error` part `Smooth_stream` adds when it fails carries its exception. Code
+  that builds an `Error` part, such as a `transform`, passes
+  an exception. The `error` chunk from `to_ui_message_stream` keeps its text.
 - `Stream_text_result.t` has a new `outcome` field, so code that builds the
   record needs it.
 - `stream_text`'s `output` and `provider_metadata` fail when the call fails,
