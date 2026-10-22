@@ -50,9 +50,11 @@ All notable changes to this project will be documented in this file.
   `Lwt.Canceled`, instead of returning an error result. A tool's own
   `Aborted` or `Canceled` is still an error result.
 - `Lwt.cancel` on the promise from `generate_text` fails the call with
-  `Lwt.Canceled` and stops it. It used to reach the running tool, become
-  that tool's error result, and send the next model request. See Core SDK
-  below.
+  `Lwt.Canceled` and stops it. A cancel while a tool ran used to become that
+  tool's error result and send the next model request. A `with exn ->`
+  handler around `generate_text` now sees `Lwt.Canceled` for every cancel,
+  not only for one that landed during a model request, and should re-raise
+  it. The compiler can't find such handlers. See Core SDK below.
 - `Call_options.abort_signal` is now an `Abort_signal.t option`, a private
   `unit Lwt.t`. Wrap a promise you used as a signal with
   `Abort_signal.of_promise`, or make the signal with `Abort_signal.create`
