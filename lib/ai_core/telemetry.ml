@@ -410,28 +410,30 @@ let clear_global_integrations () = global_integrations := []
 
 let all_integrations t = List.rev !global_integrations @ t.integrations
 
+(* A cancel of the call, or an abort, which the tool batch's race turns into
+   a cancel, can land in a callback while it runs. The integrations after it
+   are then skipped, so none hears of a tool that never runs. The call checks
+   for its own cancel and abort after the notification returns. *)
 let notify_all t extract_callback event =
   match t.enabled with
   | false -> Lwt.return_unit
   | true ->
-    let integrations = all_integrations t in
-    Lwt_list.iter_s
-      (fun integration ->
-        match extract_callback integration with
-        | None -> Lwt.return_unit
-        | Some callback ->
-          Lwt.catch
-            (fun () -> callback event)
-            (function
-              (* A cancel of the call can land here while the callback runs.
-                 The call checks for its own cancel and abort after the
-                 callback returns, so the callback's failure, like any other,
-                 does not end the call. *)
-              | Lwt.Canceled -> Lwt.return_unit
-              | exn ->
-                Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
-                Lwt.return_unit))
-      integrations
+    let rec notify = function
+      | [] -> Lwt.return_unit
+      | integration :: rest ->
+      match extract_callback integration with
+      | None -> notify rest
+      | Some callback ->
+        Lwt.try_bind
+          (fun () -> callback event)
+          (fun () -> notify rest)
+          (function
+            | Lwt.Canceled -> Lwt.return_unit
+            | exn ->
+              Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
+              notify rest)
+    in
+    notify (all_integrations t)
 
 let notify_on_start t event = notify_all t (fun i -> i.on_start) event
 let notify_on_step_finish t event = notify_all t (fun i -> i.on_step_finish) event

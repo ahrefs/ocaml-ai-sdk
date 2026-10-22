@@ -56,6 +56,14 @@ let test_add_usage_no_total () =
   (check int) "output" 15 sum.output_tokens;
   (check (option int)) "total" (Some 45) sum.total_tokens
 
+(* Only one side has a total. The other counts as its input plus output, so
+   the order does not matter. *)
+let test_add_usage_one_total () =
+  let a : Ai_provider.Usage.t = { input_tokens = 10; output_tokens = 5; total_tokens = Some 20 } in
+  let b : Ai_provider.Usage.t = { input_tokens = 20; output_tokens = 10; total_tokens = None } in
+  (check (option int)) "a + b" (Some 50) (Ai_core.Generate_text_result.add_usage a b).total_tokens;
+  (check (option int)) "b + a" (Some 50) (Ai_core.Generate_text_result.add_usage b a).total_tokens
+
 let step_with_usage (usage : Ai_provider.Usage.t) : Ai_core.Generate_text_result.step =
   {
     text = "";
@@ -98,9 +106,10 @@ let test_total_usage_missing_total () =
         { input_tokens = 1; output_tokens = 2; total_tokens = Some 4 };
       ]
   in
-  (* As in [add_usage], a step with no total resets the total to input plus
-     output so far (45). The next step's total is added to that. *)
-  check_usage ~input:31 ~output:17 ~total:(Some 49) (Ai_core.Generate_text_result.total_usage steps)
+  (* As in [add_usage], the step with no total counts as its input plus
+     output (30), so the total is 100 + 30 + 4 in either order. *)
+  check_usage ~input:31 ~output:17 ~total:(Some 134) (Ai_core.Generate_text_result.total_usage steps);
+  check_usage ~input:31 ~output:17 ~total:(Some 134) (Ai_core.Generate_text_result.total_usage (List.rev steps))
 
 let test_step_construction () =
   let step : Ai_core.Generate_text_result.step =
@@ -176,6 +185,7 @@ let () =
         [
           test_case "add_usage" `Quick test_add_usage;
           test_case "add_usage_no_total" `Quick test_add_usage_no_total;
+          test_case "add_usage_one_total" `Quick test_add_usage_one_total;
           test_case "total_usage_empty" `Quick test_total_usage_empty;
           test_case "total_usage_steps" `Quick test_total_usage_steps;
           test_case "total_usage_missing_total" `Quick test_total_usage_missing_total;

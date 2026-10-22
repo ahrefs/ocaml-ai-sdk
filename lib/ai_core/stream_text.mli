@@ -21,7 +21,8 @@
       model call, tool or step starts after the abort, no further provider
       part is processed, even from a model that ignores the signal, and
       [on_step_finish] and [on_finish] are not called. A tool's result counts
-      only if the tool returned before the signal fired. A signal that has
+      only if its [execute] returned before the signal fired, even when the
+      abort comes from [on_chunk] on its [Tool_result] part. A signal that has
       already fired gives a stream holding [Start] then [Abort] without
       calling the model. [stream_text] returns no promise for [Lwt.cancel] to
       act on, so the signal is the only way to stop it.
@@ -30,8 +31,8 @@
       An exception it raises ends the call like any other error: an [Error]
       part follows and the result promises fail with it. Exceptions it
       raises on the [Error] part are ignored. The call has already ended when
-      it gets the [Finish] part, so an exception from it then goes to
-      [Lwt.async_exception_hook], and an abort from it does nothing.
+      it gets the [Finish] part, so an exception or an abort from it then
+      does nothing.
     @param on_step_finish Called after the step's [Finish_step] part is
       pushed, as upstream does.
     @param on_finish Called after the streams close and the result promises

@@ -49,16 +49,16 @@ let join_text steps =
 let join_reasoning steps =
   steps |> List.map (fun (s : step) -> s.reasoning) |> List.filter (fun s -> String.length s > 0) |> String.concat "\n"
 
+(* A side with no total counts as its input plus output, so the sum does not
+   depend on the order. *)
 let add_usage (a : Ai_provider.Usage.t) (b : Ai_provider.Usage.t) : Ai_provider.Usage.t =
-  let input_tokens = a.input_tokens + b.input_tokens in
-  let output_tokens = a.output_tokens + b.output_tokens in
+  let total (usage : Ai_provider.Usage.t) =
+    Option.value usage.total_tokens ~default:(usage.input_tokens + usage.output_tokens)
+  in
   {
-    input_tokens;
-    output_tokens;
-    total_tokens =
-      (match a.total_tokens, b.total_tokens with
-      | Some x, Some y -> Some (x + y)
-      | _ -> Some (input_tokens + output_tokens));
+    input_tokens = a.input_tokens + b.input_tokens;
+    output_tokens = a.output_tokens + b.output_tokens;
+    total_tokens = Some (total a + total b);
   }
 
 let zero_usage : Ai_provider.Usage.t = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }

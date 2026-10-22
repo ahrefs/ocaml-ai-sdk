@@ -906,17 +906,21 @@ let test_abort_before_pending_approval () =
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
     { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc []; approved = true }
   in
+  let aborted_steps = ref None in
   let outcome =
     generate_outcome (fun () ->
       Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
         ~tools:[ "search", tool ]
         ~pending_tool_approvals:[ pending ] ~max_steps:3
         ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
+        ~on_abort:(fun ~steps -> aborted_steps := Some (List.length steps))
         ())
   in
   (check string) "outcome" "aborted" outcome;
   (check int) "tool never runs" 0 !runs;
-  (check int) "model never called" 0 (model_calls mock)
+  (check int) "model never called" 0 (model_calls mock);
+  (* As in [stream_text], no step is recorded. *)
+  (check (option int)) "on_abort steps" (Some 0) !aborted_steps
 
 let ids_of_calls = List.map (fun (tc : Ai_core.Generate_text_result.tool_call) -> tc.tool_call_id)
 let ids_of_results = List.map (fun (tr : Ai_core.Generate_text_result.tool_result) -> tr.tool_call_id)
@@ -1047,6 +1051,88 @@ let test_abort_skips_tool_call_start () =
     run_abort_in_tool ~telemetry ~abort_in:"tc_1" ()
   in
   (check (list string)) "tool call starts" [ "tc_1" ] (List.rev !started)
+
+(* Telemetry fires the signal while it reports the first tool's result. The
+   tool returned before that, so its result counts, and the second tool
+   never runs. *)
+let test_abort_in_tool_call_finish_keeps_result () =
+  let model, (_ : Mock.t) = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let integration =
+    {
+      Ai_core.Telemetry.no_integration with
+      on_tool_call_finish =
+        Some
+          (fun e ->
+            if String.equal e.tool_call_id "tc_1" then abort ();
+            Lwt.return_unit);
+    }
+  in
+  let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ integration ] () in
+  let runs = ref 0 in
+  let aborted_steps = ref None in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", counting_search_tool runs ]
+        ~telemetry ~max_steps:3 ~abort_signal:signal
+        ~on_abort:(fun ~steps -> aborted_steps := Some steps)
+        ())
+  in
+  (check string) "outcome" "aborted" outcome;
+  (check int) "tool runs" 1 !runs;
+  check_aborted_step
+    ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
+    ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] !aborted_steps
+
+(* The first integration's on_tool_call_start outlasts a cancel or an abort
+   at 0.05 s. The call ends at once, the second integration hears nothing,
+   and the tool never runs. *)
+let test_telemetry_stops_after_cancel_or_abort () =
+  let run ?abort_signal wrap =
+    let second = ref [] in
+    let slow = { Ai_core.Telemetry.no_integration with on_tool_call_start = Some (fun _ -> Lwt_unix.sleep 0.1) } in
+    let recording =
+      {
+        Ai_core.Telemetry.no_integration with
+        on_tool_call_start =
+          Some
+            (fun _ ->
+              second := "start" :: !second;
+              Lwt.return_unit);
+        on_tool_call_finish =
+          Some
+            (fun _ ->
+              second := "finish" :: !second;
+              Lwt.return_unit);
+      }
+    in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ slow; recording ] () in
+    let model, (_ : Mock.t) = make_abort_tool_model () in
+    let runs = ref 0 in
+    let started = Unix.gettimeofday () in
+    let outcome =
+      generate_outcome (fun () ->
+        wrap (fun () ->
+          Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+            ~tools:[ "search", counting_search_tool runs ]
+            ~telemetry ~max_steps:3 ?abort_signal ()))
+    in
+    let elapsed = Unix.gettimeofday () -. started in
+    (* Let the slow callback's sleep run out. *)
+    Lwt_main.run (Lwt_unix.sleep 0.1);
+    outcome, elapsed, List.rev !second, !runs
+  in
+  let check_run name (outcome, elapsed, second, runs) expected =
+    (check string) (name ^ ": outcome") expected outcome;
+    (check bool) (Printf.sprintf "%s: ends at once (%.2f s)" name elapsed) true (elapsed < 0.09);
+    (check (list string)) (name ^ ": second integration") [] second;
+    (check int) (name ^ ": tool runs") 0 runs
+  in
+  check_run "cancel" (run (fun f -> Lwt_unix.with_timeout 0.05 f)) "Lwt_unix.Timeout";
+  check_run "abort"
+    (run ~abort_signal:(Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.05)) (fun f -> f ()))
+    "aborted"
 
 (* An exception from on_abort is ignored, and the call fails with [Aborted]. *)
 let test_on_abort_raises () =
@@ -1467,6 +1553,45 @@ let test_cancel_with_signal_and_model_ignoring_it () =
       ~max_steps:3 ~abort_signal:signal ());
   (check bool) "signal still pending" false (Ai_provider.Abort_signal.is_aborted signal)
 
+(* A model whose own abort hook, attached after a pause, fails the request
+   with [exn] before the call's race sees the signal. *)
+let make_model_failing_on_abort exn =
+  Mock.create
+    ~generate:
+      (Respond
+         (fun (options : Ai_provider.Call_options.t) ->
+           let response, resolver = Lwt.wait () in
+           let%lwt () = Lwt.pause () in
+           match options.abort_signal with
+           | None -> response
+           | Some signal ->
+             Ai_provider.Abort_signal.with_on_abort signal (fun () -> Lwt.wakeup_exn resolver exn) (fun () -> response)))
+    ()
+
+(* Once the call's signal has fired, whatever the model fails with is the
+   abort: the call fails with [Aborted] and [on_abort] is called. *)
+let test_abort_with_model_failing_otherwise () =
+  List.iter
+    (fun exn ->
+      let model, (_ : Mock.t) = make_model_failing_on_abort exn in
+      let aborted_steps = ref None in
+      let outcome =
+        generate_outcome (fun () ->
+          Ai_provider.Abort_signal.with_timeout 0.05 (fun abort_signal ->
+            Ai_core.Generate_text.generate_text ~model ~prompt:"Hello" ~abort_signal
+              ~on_abort:(fun ~steps -> aborted_steps := Some (List.length steps))
+              ()))
+      in
+      let name = Printexc.to_string exn in
+      (check string) (name ^ ": outcome") "aborted" outcome;
+      (check (option int)) (name ^ ": on_abort") (Some 0) !aborted_steps)
+    [
+      Failure "socket closed";
+      Lwt.Canceled;
+      Ai_provider.Provider_error.Provider_error
+        { provider = "p"; kind = Network_error { message = "reset" }; is_retryable = false; retry_after_s = None };
+    ]
+
 (* on_abort runs, with the step whose tool fired the signal, before the
    returned promise fails. *)
 let test_on_abort_before_failure () =
@@ -1550,6 +1675,8 @@ let () =
           test_case "in_tool_at_depth_1" `Quick test_abort_in_tool_at_depth_1;
           test_case "in_last_tool_with_stop_when" `Quick test_abort_in_last_tool_with_stop_when;
           test_case "skips_tool_call_start" `Quick test_abort_skips_tool_call_start;
+          test_case "in_tool_call_finish_keeps_result" `Quick test_abort_in_tool_call_finish_keeps_result;
+          test_case "telemetry_stops_after_cancel_or_abort" `Quick test_telemetry_stops_after_cancel_or_abort;
           test_case "on_abort_raises" `Quick test_on_abort_raises;
           test_case "tool_own_timeout_is_error_result" `Quick test_tool_own_timeout_is_error_result;
           test_case "tool_cancelling_itself" `Quick test_tool_cancelling_itself_on_abort;
@@ -1564,6 +1691,7 @@ let () =
           test_case "cancel_with_uncancelable_model" `Quick test_cancel_with_uncancelable_model;
           test_case "model_ignoring_signal" `Quick test_abort_with_model_ignoring_signal;
           test_case "cancel_with_signal_and_model_ignoring_it" `Quick test_cancel_with_signal_and_model_ignoring_it;
+          test_case "model_failing_otherwise" `Quick test_abort_with_model_failing_otherwise;
         ] );
       ( "retry",
         [

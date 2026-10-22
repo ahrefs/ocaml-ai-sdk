@@ -15,10 +15,13 @@
       {!Core_tool.execute_options}. Once it has fired, no model call, tool or
       step starts, approved pending tools included, and the call fails with
       [Ai_provider.Abort_signal.Aborted] at once, even when the model or a
-      tool ignores the signal. An abort that comes after the final model
+      tool ignores the signal. Any failure after the signal fired, such as a
+      model's own [Lwt.Canceled], fails the call with that [Aborted] and
+      calls [on_abort]. An abort that comes after the final model
       response, or once [stop_when] is met, stops nothing, and the call
-      returns its result. A tool's result counts only if the tool returned
-      before the signal fired. A step whose model response came back is
+      returns its result. A tool's result counts only if its [execute]
+      returned before the signal fired, even when the abort comes while the
+      result is being reported. A step whose model response came back is
       recorded with those results, and its other calls stay in [tool_calls]
       with no result. [on_step_finish] is not called for a step whose tools
       an abort stopped.

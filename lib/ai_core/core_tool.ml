@@ -65,11 +65,9 @@ let execute_tool ?abort_signal ~tools ~messages ~tool_call_id ~tool_name ~args (
          let%lwt result = exec args { tool_call_id; messages; abort_signal } in
          Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
        with exn ->
-         (match abort_signal with
-         (* Once the call's signal has fired, any failure is the abort. *)
-         | Some signal when Ai_provider.Abort_signal.is_aborted signal ->
-           Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = Ai_provider.Abort_signal.reason signal })
-         | Some _ | None ->
+         (match Call_signal.aborted abort_signal with
+         | Some aborted -> Lwt.fail aborted
+         | None ->
            Lwt.return
              {
                Generate_text_result.tool_call_id;

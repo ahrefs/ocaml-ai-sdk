@@ -239,8 +239,7 @@ module Ending : sig
       closes the streams, resolves the promises from the result and resolves
       [outcome] to [Finished]. True when this ended the call. The call has
       ended before [on_chunk] gets the [Finish] part, so an abort from it
-      does nothing, and an exception from it goes to
-      [Lwt.async_exception_hook]. *)
+      does nothing, and an exception from it is ignored. *)
   val finish : t -> Generate_text_result.t -> bool
 
   (** Ends a running call with an [Error] part, fails the promises with the
@@ -368,10 +367,9 @@ end = struct
     | Running ->
       t.state <- Finished;
       let part = Text_stream_part.Finish { finish_reason = result.finish_reason; usage = result.usage } in
-      t.full_push (Some part);
       (* [Finish] is the last part, so an exception from [on_chunk] can no
          longer become an [Error] part. Upstream never calls onChunk for it. *)
-      (try Option.iter (fun f -> f part) t.on_chunk with exn -> !Lwt.async_exception_hook exn);
+      push_ignoring_errors t part;
       close t;
       (* Surface the last step's provider metadata as the call-level value,
          matching upstream's [streamText] which exposes [providerMetadata]
@@ -506,10 +504,11 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         Option.iter (fun f -> f step) on_step_finish;
         Lwt.return_unit)
     in
-    let execute_and_emit ~messages (tc : Generate_text_result.tool_call) =
-      let%lwt tr =
-        Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
-          ~args:tc.args ()
+    let execute_and_emit ~messages (tc : Generate_text_result.tool_call) ~execute =
+      let%lwt (tr : Generate_text_result.tool_result) =
+        execute (fun () ->
+          Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+            ~args:tc.args ())
       in
       emit_event
         (Text_stream_part.Tool_result
@@ -520,9 +519,9 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
              is_error = tr.is_error;
              provider_metadata = tr.provider_metadata;
            });
-      Lwt.return tr
+      Lwt.return_unit
     in
-    let execute_tool_with_telemetry ~step_num ~messages (tc : Generate_text_result.tool_call) =
+    let execute_tool_with_telemetry ~step_num ~messages (tc : Generate_text_result.tool_call) ~execute =
       Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
         match telemetry with
         | Some t ->
@@ -544,9 +543,10 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             })
       in
       let t0 = Unix.gettimeofday () in
-      let%lwt tr =
-        Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
-          ~args:tc.args ()
+      let%lwt (tr : Generate_text_result.tool_result) =
+        execute (fun () ->
+          Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+            ~args:tc.args ())
       in
       let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
       let%lwt () =
@@ -580,26 +580,26 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
              is_error = tr.is_error;
              provider_metadata = tr.provider_metadata;
            });
-      Lwt.return tr
+      Lwt.return_unit
     in
     (* Runs a step's tools one after another. [step_with] builds the step from
        the results so far, and that step stays the step in progress for
-       [on_abort] as each result arrives. *)
+       [on_abort] as each result arrives, before its part is emitted. *)
     let run_tool_batch ~step_with run calls =
       let results = ref [] in
       Ending.set_step_in_progress ending (step_with []);
       Tool_batch.run ~abort_signal
-        (fun call ->
-          let%lwt result = run call in
-          results := result :: !results;
-          Ending.set_step_in_progress ending (step_with (List.rev !results));
-          Lwt.return result)
+        (fun call ~execute ->
+          run call ~execute:(fun work ->
+            let%lwt result = execute work in
+            results := result :: !results;
+            Ending.set_step_in_progress ending (step_with (List.rev !results));
+            Lwt.return result))
         calls
     in
     (* [Ending.finish] ends the call, so an exception from [on_chunk] on the
-       [Finish] part goes to [Lwt.async_exception_hook]. [on_finish] runs
-       after the streams close and the promises settle, so an exception from
-       it is dropped. *)
+       [Finish] part is ignored. [on_finish] runs after the streams close and
+       the promises settle, so an exception from it is dropped. *)
     let finish_stream ~finish_reason ~usage ~all_steps =
       let result = Final_result.make ~finish_reason ~usage ~output:(Output.parse_output output all_steps) all_steps in
       match Ending.finish ending result with
@@ -818,20 +818,25 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
           in
           let%lwt batch =
             run_tool_batch ~step_with
-              (fun (ta : Generate_text_result.pending_tool_approval) ->
+              (fun (ta : Generate_text_result.pending_tool_approval) ~execute ->
                 match ta.approved with
                 | false ->
-                  Lwt.return
-                    {
-                      Generate_text_result.tool_call_id = ta.tool_call_id;
-                      tool_name = ta.tool_name;
-                      result = Core_tool.denied_result;
-                      is_error = false;
-                      provider_metadata = None;
-                    }
+                  let%lwt (_ : Generate_text_result.tool_result) =
+                    execute (fun () ->
+                      Lwt.return
+                        {
+                          Generate_text_result.tool_call_id = ta.tool_call_id;
+                          tool_name = ta.tool_name;
+                          result = Core_tool.denied_result;
+                          is_error = false;
+                          provider_metadata = None;
+                        })
+                  in
+                  Lwt.return_unit
                 | true ->
                   execute_and_emit ~messages:request_messages
-                    { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+                    { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args }
+                    ~execute)
               approvals
           in
           let tool_results = Tool_batch.results batch in

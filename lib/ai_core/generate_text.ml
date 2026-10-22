@@ -53,17 +53,17 @@ let step_of_response ~text ~reasoning ~tool_calls ~tool_results (result : Ai_pro
       | _ :: _ as pm -> Some pm);
   }
 
-(* Runs [f]. When it fails with [Aborted] because [abort_signal] fired,
-   [on_abort] gets [steps ()] before the failure passes on, unless the call
-   was cancelled. As in [stream_text], an exception from [on_abort] is
-   ignored. *)
+(* Runs [f]. When it fails after [abort_signal] fired, whatever the
+   exception, [on_abort] gets [steps ()] and the call fails with [Aborted],
+   unless the call was cancelled. As in [stream_text], an exception from
+   [on_abort] is ignored. *)
 let reporting_abort ~abort_signal ~is_cancelled ~on_abort ~steps f =
   Lwt.catch f (fun exn ->
-    (match exn with
-    | Ai_provider.Abort_signal.Aborted _ when Call_signal.is_aborted abort_signal && not (is_cancelled ()) ->
-      (try Option.iter (fun report -> report ~steps:(steps ())) on_abort with (_ : exn) -> ())
-    | (_ : exn) -> ());
-    Lwt.fail exn)
+    match is_cancelled (), Call_signal.aborted abort_signal with
+    | false, Some aborted ->
+      (try Option.iter (fun report -> report ~steps:(steps ())) on_abort with (_ : exn) -> ());
+      Lwt.fail aborted
+    | true, (Some _ | None) | false, None -> Lwt.fail exn)
 
 let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
   ?(tool_choice : Ai_provider.Tool_choice.t option) ?output ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when
@@ -138,7 +138,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           metadata = tp.metadata_;
         })
   in
-  let run_tool ~step_num ~step_messages (tc : Generate_text_result.tool_call) =
+  let run_tool ~step_num ~step_messages (tc : Generate_text_result.tool_call) ~execute =
     let%lwt () = fail_if_cancelled () in
     Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
       match telemetry with
@@ -161,9 +161,10 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
           })
     in
     let t0 = Unix.gettimeofday () in
-    let%lwt tr =
-      Core_tool.execute_tool ?abort_signal ~tools ~messages:step_messages ~tool_call_id:tc.tool_call_id
-        ~tool_name:tc.tool_name ~args:tc.args ()
+    let%lwt (tr : Generate_text_result.tool_result) =
+      execute (fun () ->
+        Core_tool.execute_tool ?abort_signal ~tools ~messages:step_messages ~tool_call_id:tc.tool_call_id
+          ~tool_name:tc.tool_name ~args:tc.args ())
     in
     let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
     let%lwt () =
@@ -188,7 +189,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     | Some t when Telemetry.enabled t ->
       Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
     | _ -> ());
-    Lwt.return tr
+    Lwt.return_unit
   in
   (* Step loop *)
   let rec loop ~step_messages ~steps ~step_num =
@@ -311,25 +312,32 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
   in
   (* Runs the pending tool approvals before the LLM step loop. As in a step,
      an abort that stops them still records the step with the results of the
-     tools that ran. *)
+     tools that ran. A signal that fired before the call records no step, as
+     in [stream_text]. *)
   let run_pending_approvals approvals =
+    let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
     let%lwt batch =
       Tool_batch.run ~abort_signal
-        (fun (ta : Generate_text_result.pending_tool_approval) ->
-          match ta.approved with
-          | false ->
-            Lwt.return
-              {
-                Generate_text_result.tool_call_id = ta.tool_call_id;
-                tool_name = ta.tool_name;
-                result = Core_tool.denied_result;
-                is_error = false;
-                provider_metadata = None;
-              }
-          | true ->
-            let%lwt () = fail_if_cancelled () in
-            Core_tool.execute_tool ?abort_signal ~tools ~messages:request_messages ~tool_call_id:ta.tool_call_id
-              ~tool_name:ta.tool_name ~args:ta.args ())
+        (fun (ta : Generate_text_result.pending_tool_approval) ~execute ->
+          let%lwt (_ : Generate_text_result.tool_result) =
+            match ta.approved with
+            | false ->
+              execute (fun () ->
+                Lwt.return
+                  {
+                    Generate_text_result.tool_call_id = ta.tool_call_id;
+                    tool_name = ta.tool_name;
+                    result = Core_tool.denied_result;
+                    is_error = false;
+                    provider_metadata = None;
+                  })
+            | true ->
+              let%lwt () = fail_if_cancelled () in
+              execute (fun () ->
+                Core_tool.execute_tool ?abort_signal ~tools ~messages:request_messages ~tool_call_id:ta.tool_call_id
+                  ~tool_name:ta.tool_name ~args:ta.args ())
+          in
+          Lwt.return_unit)
         approvals
     in
     let%lwt () = fail_if_cancelled () in
