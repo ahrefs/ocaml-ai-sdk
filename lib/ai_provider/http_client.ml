@@ -373,9 +373,12 @@ let body_lines r =
   let partial = Buffer.create 256 in
   let ready = Queue.create () in
   let reading = ref true in
-  (* Lines left over from a chunk read before the abort are dropped too. *)
+  (* Lines left over from a chunk read before the abort are dropped too, and
+     [read_chunk] drops a chunk that arrives once the abort has fired. The
+     check is not a [guard]: its second check would take the recursive call
+     out of tail position and hold every pending read until the line ends. *)
   let rec next_line () =
-    Abort_signal.guard r.abort_signal @@ fun () ->
+    let%lwt () = Abort_signal.fail_if_aborted r.abort_signal in
     match Queue.take_opt ready, !reading with
     | Some line, (true | false) -> Lwt.return_some line
     | None, false -> Lwt.return_none

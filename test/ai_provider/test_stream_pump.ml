@@ -121,19 +121,27 @@ let test_provider_error_kept () =
   (check (list string)) "parts" [ "text a"; "api 503 retryable=true provider=upstream" ] (List.map describe parts);
   Lwt.return_unit
 
-(* An aborted source ends the stream quietly: the caller asked for it. *)
-let test_abort_ends_stream_without_error () =
+(* Events "a", then a read that fails with [exn]. *)
+let failing_after_a exn =
   let reads = ref [ event "a" ] in
-  let events =
-    Lwt_stream.from (fun () ->
-      match !reads with
-      | evt :: rest ->
-        reads := rest;
-        Lwt.return_some evt
-      | [] -> Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = None }))
+  Lwt_stream.from (fun () ->
+    match !reads with
+    | evt :: rest ->
+      reads := rest;
+      Lwt.return_some evt
+    | [] -> Lwt.fail exn)
+
+(* An aborted or cancelled source ends the stream quietly: the caller asked
+   for it. *)
+let test_abort_ends_stream_without_error () =
+  let%lwt aborted =
+    pumped_stream
+      (fun (evt : Ai_provider.Sse.event) -> evt.data)
+      (failing_after_a (Ai_provider.Abort_signal.Aborted { reason = None }))
   in
-  let%lwt parts = pumped_stream (fun (evt : Ai_provider.Sse.event) -> evt.data) events in
-  (check (list string)) "parts" [ "text a" ] (List.map describe parts);
+  let%lwt cancelled = pumped_stream (fun (evt : Ai_provider.Sse.event) -> evt.data) (failing_after_a Lwt.Canceled) in
+  (check (list string)) "aborted" [ "text a" ] (List.map describe aborted);
+  (check (list string)) "cancelled" [ "text a" ] (List.map describe cancelled);
   Lwt.return_unit
 
 let () =
@@ -146,6 +154,6 @@ let () =
           test_case "unexpected exception ends stream" `Quick (run_lwt test_unexpected_exception_ends_stream);
           test_case "converter provider error kept" `Quick (run_lwt test_converter_provider_error_kept);
           test_case "provider error kept" `Quick (run_lwt test_provider_error_kept);
-          test_case "abort ends stream without error" `Quick (run_lwt test_abort_ends_stream_without_error);
+          test_case "abort or cancel ends stream without error" `Quick (run_lwt test_abort_ends_stream_without_error);
         ] );
     ]

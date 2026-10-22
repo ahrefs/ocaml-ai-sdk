@@ -104,7 +104,7 @@ let chat_completions ?abort_signal ~config ~body ~extra_headers ~stream () =
     let headers = make_headers ~config ~extra_headers in
     let body_str = Yojson.Basic.to_string body_json in
     let%lwt json =
-      Ai_provider.Abort_signal.guard abort_signal (fun () ->
+      Ai_provider.Abort_signal.race abort_signal (fun () ->
         fetch ~abort_signal ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str)
     in
     Lwt.return (`Json json)

@@ -22,8 +22,9 @@ let pump ~provider ~push f events =
       push None;
       Lwt.return_unit)
     (fun exn ->
-      (* The caller asked for the abort, so there is nothing to report. *)
+      (* The caller asked for the abort or the cancel, so there is nothing to
+         report. *)
       (match exn with
-      | Abort_signal.Aborted _ -> ()
+      | Abort_signal.Aborted _ | Lwt.Canceled -> ()
       | exn -> fail (stream_failed exn));
       push None)

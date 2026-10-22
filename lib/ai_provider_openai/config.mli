@@ -2,9 +2,10 @@
 
 (** Custom HTTP function for testing. It receives the call's abort signal
     and should stop once the signal settles. A call whose signal settles
-    before or during [fetch] fails with [Ai_provider.Abort_signal.Aborted],
-    even when [fetch] ignores the signal and returns a value. An exception
-    from [fetch] passes through unchanged. *)
+    before [fetch] fails with [Ai_provider.Abort_signal.Aborted] without
+    calling it. One whose signal settles during [fetch] fails with [Aborted]
+    at once and cancels [fetch]'s promise, even when [fetch] ignores the
+    signal. An exception from [fetch] passes through unchanged. *)
 type fetch_fn =
   abort_signal:Ai_provider.Abort_signal.t option ->
   url:string ->
