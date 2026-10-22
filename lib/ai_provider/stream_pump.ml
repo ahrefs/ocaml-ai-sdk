@@ -6,7 +6,7 @@ let pump ~provider ~push f events =
   let on_event (evt : Sse.event) =
     try f evt
     with
-    | ( Yojson.Json_error _ | Yojson.End_of_array | Yojson.End_of_object | Yojson.End_of_tuple | Yojson.End_of_input
+    | ( Yojson.Json_error _ | Yojson.End_of_array | Yojson.End_of_object | Yojson.End_of_input
       | Yojson.Basic.Util.Type_error _ | Yojson.Basic.Util.Undefined _ | Yojson.Safe.Util.Type_error _
       | Yojson.Safe.Util.Undefined _ | Melange_json.Of_json_error _ | Melange_json.Of_string_error _ ) as exn
     ->

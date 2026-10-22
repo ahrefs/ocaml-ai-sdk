@@ -10,8 +10,8 @@
 
     When [f] raises a JSON decode error, a [Deserialization_error] whose [raw]
     is the event's data is pushed, and the next event is processed. The decode
-    errors are [Yojson.Json_error], Yojson's [End_of_array], [End_of_object],
-    [End_of_tuple] and [End_of_input], the [Type_error] and [Undefined] of both
+    errors are [Yojson.Json_error], Yojson's [End_of_array], [End_of_object]
+    and [End_of_input], the [Type_error] and [Undefined] of both
     [Yojson.Basic.Util] and [Yojson.Safe.Util], [Melange_json.Of_json_error]
     and [Melange_json.Of_string_error].
 

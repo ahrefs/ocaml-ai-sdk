@@ -50,7 +50,6 @@ let test_decode_errors_carry_raw_data () =
       ("json", fun () -> raise (Yojson.Json_error "bad"));
       ("end_of_array", fun () -> raise Yojson.End_of_array);
       ("end_of_object", fun () -> raise Yojson.End_of_object);
-      ("end_of_tuple", fun () -> raise Yojson.End_of_tuple);
       ("end_of_input", fun () -> raise Yojson.End_of_input);
       ("basic_type", fun () -> Yojson.Basic.Util.to_string (`Int 1));
       ("basic_undefined", fun () -> raise (Yojson.Basic.Util.Undefined ("missing", `Null)));
