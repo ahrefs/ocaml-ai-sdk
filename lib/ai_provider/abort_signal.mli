@@ -48,8 +48,8 @@ val create : unit -> t * (?reason:exn -> unit -> unit)
 (** [with_timeout after_s f] runs [f signal], where [signal] fails with
     [Timeout { after_s }] after [after_s] seconds. A zero or negative
     [after_s] fires on the next turn of the Lwt main loop: [f] has already
-    started, with the signal not yet fired. The timer is cancelled once [f]'s promise
-    settles.
+    started, with the signal not yet fired. The timer is cancelled once
+    [f]'s promise settles.
 
     @raise Invalid_argument if [after_s] is nan. *)
 val with_timeout : float -> (t -> 'a Lwt.t) -> 'a Lwt.t
@@ -89,11 +89,10 @@ val reason : t -> exn option
 (** [race signal f] runs [f ()] and fails with [Aborted] as soon as [signal]
     settles, cancelling [f]'s promise, even when [f] ignores the signal and
     never returns. Cancelling [race]'s promise cancels [f]'s, and never
-    [signal]. It fails without running [f]
-    when [signal] has already settled. When [f]'s promise has settled by the
-    time [f] returns, that promise is the result. A failure of [f], raised or
-    returned, passes through unchanged. With no signal it is
-    [Lwt.apply f ()].
+    [signal]. It fails without running [f] when [signal] has already
+    settled. When [f]'s promise has settled by the time [f] returns, that
+    promise is the result. A failure of [f], raised or returned, passes
+    through unchanged. With no signal it is [Lwt.apply f ()].
 
     {[
       let execute args (opts : Ai_core.Core_tool.execute_options) =

@@ -4,10 +4,9 @@
     parts. *)
 
 (** [pump ?abort_signal ~provider ~push f events] runs [f] on each event in
-    the background,
-    then closes the output with [push None], whatever happens. Every error
-    part it creates is non-retryable and names [provider]. A [Provider_error]
-    keeps its own fields.
+    the background, then closes the output with [push None], whatever
+    happens. Every error part it creates is non-retryable and names
+    [provider]. A [Provider_error] keeps its own fields.
 
     When [f] raises a JSON decode error, a [Deserialization_error] whose [raw]
     is the event's data is pushed, and the next event is processed. The decode

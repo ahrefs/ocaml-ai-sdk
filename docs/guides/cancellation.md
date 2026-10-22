@@ -120,11 +120,11 @@ Agent_runner.run ~abort_signal ~model cfg
 ```
 
 `Daemon.wait_exit ()` stands for a promise that settles when your app shuts
-down, which `of_promise` turns into a signal,
-and `Agent_runner.run` for your own function that passes `abort_signal` to
-`generate_text` or `stream_text`. When the deadline fires first, the call
-fails with `Aborted { reason = Some (Timeout _) }`. When the daemon exits
-first, the reason is whatever the daemon's signal carries. Matching on the
+down, which `of_promise` turns into a signal, and `Agent_runner.run` for
+your own function that passes `abort_signal` to `generate_text` or
+`stream_text`. When the deadline fires first, the call fails with
+`Aborted { reason = Some (Timeout _) }`. When the daemon exits first, the
+reason is whatever the daemon's signal carries. Matching on the
 reason tells the two apart, with no flags of your own. When several inputs
 have already fired, the first in the list gives the reason, and `choose []`
 never aborts.
@@ -153,10 +153,10 @@ to `generate_text` or `stream_text`.
 Both functions follow one rule: a tool's result counts only if its `execute`
 returned before the signal fired. An abort from the code that reports the
 result, such as telemetry or `on_chunk` on the `Tool_result` part, does not
-drop it. No tool starts once the signal has fired.
-When it fires while a tool runs, the call fails at once and cancels the
-tool's promise, even when the tool ignores the signal, and a result the tool
-returns later is dropped.
+drop it. No tool starts once the signal has fired. When it fires while a
+tool runs, the call fails at once and cancels the tool's promise, even when
+the tool ignores the signal, and a result the tool returns later is
+dropped.
 
 Cancelling the promise stops work built on cancelable promises, such as
 `Lwt_unix.sleep` or a provider request. Work that ignores `Lwt.cancel` keeps
@@ -207,8 +207,8 @@ Both `generate_text` and `stream_text` take
 the signal stops the call, with the steps recorded so far, in order, and
 before any result promise fails. `Generate_text_result.total_usage` adds up
 their usage. A step with no `total_tokens` counts as its input plus output
-tokens, so the sum does not depend on the order of the steps. To use the steps after `generate_text` fails,
-keep them in a ref:
+tokens, so the sum does not depend on the order of the steps. To use the
+steps after `generate_text` fails, keep them in a ref:
 
 ```ocaml
 let answer ~model ~abort_signal prompt =

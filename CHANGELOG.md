@@ -242,7 +242,15 @@ All notable changes to this project will be documented in this file.
   ignores the signal. An abort after the final model response, or once
   `stop_when` is met, stops nothing, and the call returns its result, as
   upstream's generateText does. `on_abort` gets the steps recorded so far
-  before the call fails, unless the call was cancelled.
+  before the call fails, unless the call was cancelled. Once the signal has
+  fired, and unless the call was cancelled, any failure of the call, such as
+  a model's own `Lwt.Canceled`, becomes `Aborted` and calls `on_abort`.
+- The `Telemetry.notify_on_*` functions take an optional `?stop` predicate,
+  checked before each integration. `generate_text` and `stream_text` pass
+  one, so after a cancel, or an abort during a tool's callbacks, no later
+  integration hears of the event, even when a callback ignored the cancel.
+  A callback's own `Lwt.Canceled` is printed and skipped like any other
+  error, as before.
 - `Lwt.cancel` on the promise from `generate_text`, for example through
   `Lwt_unix.with_timeout`, now stops the call: it fails with `Lwt.Canceled`,
   cancels the provider request, retry sleep or tool in progress, and starts no
@@ -278,8 +286,8 @@ All notable changes to this project will be documented in this file.
   and reaches `on_abort` and `outcome`.
 - New `Generate_text_result.total_usage` adds up the usage of a list of
   steps.
-- `Generate_text_result.add_usage`, which `stream_text` uses for its
-  `usage`, no longer depends on the order of the steps. A record with no
+- `Generate_text_result.add_usage`, which `generate_text` and `stream_text`
+  use for their `usage`, no longer depends on the order of the steps. A record with no
   `total_tokens` counts as its input plus output tokens. Before, it reset
   the running total to the input plus output so far, which dropped any
   reported totals that differed from that sum.
