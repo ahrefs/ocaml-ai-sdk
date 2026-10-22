@@ -355,7 +355,7 @@ match%lwt Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal () wi
 | exception (Ai_provider.Abort_signal.Aborted _ as exn) -> (
   match Ai_provider.Abort_signal.is_aborted abort_signal with
   | true -> Lwt.return (Error `Aborted)
-  | false -> Lwt.fail exn)
+  | false -> Lwt.reraise exn)
 ```
 
 ## Stopping generation when a web client disconnects
