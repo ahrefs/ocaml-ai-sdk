@@ -19,21 +19,22 @@ let parse_content (content : Ai_provider.Content.t list) =
     content;
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
-(* Runs [f ~fail_if_cancelled]. [Lwt.cancel] on the result rejects it with
+(* Runs [f ~is_cancelled]. [Lwt.cancel] on the result rejects it with
    [Canceled] at once and cancels the work, but a promise that ignores
-   [Lwt.cancel], such as a custom fetch or a tool built on [Lwt.wait], keeps
-   the work going. [fail_if_cancelled] fails with [Canceled] after a cancel,
-   so the work checks it before it starts a model request or a tool. *)
+   [Lwt.cancel], such as a custom fetch, or one that turns [Canceled] into a
+   value, such as a tool, keeps the work going. [is_cancelled] reads the
+   result's state, which the cancel sets before it reaches the work, so the
+   work checks it before each model request, tool and step. *)
 let cancelable f =
-  let cancelled = ref false in
-  let fail_if_cancelled () =
-    match !cancelled with
-    | true -> Lwt.fail Lwt.Canceled
-    | false -> Lwt.return_unit
+  let call = ref None in
+  let is_cancelled () =
+    match Option.map Lwt.state !call with
+    | Some (Lwt.Fail Lwt.Canceled) -> true
+    | Some (Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep) | None -> false
   in
-  let call = Lwt.wrap_in_cancelable (f ~fail_if_cancelled) in
-  Lwt.on_cancel call (fun () -> cancelled := true);
-  call
+  let promise = Lwt.wrap_in_cancelable (f ~is_cancelled) in
+  call := Some promise;
+  promise
 
 (* The step a model response makes, with the results of the tools that ran. *)
 let step_of_response ~text ~reasoning ~tool_calls ~tool_results (result : Ai_provider.Generate_result.t) :
@@ -52,15 +53,14 @@ let step_of_response ~text ~reasoning ~tool_calls ~tool_results (result : Ai_pro
       | _ :: _ as pm -> Some pm);
   }
 
-let is_aborted = Option.fold ~none:false ~some:Ai_provider.Abort_signal.is_aborted
-
 (* Runs [f]. When it fails with [Aborted] because [abort_signal] fired,
-   [on_abort] gets [steps ()] before the failure passes on. As in
-   [stream_text], an exception from [on_abort] is ignored. *)
-let reporting_abort ~abort_signal ~on_abort ~steps f =
+   [on_abort] gets [steps ()] before the failure passes on, unless the call
+   was cancelled. As in [stream_text], an exception from [on_abort] is
+   ignored. *)
+let reporting_abort ~abort_signal ~is_cancelled ~on_abort ~steps f =
   Lwt.catch f (fun exn ->
     (match exn with
-    | Ai_provider.Abort_signal.Aborted _ when is_aborted abort_signal ->
+    | Ai_provider.Abort_signal.Aborted _ when Call_signal.is_aborted abort_signal && not (is_cancelled ()) ->
       (try Option.iter (fun report -> report ~steps:(steps ())) on_abort with (_ : exn) -> ())
     | (_ : exn) -> ());
     Lwt.fail exn)
@@ -113,12 +113,22 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
   (* Every recorded step, newest first, for [on_abort]. *)
   let recorded_steps = ref [] in
   let record_step step = recorded_steps := step :: !recorded_steps in
-  cancelable @@ fun ~fail_if_cancelled ->
-  reporting_abort ~abort_signal ~on_abort ~steps:(fun () -> List.rev !recorded_steps) @@ fun () ->
+  cancelable @@ fun ~is_cancelled ->
+  let fail_if_cancelled () =
+    match is_cancelled () with
+    | true -> Lwt.fail Lwt.Canceled
+    | false -> Lwt.return_unit
+  in
+  (* A telemetry callback ignores a cancel that lands in it, so check after. *)
+  let maybe_notify telemetry notify =
+    let%lwt () = Telemetry.maybe_notify telemetry notify in
+    fail_if_cancelled ()
+  in
+  reporting_abort ~abort_signal ~is_cancelled ~on_abort ~steps:(fun () -> List.rev !recorded_steps) @@ fun () ->
   (* Root span wrapping the entire operation *)
   Telemetry.maybe_span telemetry "ai.generateText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
   let%lwt () =
-    Telemetry.maybe_notify telemetry (fun t ->
+    maybe_notify telemetry (fun t ->
       Telemetry.notify_on_start t
         {
           model = tp.model_info;
@@ -138,7 +148,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
       | None -> [])
     @@ fun tool_span ->
     let%lwt () =
-      Telemetry.maybe_notify telemetry (fun t ->
+      maybe_notify telemetry (fun t ->
         Telemetry.notify_on_tool_call_start t
           {
             step_number = step_num;
@@ -157,7 +167,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     in
     let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
     let%lwt () =
-      Telemetry.maybe_notify telemetry (fun t ->
+      maybe_notify telemetry (fun t ->
         let outcome =
           if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result) else Telemetry.Success tr.result
         in
@@ -215,6 +225,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
                [opts] does not hold the call after an abort. *)
             Ai_provider.Abort_signal.race abort_signal (fun () -> Ai_provider.Language_model.generate model opts))
         in
+        let%lwt () = fail_if_cancelled () in
         let text, reasoning, tool_calls = parse_content result.content in
         (* Add response attributes to step span *)
         (match telemetry with
@@ -247,16 +258,16 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
       if should_continue then begin
         let%lwt blocked_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
         let%lwt batch = Tool_batch.run ~abort_signal (run_tool ~step_num ~step_messages) executable_calls in
-        let tool_results = Tool_batch.results batch in
+        let%lwt () = fail_if_cancelled () in
         (* The response came back, so the step counts even when an abort
-           stopped its tools. The calls that did not run stay in
-           [tool_calls] with no result. *)
-        let step = step_of_response ~text ~reasoning ~tool_calls ~tool_results result in
+           stopped its tools. The calls with no result stay in [tool_calls]. *)
+        let step = step_of_response ~text ~reasoning ~tool_calls ~tool_results:(Tool_batch.results batch) result in
         record_step step;
-        let%lwt () = Tool_batch.fail_if_aborted ~abort_signal batch in
+        let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
+        let tool_results = step.tool_results in
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
-          Telemetry.maybe_notify telemetry (fun t ->
+          maybe_notify telemetry (fun t ->
             Telemetry.notify_on_step_finish t
               { step_number = step_num; step; function_id = tp.function_id_; metadata = tp.metadata_ })
         in
@@ -290,7 +301,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         record_step step;
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
-          Telemetry.maybe_notify telemetry (fun t ->
+          maybe_notify telemetry (fun t ->
             Telemetry.notify_on_step_finish t
               { step_number = step_num; step; function_id = tp.function_id_; metadata = tp.metadata_ })
         in
@@ -321,6 +332,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
               ~tool_name:ta.tool_name ~args:ta.args ())
         approvals
     in
+    let%lwt () = fail_if_cancelled () in
     let tool_results = Tool_batch.results batch in
     let tool_calls =
       List.map
@@ -341,7 +353,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
       }
     in
     record_step step;
-    let%lwt () = Tool_batch.fail_if_aborted ~abort_signal batch in
+    let%lwt () = Ai_provider.Abort_signal.fail_if_aborted abort_signal in
     Option.iter (fun f -> f step) on_step_finish;
     let tool_result_parts =
       List.map
@@ -375,7 +387,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
          ~finish_reason:final_result.finish_reason ~usage:final_result.usage t)
   | _ -> ());
   let%lwt () =
-    Telemetry.maybe_notify telemetry (fun t ->
+    maybe_notify telemetry (fun t ->
       Telemetry.notify_on_finish t
         {
           steps = final_result.steps;

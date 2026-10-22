@@ -423,8 +423,11 @@ let notify_all t extract_callback event =
           Lwt.catch
             (fun () -> callback event)
             (function
-              (* A cancel of the call lands here while the callback runs. *)
-              | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+              (* A cancel of the call can land here while the callback runs.
+                 The call checks for its own cancel and abort after the
+                 callback returns, so the callback's failure, like any other,
+                 does not end the call. *)
+              | Lwt.Canceled -> Lwt.return_unit
               | exn ->
                 Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
                 Lwt.return_unit))

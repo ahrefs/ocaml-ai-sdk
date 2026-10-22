@@ -57,21 +57,27 @@ let execute_tool ?abort_signal ~tools ~messages ~tool_call_id ~tool_name ~args (
         provider_metadata = None;
       }
   | Some { execute = Some exec; _ } ->
-  try%lwt
-    let%lwt result = exec args { tool_call_id; messages; abort_signal } in
-    Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
-  with
-  (* A cancel or an abort stops the call, so it is not the tool's result. *)
-  | (Lwt.Canceled | Ai_provider.Abort_signal.Aborted _) as exn -> Lwt.fail exn
-  | exn ->
-    Lwt.return
-      {
-        Generate_text_result.tool_call_id;
-        tool_name;
-        result = `String (Printexc.to_string exn);
-        is_error = true;
-        provider_metadata = None;
-      }
+    (* [wrap_in_cancelable] fails the result with [Canceled] as soon as the
+       caller cancels it, so the handler below only turns the tool's own
+       failures, its own [Aborted] or [Canceled] included, into a result. *)
+    Lwt.wrap_in_cancelable
+      (try%lwt
+         let%lwt result = exec args { tool_call_id; messages; abort_signal } in
+         Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
+       with exn ->
+         (match abort_signal with
+         (* Once the call's signal has fired, any failure is the abort. *)
+         | Some signal when Ai_provider.Abort_signal.is_aborted signal ->
+           Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = Ai_provider.Abort_signal.reason signal })
+         | Some _ | None ->
+           Lwt.return
+             {
+               Generate_text_result.tool_call_id;
+               tool_name;
+               result = `String (Printexc.to_string exn);
+               is_error = true;
+               provider_metadata = None;
+             }))
 
 (** Partition tool calls into (blocked, executable).
     Blocked = needs approval OR client-only (no server execute).

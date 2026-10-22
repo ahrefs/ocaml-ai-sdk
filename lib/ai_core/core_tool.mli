@@ -68,14 +68,18 @@ val safe_parse_json_args : string -> Yojson.Basic.t
     Matches upstream's [{type: "execution-denied"}] format. *)
 val denied_result : Yojson.Basic.t
 
-(** Execute a tool by name from the tools list.
-    Returns an error result if the tool is not found, is client-side only, or throws.
-    A tool that fails with [Lwt.Canceled] or [Ai_provider.Abort_signal.Aborted]
-    fails the call with it instead. Fails with
-    [Ai_provider.Abort_signal.Aborted], without running the tool, when
-    [abort_signal] has already fired. [generate_text] and [stream_text]
-    pass their signal, so neither starts a tool after an abort. The tool gets
-    the signal, [messages] and [tool_call_id] in its {!execute_options}. *)
+(** Execute a tool by name from the tools list. The tool gets
+    [abort_signal], [messages] and [tool_call_id] in its {!execute_options}.
+
+    Returns an error result if the tool is not found, is client-side only,
+    or fails, an [Ai_provider.Abort_signal.Aborted] or [Lwt.Canceled] from
+    the tool's own work included, such as a timeout of its own. Two failures
+    are not the tool's:
+    - once [abort_signal] has fired, any failure of the tool fails with
+      [Aborted] and the signal's reason, and the tool does not start when the
+      signal has fired before the call;
+    - cancelling the returned promise fails it with [Lwt.Canceled] at once
+      and cancels the tool. *)
 val execute_tool :
   ?abort_signal:Ai_provider.Abort_signal.t ->
   tools:(string * t) list ->
