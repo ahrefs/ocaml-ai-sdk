@@ -9,7 +9,9 @@ All notable changes to this project will be documented in this file.
 ### Breaking changes
 
 - The package no longer depends on cohttp or `lwt_ssl`. Projects that use
-  them must depend on them directly.
+  them must depend on them directly. cohttp client settings, such as a
+  connection cache set with `Cohttp_lwt_unix.Client.set_cache`, no longer
+  apply to provider requests. Code that sets them still compiles.
 - `Ai_core.Server_handler` works with any web server instead of cohttp.
   `handle_chat` takes the request body as a string, and it, `make_sse_response`,
   `handle_cors_preflight` (now `unit -> response`) and
