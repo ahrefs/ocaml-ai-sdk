@@ -192,7 +192,9 @@ let transform ?abort_signal events ~warnings =
       finished := true
     end
   in
-  Ai_provider.Stream_pump.pump ?abort_signal ~provider:"openrouter" ~push
+  Ai_provider.Stream_pump.pump ?abort_signal
+    ~on_end:(fun () -> Stdlib.Option.iter emit_finish !last_finish_reason)
+    ~provider:"openrouter" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->
@@ -239,13 +241,12 @@ let transform ?abort_signal events ~warnings =
                   push (Some (Ai_provider.Stream_part.Source { source_type; id; url; title; provider_options }))
                 | Some _ | None -> ())
               (Option.value ~default:[] delta.annotations);
-            (* Finish reason -- store and emit *)
+            (* Finish reason -- stored, and emitted once the stream ends: the
+               usage comes in a later chunk. *)
             Stdlib.Option.iter
               (fun reason ->
-                let mapped = Convert_response.map_finish_reason (Some reason) in
-                last_finish_reason := Some mapped;
-                finish_open_tool_calls ();
-                emit_finish mapped)
+                last_finish_reason := Some (Convert_response.map_finish_reason (Some reason));
+                finish_open_tool_calls ())
               choice.finish_reason)))
     events;
   stream

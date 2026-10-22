@@ -21,9 +21,14 @@
     [Printexc.to_string] prints it. Once [abort_signal], the call's signal,
     has fired, [Abort_signal.Aborted] and [Lwt.Canceled] end the stream
     without an [Error] part: the caller asked for them. Before then, or with
-    no signal, they are [Unexpected_error]s like any other exception. *)
+    no signal, they are [Unexpected_error]s like any other exception.
+
+    [on_end] runs when [events] ends without an error, before the output
+    closes. A provider uses it to push [Finish] once the last chunk, which
+    may carry the usage, has been read. *)
 val pump :
   ?abort_signal:Abort_signal.t ->
+  ?on_end:(unit -> unit) ->
   provider:string ->
   push:(Stream_part.t option -> unit) ->
   (Sse.event -> unit) ->

@@ -2,6 +2,21 @@ open Alcotest
 
 let make_sse_event data = { Ai_provider_openai.Sse.event_type = ""; data }
 
+(* With stream_options.include_usage, the usage comes in a chunk after the finish reason. *)
+let test_usage_after_finish_reason () =
+  let events =
+    Lwt_stream.of_list
+      [
+        make_sse_event {|{"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}|};
+        make_sse_event {|{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}|};
+        make_sse_event "[DONE]";
+      ]
+  in
+  let stream = Ai_provider_openai.Convert_stream.transform events ~warnings:[] in
+  match List.rev (Lwt_main.run (Lwt_stream.to_list stream)) with
+  | Finish { usage; _ } :: _ -> (check (pair int int)) "usage" (10, 2) (usage.input_tokens, usage.output_tokens)
+  | _ -> fail "expected Finish last"
+
 let test_stream_text () =
   let events, push = Lwt_stream.create () in
   push (Some (make_sse_event {|{"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|}));
@@ -112,6 +127,7 @@ let () =
       ( "transform",
         [
           test_case "text" `Quick test_stream_text;
+          test_case "usage_after_finish_reason" `Quick test_usage_after_finish_reason;
           test_case "tool_calls" `Quick test_stream_tool_calls;
           test_case "error" `Quick test_stream_error;
         ] );

@@ -194,6 +194,11 @@ All notable changes to this project will be documented in this file.
   `Aborted` without calling it. One whose signal settles during `fetch` fails
   with `Aborted` at once and cancels `fetch`'s promise, even when `fetch`
   ignores the signal.
+- Fix: streams from OpenAI and OpenRouter report their usage. Both send it in
+  a chunk after the finish reason, and the stream used to end its step on the
+  finish reason with zero usage. On OpenRouter, that late chunk also left an
+  unclosed empty text part in the UI stream. `Stream_pump.pump` has a new
+  `?on_end` hook that the providers use to push `Finish` when the stream ends.
 
 ### Core SDK (`ai_core`)
 

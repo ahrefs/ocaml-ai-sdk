@@ -1,6 +1,6 @@
 let non_retryable ~provider kind = { Provider_error.provider; kind; is_retryable = false; retry_after_s = None }
 
-let pump ?abort_signal ~provider ~push f events =
+let pump ?abort_signal ?(on_end = fun () -> ()) ~provider ~push f events =
   let fail error = push (Some (Stream_part.Error { error })) in
   (* A malformed event is reported and skipped; any other failure ends the stream. *)
   let on_event (evt : Sse.event) =
@@ -19,6 +19,7 @@ let pump ?abort_signal ~provider ~push f events =
   Lwt.dont_wait
     (fun () ->
       let%lwt () = Lwt_stream.iter on_event events in
+      on_end ();
       push None;
       Lwt.return_unit)
     (fun exn ->
