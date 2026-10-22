@@ -25,7 +25,11 @@
       abort comes from [on_chunk] on its [Tool_result] part. A signal that has
       already fired gives a stream holding [Start] then [Abort] without
       calling the model. [stream_text] returns no promise for [Lwt.cancel] to
-      act on, so the signal is the only way to stop it.
+      act on, so the signal is the only way to stop it. An [Aborted] that the
+      model or a callback raises while the signal has not fired is not an
+      abort: [full_stream] ends with an [Error] part, [outcome] is [Failed]
+      and [on_abort] is not called. A tool's own [Aborted] is its error
+      result.
     @param on_chunk Called with each part, except [Abort], right after it is
       pushed to [full_stream], including the [Error] part of a failed call.
       An exception it raises ends the call like any other error: an [Error]

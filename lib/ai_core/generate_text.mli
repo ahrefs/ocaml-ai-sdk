@@ -24,7 +24,12 @@
       result is being reported. A step whose model response came back is
       recorded with those results, and its other calls stay in [tool_calls]
       with no result. [on_step_finish] is not called for a step whose tools
-      an abort stopped.
+      an abort stopped. An [Aborted] that the model or a callback raises
+      while the signal has not fired is not an abort: the call fails with
+      it, without a retry, and [on_abort] is not called. A tool's own
+      [Aborted] is its error result. Check
+      [Ai_provider.Abort_signal.is_aborted] on the signal to tell an abort
+      from such a failure.
     @param on_abort Called once when the call fails with
       [Ai_provider.Abort_signal.Aborted] because [abort_signal] fired, before
       the returned promise fails, with the steps recorded so far in order.

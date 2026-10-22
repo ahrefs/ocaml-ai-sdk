@@ -330,6 +330,34 @@ match Ai_provider.Abort_signal.is_aborted abort_signal with
 | false -> publish result
 ```
 
+## An `Aborted` that isn't your abort
+
+`Abort_signal.Aborted` is an ordinary exception, so code other than your
+signal can raise it, such as a custom model under a timeout of its own or a
+callback. Only your signal makes a call an abort. When something else raises
+`Aborted` before your signal fires:
+
+- A tool's own `Aborted` is its error result, and the call goes on.
+- `generate_text` fails with that exception, as with any other failure. The
+  retry loop doesn't retry it, and `on_abort` is not called.
+- `stream_text` ends `full_stream` with an `Error` part, not an `Abort`
+  part, `outcome` is `Failed` with that exception, and `on_abort` is not
+  called. The built-in providers report one raised inside their stream as
+  an `Error` part of kind `Unexpected_error`.
+- `Ui_message_stream_writer` can't tell the two apart: an `Aborted` from
+  `execute` always ends the stream as an abort.
+
+To tell your abort from such a failure, check the signal:
+
+```ocaml
+match%lwt Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal () with
+| result -> Lwt.return (Ok result)
+| exception (Ai_provider.Abort_signal.Aborted _ as exn) -> (
+  match Ai_provider.Abort_signal.is_aborted abort_signal with
+  | true -> Lwt.return (Error `Aborted)
+  | false -> Lwt.fail exn)
+```
+
 ## Stopping generation when a web client disconnects
 
 `Server_handler.handle_chat` returns a response for your web server to send,

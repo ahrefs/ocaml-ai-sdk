@@ -1224,6 +1224,33 @@ let test_tool_own_timeout_is_error_result () =
     (check string) "error result" "Abort_signal.Aborted(Abort_signal.Timeout(0.01s))" text
   | _ -> fail "expected a first step with one error result"
 
+(* A model that raises [Aborted] while the caller's signal has not fired, for
+   example from a timeout of its own, fails the call with that exception.
+   [on_abort] is not called, and only the signal tells it from an abort. *)
+let test_model_own_aborted_fails_call () =
+  let own = Ai_provider.Abort_signal.Aborted { reason = Some (Failure "model timeout") } in
+  let model, (_ : Mock.t) = Mock.create ~generate:(Respond (fun (_ : Ai_provider.Call_options.t) -> Lwt.fail own)) () in
+  let signal, (_ : ?reason:exn -> unit -> unit) = Ai_provider.Abort_signal.create () in
+  let on_abort_called = ref false in
+  let failure =
+    Lwt_main.run
+      (Lwt.catch
+         (fun () ->
+           let%lwt (_ : Ai_core.Generate_text_result.t) =
+             Ai_core.Generate_text.generate_text ~model ~prompt:"Hello" ~abort_signal:signal
+               ~on_abort:(fun ~steps:_ -> on_abort_called := true)
+               ()
+           in
+           Lwt.return_none)
+         Lwt.return_some)
+  in
+  (check bool) "fails with the model's Aborted" true
+    (match failure with
+    | Some exn -> exn == own
+    | None -> false);
+  (check bool) "on_abort not called" false !on_abort_called;
+  (check bool) "signal not aborted" false (Ai_provider.Abort_signal.is_aborted signal)
+
 (* A tool that cancels its own work when the signal fires fails with
    [Canceled]. That counts as the abort: on_abort gets the step. *)
 let test_tool_cancelling_itself_on_abort () =
@@ -1731,6 +1758,7 @@ let () =
           test_case "telemetry_own_canceled_is_an_error" `Quick test_telemetry_own_canceled_is_an_error;
           test_case "on_abort_raises" `Quick test_on_abort_raises;
           test_case "tool_own_timeout_is_error_result" `Quick test_tool_own_timeout_is_error_result;
+          test_case "model_own_aborted_fails_call" `Quick test_model_own_aborted_fails_call;
           test_case "tool_cancelling_itself" `Quick test_tool_cancelling_itself_on_abort;
           test_case "in_pending_approval_keeps_result" `Quick test_abort_in_pending_approval_keeps_result;
           test_case "on_abort_only_for_signal" `Quick test_on_abort_only_for_signal;

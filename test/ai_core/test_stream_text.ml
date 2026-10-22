@@ -1483,6 +1483,29 @@ let test_on_abort_raises () =
   check_result_aborted result;
   Lwt.return_unit
 
+(* A model that raises [Aborted] while the caller's signal has not fired fails
+   the call: the stream ends with an [Error] part, not an [Abort] part,
+   [on_abort] is not called, and [outcome] is [Failed]. *)
+let test_model_own_aborted_fails_call () =
+  let own = Ai_provider.Abort_signal.Aborted { reason = Some (Failure "model timeout") } in
+  let model, (_ : Mock.t) = Mock.create ~stream:(Respond (fun (_ : Ai_provider.Call_options.t) -> Lwt.fail own)) () in
+  let signal, (_ : ?reason:exn -> unit -> unit) = Ai_provider.Abort_signal.create () in
+  let on_abort_called = ref false in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Hello" ~max_retries:0 ~abort_signal:signal
+      ~on_abort:(fun ~steps:_ -> on_abort_called := true)
+      ()
+  in
+  let%lwt parts = to_list_or_hang result.full_stream in
+  let%lwt outcome = result.outcome in
+  (check (list string)) "parts" [ "start"; "start-step"; "error" ] (List.map part_name (Option.value ~default:[] parts));
+  (check bool) "outcome is Failed with the model's Aborted" true
+    (match outcome with
+    | Failed exn -> exn == own
+    | Finished _ | Aborted _ -> false);
+  (check bool) "on_abort not called" false !on_abort_called;
+  Lwt.return_unit
+
 (* A tool that runs a sub-agent under its own timeout, in a call with no
    signal. The timeout is the tool's error result, and the call finishes. *)
 let test_tool_own_timeout_is_error_result () =
@@ -2266,6 +2289,7 @@ let () =
           test_case "after_provider_finish" `Quick (run_lwt test_abort_after_provider_finish);
           test_case "on_abort_raises" `Quick (run_lwt test_on_abort_raises);
           test_case "tool_own_timeout_is_error_result" `Quick (run_lwt test_tool_own_timeout_is_error_result);
+          test_case "model_own_aborted_fails_call" `Quick (run_lwt test_model_own_aborted_fails_call);
           test_case "tool_cancelling_itself" `Quick (run_lwt test_tool_cancelling_itself_on_abort);
           test_case "steps_reported_once" `Quick test_steps_reported_once;
           test_case "stops_reading_provider" `Quick (run_lwt test_abort_stops_reading_provider);
