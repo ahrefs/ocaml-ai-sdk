@@ -198,7 +198,7 @@ let sse_type event =
 let test_handle_chat_abort_signal () =
   Lwt_main.run
     (let model, mock = hanging_model () in
-     let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+     let abort_signal, abort = Ai_provider.Abort_signal.create () in
      let response = Ai_core.Server_handler.handle_chat ~model ~abort_signal chat_body in
      let rec read_to_delta () =
        match%lwt Lwt_stream.get response.body with
@@ -207,7 +207,7 @@ let test_handle_chat_abort_signal () =
        | None -> fail "the stream ended before a text delta"
      in
      let%lwt () = within ~what:"the first text delta" (read_to_delta ()) in
-     Lwt.cancel abort_signal;
+     abort ();
      let%lwt rest = within ~what:"the end of the stream" (Lwt_stream.to_list response.body) in
      (check (list string)) "stream tail" [ "abort"; "[DONE]" ] (List.map sse_type rest);
      (match Ai_mock.Language_model.stream_calls mock with

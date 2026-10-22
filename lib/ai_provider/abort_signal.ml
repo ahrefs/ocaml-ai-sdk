@@ -1,5 +1,7 @@
 type t = unit Lwt.t
 
+let of_promise promise = promise
+
 exception Aborted of { reason : exn option }
 
 exception Timeout of { after_s : float }
@@ -13,15 +15,18 @@ let () =
 
 let is_aborted signal = not (Lwt.is_sleeping signal)
 
-(* [wakeup_later] sets the state at once; it only defers the signal's
-   callbacks when called from inside another callback. *)
+(* [Lwt.wakeup] runs the signal's callbacks before abort returns, as
+   AbortController.abort runs its listeners. [Lwt.wakeup_later] defers them
+   whenever abort runs inside another callback, which is any code after a real
+   await, so the work could settle before its hooks, races and waits saw the
+   abort. *)
 let create () =
   let signal, resolver = Lwt.wait () in
   let abort ?reason () =
     match Lwt.is_sleeping signal, reason with
     | false, (_ : exn option) -> ()
-    | true, None -> Lwt.wakeup_later resolver ()
-    | true, Some reason -> Lwt.wakeup_later_exn resolver reason
+    | true, None -> Lwt.wakeup resolver ()
+    | true, Some reason -> Lwt.wakeup_exn resolver reason
   in
   signal, abort
 
@@ -49,6 +54,7 @@ let with_on_abort signal hook f =
     Lwt.return_unit)
 
 let with_timeout after_s f =
+  if Float.is_nan after_s then invalid_arg "Abort_signal.with_timeout: after_s is nan";
   let signal, abort = create () in
   let timer =
     let%lwt () = Lwt_unix.sleep after_s in
@@ -96,3 +102,21 @@ let guard signal f =
     (match is_aborted signal with
     | true -> Lwt.fail (aborted signal)
     | false -> Lwt.return value)
+
+(* Work that has already settled is returned as it is: [Lwt.pick] picks at
+   random among promises that have all settled. *)
+let race signal f =
+  match signal with
+  | None -> Lwt.apply f ()
+  | Some signal when is_aborted signal -> Lwt.fail (aborted signal)
+  | Some signal ->
+    let work = Lwt.apply f () in
+    (match Lwt.state work with
+    | Lwt.Return _ | Lwt.Fail _ -> work
+    | Lwt.Sleep ->
+      Lwt.pick
+        [
+          work;
+          (let%lwt () = wait signal in
+           Lwt.fail (aborted signal));
+        ])

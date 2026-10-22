@@ -25,7 +25,7 @@ let next_approval_id gen =
    stream. *)
 let next_part_until_abort signal provider_stream =
   Lwt.catch
-    (fun () -> Abort_race.race (Some signal) (fun () -> Lwt_stream.get provider_stream))
+    (fun () -> Ai_provider.Abort_signal.race (Some signal) (fun () -> Lwt_stream.get provider_stream))
     (function
       | Ai_provider.Abort_signal.Aborted _ when Ai_provider.Abort_signal.is_aborted signal -> Lwt.return_none
       | exn -> Lwt.fail exn)

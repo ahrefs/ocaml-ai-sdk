@@ -839,7 +839,7 @@ let rec read_until f stream ~acc =
 
 let test_abort_mid_stream () =
   let model, mock = make_abort_stream_model () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let aborted_with = ref None in
   let step_finishes = ref 0 in
   let finished = ref false in
@@ -861,7 +861,7 @@ let test_abort_mid_stream () =
         | _ -> false)
       result.full_stream ~acc:[]
   in
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt after = Lwt_stream.to_list result.full_stream in
   let%lwt () = Lwt.pause () in
   (check (list string))
@@ -908,7 +908,8 @@ let test_abort_before_start () =
   let aborted_with = ref None in
   let chunks = ref [] in
   let result =
-    Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~abort_signal:Lwt.return_unit
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
       ~on_abort:(fun ~steps -> aborted_with := Some (List.length steps))
       ~on_chunk:(fun part -> chunks := part_name part :: !chunks)
       ()
@@ -953,14 +954,14 @@ let test_abort_reason () =
    request has finished. That must not reach the finished request. *)
 let test_abort_after_finish () =
   let model = make_text_stream_model "Hello" in
-  let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+  let abort_signal, abort = Ai_provider.Abort_signal.create () in
   let aborted = ref false in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Hi" ~abort_signal ~on_abort:(fun ~steps:_ -> aborted := true) ()
   in
   let%lwt parts = Lwt_stream.to_list result.full_stream in
   let%lwt (_ : Ai_provider.Finish_reason.t) = result.finish_reason in
-  Lwt.cancel abort_signal;
+  abort ();
   let%lwt () = Lwt.pause () in
   (check (option string)) "last part" (Some "finish") (List.nth_opt (List.rev_map part_name parts) 0);
   (check bool) "on_abort not called" false !aborted;
@@ -975,7 +976,7 @@ let test_abort_after_finish () =
    count and the tool run count. *)
 let run_abort_in_first_step ~in_tool =
   let model, mock = make_abort_stream_model () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let tool_runs = ref 0 in
   let aborted_steps = ref None in
   let tool =
@@ -985,7 +986,7 @@ let run_abort_in_first_step ~in_tool =
         Some
           (fun (_ : Yojson.Basic.t) _ ->
             incr tool_runs;
-            if in_tool then Lwt.wakeup_later abort ();
+            if in_tool then abort ();
             Lwt.return (`String "results"));
     }
   in
@@ -993,7 +994,7 @@ let run_abort_in_first_step ~in_tool =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
       ~tools:[ "search", tool ]
       ~max_steps:3 ~abort_signal:signal
-      ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> if not in_tool then Lwt.wakeup_later abort ())
+      ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> if not in_tool then abort ())
       ~on_abort:(fun ~steps -> aborted_steps := Some (List.length steps))
       ()
   in
@@ -1026,13 +1027,13 @@ let test_abort_during_tool () =
 (* The UI stream ends with the abort chunk and has no finish chunk. *)
 let test_abort_ui_stream () =
   let model, (_ : Mock.t) = make_abort_stream_model () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
       ~tools:[ "search", search_tool ]
       ~max_steps:3 ~abort_signal:signal
       ~on_chunk:(function
-        | Text_delta _ -> Lwt.wakeup_later abort ()
+        | Text_delta _ -> abort ()
         | _ -> ())
       ()
   in
@@ -1148,7 +1149,7 @@ let test_finish_step_before_on_step_finish () =
   (check (list string)) "order" [ "finish-step"; "on_step_finish"; "finish" ] (List.rev !log);
   Lwt.return_unit
 
-(* A [search] tool that counts its runs and cancels [abort], when given. *)
+(* A [search] tool that counts its runs and calls [abort], when given. *)
 let counting_search_tool ?abort runs =
   {
     search_tool with
@@ -1156,7 +1157,7 @@ let counting_search_tool ?abort runs =
       Some
         (fun (_ : Yojson.Basic.t) _ ->
           incr runs;
-          Option.iter Lwt.cancel abort;
+          Option.iter (fun abort -> abort ()) abort;
           Lwt.return (`String "results"));
   }
 
@@ -1168,11 +1169,11 @@ let check_ends_with_abort parts =
 (* The first of two tool calls fires the signal, so the second never runs. *)
 let test_abort_between_tools () =
   let model, mock = make_abort_stream_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
-  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let runs = ref 0 in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
-      ~tools:[ "search", counting_search_tool ~abort:signal runs ]
+      ~tools:[ "search", counting_search_tool ~abort runs ]
       ~max_steps:3 ~abort_signal:signal ()
   in
   let%lwt parts = Lwt_stream.to_list result.full_stream in
@@ -1187,14 +1188,14 @@ let test_abort_between_tools () =
    never runs and the model is never called. *)
 let test_abort_between_pending_approvals () =
   let model, mock = make_abort_stream_model () in
-  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let runs = ref 0 in
   let pending tool_call_id : Ai_core.Generate_text_result.pending_tool_approval =
     { tool_call_id; tool_name = "search"; args = `Assoc []; approved = true }
   in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
-      ~tools:[ "search", counting_search_tool ~abort:signal runs ]
+      ~tools:[ "search", counting_search_tool ~abort runs ]
       ~pending_tool_approvals:[ pending "tc_a"; pending "tc_b" ]
       ~max_steps:3 ~abort_signal:signal ()
   in
@@ -1410,7 +1411,8 @@ let test_abort_on_chunk_raises () =
   let model, (_ : Mock.t) = make_abort_stream_model () in
   let aborted = ref false in
   let result =
-    Ai_core.Stream_text.stream_text ~model ~prompt:"Search" ~abort_signal:Lwt.return_unit
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
       ~on_abort:(fun ~steps:_ -> aborted := true)
       ~on_chunk:(fun (_ : Ai_core.Text_stream_part.t) -> failwith "on_chunk failed")
       ()
@@ -1445,11 +1447,11 @@ let test_abort_stops_reading_provider () =
              Lwt.return { Ai_provider.Stream_result.stream = provider_stream; warnings = []; raw_response = None }))
       ()
   in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"x" ~abort_signal:signal
       ~on_chunk:(function
-        | Text_delta _ -> Lwt.wakeup_later abort ()
+        | Text_delta _ -> abort ()
         | _ -> ())
       ()
   in
@@ -1469,7 +1471,7 @@ let test_abort_stops_reading_provider () =
    does for [steps]. *)
 let test_abort_after_pending_approvals () =
   let model, (_ : Mock.t) = make_abort_stream_model () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let aborted_with = ref None in
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
     { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc [ "query", `String "first" ]; approved = true }
@@ -1480,7 +1482,7 @@ let test_abort_after_pending_approvals () =
       ~pending_tool_approvals:[ pending ] ~max_steps:4 ~abort_signal:signal
       ~on_abort:(fun ~steps -> aborted_with := Some steps)
       ~on_chunk:(function
-        | Text_delta _ -> Lwt.wakeup_later abort ()
+        | Text_delta _ -> abort ()
         | _ -> ())
       ()
   in
@@ -1558,7 +1560,7 @@ let test_abort_with_stalled_provider () =
   let collector, exited = make_exit_collector () in
   Trace_core.with_setup_collector collector (fun () ->
     Lwt_main.run
-      (let signal, (_ : unit Lwt.u) = Lwt.task () in
+      (let signal, abort = Ai_provider.Abort_signal.create () in
        let telemetry = Ai_core.Telemetry.create ~enabled:true () in
        let result =
          Ai_core.Stream_text.stream_text ~model:(make_stalled_model ()) ~prompt:"Hello" ~abort_signal:signal ~telemetry
@@ -1571,7 +1573,7 @@ let test_abort_with_stalled_provider () =
              | _ -> false)
            result.full_stream ~acc:[]
        in
-       Lwt.cancel signal;
+       abort ();
        let%lwt parts = to_list_or_hang result.full_stream in
        let%lwt () = Lwt_unix.sleep 0.1 in
        (check (option (list string))) "parts after the abort" (Some [ "abort" ]) (Option.map (List.map part_name) parts);

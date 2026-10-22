@@ -60,18 +60,7 @@ let with_retries ?abort_signal ?(max_retries = 2) ?(initial_delay_ms = 2000) ?(b
       fun () -> Random.State.float state 1.0
   in
   (* An abort ends the sleep between attempts early. *)
-  let sleep =
-    match abort_signal with
-    | None -> sleep
-    | Some signal ->
-      fun delay_s ->
-        Lwt.pick
-          [
-            sleep delay_s;
-            (let%lwt () = Ai_provider.Abort_signal.wait signal in
-             Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = Ai_provider.Abort_signal.reason signal }));
-          ]
-  in
+  let sleep delay_s = Ai_provider.Abort_signal.race abort_signal (fun () -> sleep delay_s) in
   let make_retry_error ~reason ~errors_rev exn =
     let errors = List.rev errors_rev in
     Retry_error { message = error_message ~reason ~attempts:(List.length errors) exn; reason; errors }

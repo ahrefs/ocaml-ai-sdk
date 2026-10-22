@@ -368,7 +368,11 @@ let test_abort_before_start () =
   let%lwt sock, port = listen_loopback ~backlog:1 in
   let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:5.0 () in
   let%lwt () =
-    expect_aborted (post ~abort_signal:Lwt.return_unit ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port))
+    expect_aborted
+      (post
+         ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
+         ~timeouts
+         (Printf.sprintf "http://127.0.0.1:%d/" port))
   in
   let%lwt connected =
     Lwt.pick
@@ -386,12 +390,12 @@ let test_abort_before_start () =
    once, far below request_timeout, and closes the connection. *)
 let test_abort_waiting_for_headers () =
   let%lwt port, request = serve_once (Hold "") in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:30.0 () in
   let response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
   let%lwt () = Lwt_unix.sleep 0.2 in
   let started = Unix.gettimeofday () in
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt () = expect_aborted response in
   (check bool) "fails promptly" true (Float.compare (Unix.gettimeofday () -. started) 1.0 < 0);
   let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
@@ -404,13 +408,13 @@ let test_abort_mid_body ~status read () =
   let%lwt port, request =
     serve_once (Hold (Printf.sprintf "HTTP/1.1 %d Status\r\nContent-Length: 100\r\n\r\npartial" status))
   in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
   let%lwt response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
   let body = read response in
   let%lwt () = Lwt_unix.sleep 0.2 in
   (check bool) "read waiting for the rest" true (Lwt.is_sleeping body);
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt () = expect_aborted body in
   let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
   Lwt.return_unit
@@ -454,7 +458,7 @@ let post_sse_then_hold () =
   let%lwt port, request =
     serve_once (Hold "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\ndata: one\n\ndata: two\n\n")
   in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
   let%lwt response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
   Lwt.return (response, abort, request)
@@ -466,7 +470,7 @@ let test_abort_mid_lines () =
   (check (list string)) "lines before the abort" [ "data: one"; ""; "data: two"; "" ] received;
   let pending = Lwt_stream.get lines in
   (check bool) "read waiting for the next line" true (Lwt.is_sleeping pending);
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt () = expect_aborted (Lwt_unix.with_timeout 5.0 (fun () -> pending)) in
   let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
   Lwt.return_unit
@@ -485,7 +489,7 @@ let test_abort_mid_sse_pump () =
     (Ai_provider.Sse.parse_events (Ai_provider.Http_client.body_lines response));
   let%lwt received = Lwt_stream.nget 2 parts in
   (check (list string)) "parts before the abort" [ "text one"; "text two" ] (List.map describe_part received);
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt rest = Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list parts) in
   (check (list string)) "parts after the abort" [] (List.map describe_part rest);
   let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
@@ -495,14 +499,14 @@ let test_abort_mid_sse_pump () =
    reaches the read. The read must still fail. *)
 let test_abort_while_chunk_pauses () =
   let chunks, push = Lwt_stream.create () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let response =
     Ai_provider.Http_client.For_testing.response_of_chunks ~abort_signal:signal
       ~timeouts:Ai_provider.Http_timeouts.default ~provider:"test" ~status:200 ~headers:[] chunks
   in
   let line = Lwt_stream.get (Ai_provider.Http_client.body_lines response) in
   push (Some "data: late\n");
-  Lwt.wakeup_later abort ();
+  abort ();
   expect_aborted line
 
 (* The finished transfer has already detached its abort callback, so a later
@@ -510,10 +514,10 @@ let test_abort_while_chunk_pauses () =
    read fails with Aborted. *)
 let test_abort_after_completion () =
   let%lwt port, _ = serve_once (Reply "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndone") in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let%lwt response = post ~abort_signal:signal (Printf.sprintf "http://127.0.0.1:%d/" port) in
   let%lwt body = Ai_provider.Http_client.body_string response in
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt () = Lwt.pause () in
   (check string) "body" "done" body;
   (check int) "status" 200 (Ai_provider.Http_client.status response);
@@ -524,7 +528,8 @@ let test_abort_after_completion () =
 let queued_lines_response () =
   let signal, (_ : unit Lwt.u) = Lwt.task () in
   let response =
-    Ai_provider.Http_client.For_testing.response_of_chunks ~abort_signal:signal
+    Ai_provider.Http_client.For_testing.response_of_chunks
+      ~abort_signal:(Ai_provider.Abort_signal.of_promise signal)
       ~timeouts:Ai_provider.Http_timeouts.default ~provider:"test" ~status:200 ~headers:[]
       (Lwt_stream.of_list [ "data: one\n\ndata: two\n\ndata: three\n\n" ])
   in

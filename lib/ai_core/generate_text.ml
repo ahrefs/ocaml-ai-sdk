@@ -213,7 +213,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
             let%lwt () = fail_if_cancelled () in
             (* Race the call so that a model which ignores the signal in
                [opts] does not hold the call after an abort. *)
-            Abort_race.race abort_signal (fun () -> Ai_provider.Language_model.generate model opts))
+            Ai_provider.Abort_signal.race abort_signal (fun () -> Ai_provider.Language_model.generate model opts))
         in
         let text, reasoning, tool_calls = parse_content result.content in
         (* Add response attributes to step span *)

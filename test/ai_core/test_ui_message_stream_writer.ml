@@ -394,7 +394,7 @@ let chunk_type chunk = Yojson.Basic.Util.(to_string (member "type" (Chunk.to_jso
    exception hook stays in place: an exception escaping [Lwt.async] would
    exit the test. *)
 let test_execute_fails_after_merged_abort () =
-  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let finished_aborted = ref None in
   let stream =
     Writer.create_ui_message_stream
@@ -421,7 +421,7 @@ let test_execute_fails_after_merged_abort () =
   let chunks =
     Lwt_main.run
       (let%lwt before = read_until_text [] in
-       Lwt.cancel signal;
+       abort ();
        let%lwt after = Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list stream) in
        (* Leaves time for a late push into the closed stream. *)
        let%lwt () = Lwt_unix.sleep 0.05 in

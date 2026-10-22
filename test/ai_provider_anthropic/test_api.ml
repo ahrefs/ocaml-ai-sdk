@@ -236,8 +236,9 @@ let test_messages_aborted_skips_fetch () =
     Lwt_main.run
       (try%lwt
          let%lwt (_ : [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ]) =
-           Ai_provider_anthropic.Anthropic_api.messages ~abort_signal:Lwt.return_unit ~config ~body ~extra_headers:[]
-             ~stream:false ()
+           Ai_provider_anthropic.Anthropic_api.messages
+             ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
+             ~config ~body ~extra_headers:[] ~stream:false ()
          in
          Lwt.return_false
        with Ai_provider.Abort_signal.Aborted _ -> Lwt.return_true)

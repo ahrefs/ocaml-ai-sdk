@@ -859,14 +859,14 @@ let counting_search_tool ?abort runs =
       Some
         (fun (_ : Yojson.Basic.t) _ ->
           incr runs;
-          Option.iter (fun wakener -> Lwt.wakeup_later wakener ()) abort;
+          Option.iter (fun abort -> abort ()) abort;
           Lwt.return (`String "results"));
   }
 
 (* The tool fires the signal, so the second step never starts. *)
 let test_abort_between_steps () =
   let model, mock = make_abort_tool_model () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let tool = counting_search_tool ~abort (ref 0) in
   let outcome =
     generate_outcome (fun () ->
@@ -885,7 +885,7 @@ let test_abort_between_steps () =
 (* The first of two tool calls fires the signal, so the second never runs. *)
 let test_abort_between_tools () =
   let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let runs = ref 0 in
   let tool = counting_search_tool ~abort runs in
   let outcome =
@@ -910,7 +910,9 @@ let test_abort_before_pending_approval () =
     generate_outcome (fun () ->
       Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
         ~tools:[ "search", tool ]
-        ~pending_tool_approvals:[ pending ] ~max_steps:3 ~abort_signal:Lwt.return_unit ())
+        ~pending_tool_approvals:[ pending ] ~max_steps:3
+        ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
+        ())
   in
   (check string) "outcome" "aborted" outcome;
   (check int) "tool never runs" 0 !runs;
@@ -1136,7 +1138,9 @@ let test_abort_reaches_tool () =
     generate_outcome (fun () ->
       Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
         ~tools:[ "search", tool ]
-        ~max_steps:3 ~abort_signal:(Lwt_unix.sleep 0.3) ())
+        ~max_steps:3
+        ~abort_signal:(Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.3))
+        ())
   in
   let elapsed = Unix.gettimeofday () -. started in
   (check string) "outcome" "aborted" outcome;
@@ -1240,7 +1244,8 @@ let test_abort_with_model_ignoring_signal () =
     generate_outcome (fun () ->
       Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
         ~tools:[ "search", waiting_search_tool (ref 0) Lwt.return ]
-        ~max_steps:3 ~abort_signal:(Lwt_unix.sleep 0.1)
+        ~max_steps:3
+        ~abort_signal:(Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.1))
         ~on_abort:(fun ~steps -> aborted_steps := Some steps)
         ())
   in
@@ -1257,12 +1262,12 @@ let test_abort_with_model_ignoring_signal () =
    both, and the cancel does not reach the caller's signal. *)
 let test_cancel_with_signal_and_model_ignoring_it () =
   let model, (_ : Mock.t) = make_model_ignoring_signal () in
-  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let signal = Ai_provider.Abort_signal.of_promise (fst (Lwt.task ())) in
   check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0. (fun () ->
     Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
       ~tools:[ "search", waiting_search_tool (ref 0) Lwt.return ]
       ~max_steps:3 ~abort_signal:signal ());
-  (check bool) "signal still pending" true (Lwt.is_sleeping signal)
+  (check bool) "signal still pending" false (Ai_provider.Abort_signal.is_aborted signal)
 
 (* on_abort runs, with the step whose tool fired the signal, before the
    returned promise fails. *)

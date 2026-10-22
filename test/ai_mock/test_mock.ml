@@ -153,21 +153,23 @@ let test_stream_sequence () =
 let test_hang_aborts () =
   Lwt_main.run
     (let model, (_ : Mock.t) = Mock.create ~generate:(Respond (Mock.hang ())) () in
-     let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+     let abort_signal, abort = Ai_provider.Abort_signal.create () in
      let call = Model.generate model (options ~abort_signal "a") in
      let%lwt pending = is_pending call in
      (check bool) "pending before the abort" true pending;
-     Lwt.cancel abort_signal;
+     abort ~reason:Exit ();
      match%lwt call with
      | (_ : Ai_provider.Generate_result.t) -> fail "expected Aborted"
-     | exception Ai_provider.Abort_signal.Aborted _ -> Lwt.return_unit)
+     | exception Ai_provider.Abort_signal.Aborted { reason } ->
+       (check (option string)) "the signal's reason" (Some "Stdlib.Exit") (Option.map Printexc.to_string reason);
+       Lwt.return_unit)
 
 let test_hang_ignores_abort () =
   Lwt_main.run
     (let model, (_ : Mock.t) = Mock.create ~generate:(Respond (Mock.hang ~ignore_abort:true ())) () in
-     let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+     let abort_signal, abort = Ai_provider.Abort_signal.create () in
      let call = Model.generate model (options ~abort_signal "a") in
-     Lwt.cancel abort_signal;
+     abort ();
      let%lwt pending = is_pending call in
      (check bool) "pending after the abort" true pending;
      Lwt.cancel call;
@@ -187,14 +189,14 @@ let test_hanging_stream () =
     (let model, (_ : Mock.t) =
        Mock.create ~stream:(Respond (Mock.hanging_stream [ Stream_start { warnings = [] }; Text { text = "Hi" } ])) ()
      in
-     let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+     let abort_signal, abort = Ai_provider.Abort_signal.create () in
      let%lwt { Ai_provider.Stream_result.stream; _ } = Model.stream model (options ~abort_signal "a") in
      let%lwt sent = Lwt_stream.nget 2 stream in
      (check (list string)) "parts" [ "stream-start"; "text:Hi" ] (List.map part_name sent);
      let next = Lwt_stream.get stream in
      let%lwt pending = is_pending next in
      (check bool) "no further part" true pending;
-     Lwt.cancel abort_signal;
+     abort ();
      match%lwt next with
      | None -> Lwt.return_unit
      | Some part -> failf "expected the end of the stream, got %s" (part_name part))
@@ -202,9 +204,9 @@ let test_hanging_stream () =
 let test_hanging_stream_ignores_abort () =
   Lwt_main.run
     (let model, (_ : Mock.t) = Mock.create ~stream:(Respond (Mock.hanging_stream ~ignore_abort:true [])) () in
-     let abort_signal, (_ : unit Lwt.u) = Lwt.task () in
+     let abort_signal, abort = Ai_provider.Abort_signal.create () in
      let%lwt { Ai_provider.Stream_result.stream; _ } = Model.stream model (options ~abort_signal "a") in
-     Lwt.cancel abort_signal;
+     abort ();
      let%lwt pending = is_pending (Lwt_stream.get stream) in
      (check bool) "still open" true pending;
      Lwt.return_unit)

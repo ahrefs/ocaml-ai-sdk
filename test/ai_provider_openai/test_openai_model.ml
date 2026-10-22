@@ -150,7 +150,7 @@ let expect_aborted_call call () =
       (Ai_provider.Call_options.default
          ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
       with
-      abort_signal = Some Lwt.return_unit;
+      abort_signal = Some (Ai_provider.Abort_signal.of_promise Lwt.return_unit);
     }
   in
   match Lwt_main.run (call model opts) with

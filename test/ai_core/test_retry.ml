@@ -462,7 +462,7 @@ let describe_outcome promise =
    non-retryable error would be wrapped in a Retry_error. *)
 let test_aborted_attempt_not_retried () =
   let call_count = ref 0 in
-  let signal, (_ : unit Lwt.u) = Lwt.wait () in
+  let signal = Ai_provider.Abort_signal.of_promise (fst (Lwt.wait ())) in
   let result =
     Ai_core.Retry.with_retries ~abort_signal:signal ~max_retries:3 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter
       (fun () ->
@@ -479,7 +479,7 @@ let test_aborted_attempt_not_retried () =
 (* The sleep never ends on its own, so only the abort can end the wait. *)
 let test_abort_during_backoff () =
   let call_count = ref 0 in
-  let signal, abort = Lwt.wait () in
+  let signal, abort = Ai_provider.Abort_signal.create () in
   let result =
     Ai_core.Retry.with_retries ~abort_signal:signal ~max_retries:2 ~initial_delay_ms:1
       ~sleep:(fun _ -> fst (Lwt.wait ()))
@@ -488,7 +488,7 @@ let test_abort_during_backoff () =
         Lwt.fail (retryable_error "overloaded"))
   in
   (check string) "sleeping" "pending" (describe_outcome result);
-  Lwt.wakeup_later abort ();
+  abort ();
   let%lwt () = Lwt.pause () in
   (check string) "outcome" "aborted" (describe_outcome result);
   (check int) "called once" 1 !call_count;
@@ -498,7 +498,7 @@ let test_abort_during_backoff () =
    cancel it while dropping its wait on the signal. *)
 let test_finished_backoff_spares_signal () =
   let call_count = ref 0 in
-  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let signal = Ai_provider.Abort_signal.of_promise (fst (Lwt.task ())) in
   let%lwt result =
     Ai_core.Retry.with_retries ~abort_signal:signal ~max_retries:2 ~initial_delay_ms:1 ~sleep:no_sleep ~random:no_jitter
       (fun () ->
@@ -514,7 +514,7 @@ let test_finished_backoff_spares_signal () =
 let test_already_aborted_makes_no_attempt () =
   let call_count = ref 0 in
   let result =
-    Ai_core.Retry.with_retries ~abort_signal:Lwt.return_unit (fun () ->
+    Ai_core.Retry.with_retries ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit) (fun () ->
       incr call_count;
       Lwt.return "ok")
   in

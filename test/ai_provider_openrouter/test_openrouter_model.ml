@@ -332,7 +332,7 @@ let expect_aborted_call call () =
       (Ai_provider.Call_options.default
          ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
       with
-      abort_signal = Some Lwt.return_unit;
+      abort_signal = Some (Ai_provider.Abort_signal.of_promise Lwt.return_unit);
     }
   in
   match Lwt_main.run (call model opts) with
@@ -354,7 +354,7 @@ let test_abort_before_first_chunk () =
        in
        let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
        let module M = (val model : Ai_provider.Language_model.S) in
-       let signal, (_ : unit Lwt.u) = Lwt.task () in
+       let signal, abort = Ai_provider.Abort_signal.create () in
        let opts =
          {
            (Ai_provider.Call_options.default
@@ -367,7 +367,7 @@ let test_abort_before_first_chunk () =
        let call = M.stream opts in
        let%lwt () = Lwt_unix.sleep 0.2 in
        (check bool) "waiting for the first chunk" true (Lwt.is_sleeping call);
-       Lwt.cancel signal;
+       abort ();
        let%lwt result = Lwt_unix.with_timeout 5.0 (fun () -> call) in
        Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list result.Ai_provider.Stream_result.stream))
   in
