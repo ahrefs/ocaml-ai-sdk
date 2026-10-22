@@ -6,6 +6,7 @@
     - Tools + Output together: model calls tools, then responds with validated JSON
     - Multi-step tool execution (agent loop with max_steps:5)
     - UIMessage stream protocol v1 for useChat() interop
+    - Stopping the generation when the client disconnects (abort_signal)
 
     Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable before running.
     Set AI_PROVIDER=openai to use OpenAI (defaults to anthropic).
@@ -127,6 +128,27 @@ When asked about weather, use the get_weather tool.
 When asked about facts or topics you're not sure about, use the search_web tool.
 You can use multiple tools in sequence to build a complete answer.|}
 
+(* --- Client disconnects --- *)
+
+exception Client_disconnected
+
+(* The abort function of the request each connection is serving, by cohttp
+   connection id. cohttp calls [conn_closed] when a connection ends, including
+   when the client goes away mid-stream, as after useChat().stop() or a closed
+   tab. It notices that only once a write to the client fails, which takes
+   about 4 KiB of output after the client left. Aborting a request that has
+   already finished does nothing. *)
+let in_flight : (_, unit -> unit) Hashtbl.t = Hashtbl.create 16
+
+let abort_on_disconnect ((_, id) : Cohttp_lwt_unix.Server.conn) =
+  let abort_signal, abort = Ai_provider.Abort_signal.create () in
+  Hashtbl.replace in_flight id (fun () -> abort ~reason:Client_disconnected ());
+  abort_signal
+
+let conn_closed ((_, id) : Cohttp_lwt_unix.Server.conn) =
+  Option.iter (fun abort -> abort ()) (Hashtbl.find_opt in_flight id);
+  Hashtbl.remove in_flight id
+
 (* --- HTTP handler --- *)
 
 (* Sends an [Ai_core.Server_handler.response] with cohttp. *)
@@ -134,7 +156,7 @@ let respond (r : Ai_core.Server_handler.response) =
   Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
     ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
 
-let handler _conn req body =
+let handler conn req body =
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
   let meth = Cohttp.Request.meth req in
@@ -149,9 +171,10 @@ let handler _conn req body =
   | `OPTIONS, "/chat" -> respond (Ai_core.Server_handler.handle_cors_preflight ())
   | _, "/chat" ->
     let%lwt body = Cohttp_lwt.Body.to_string body in
+    let abort_signal = abort_on_disconnect conn in
     respond
       (Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
-         ~transform:(Ai_core.Smooth_stream.create ()) body)
+         ~transform:(Ai_core.Smooth_stream.create ()) ~abort_signal body)
   | _ ->
     let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in
     Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~headers ~body:"Not found" ()
@@ -162,6 +185,8 @@ let () =
   Printf.printf "Chat agent on http://localhost:%d/chat (provider: %s, model: %s, tools: %d)\n%!" port M.provider
     M.model_id (List.length tools);
   let server =
-    Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
+    Cohttp_lwt_unix.Server.create
+      ~mode:(`TCP (`Port port))
+      (Cohttp_lwt_unix.Server.make ~conn_closed ~callback:handler ())
   in
   Lwt_main.run server
