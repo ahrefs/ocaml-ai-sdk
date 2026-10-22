@@ -43,7 +43,7 @@ val reason_to_string : retry_reason -> string
     @param sleep Function called to sleep between retries (default [Lwt_unix.sleep]).
       With [abort_signal], an abort during the sleep cancels the promise [sleep]
       returned.
-    @param random Random source in [[0, 1)] used for bounded jitter.
+    @param random Random source in [\[0, 1)] used for bounded jitter.
     @param abort_signal Stops the loop with [Ai_provider.Abort_signal.Aborted]:
       no attempt starts once it has settled, and it ends a sleep between
       attempts early. An attempt that fails with [Aborted] or [Lwt.Canceled]

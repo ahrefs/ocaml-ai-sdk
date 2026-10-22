@@ -66,8 +66,9 @@ as `"Dune__exe__Main.User_pressed_stop"`.
 
 `Abort_signal.with_timeout after_s f` runs `f signal`, where `signal` fails
 with `Abort_signal.Timeout { after_s }` after `after_s` seconds. The timer is
-cancelled once `f`'s promise settles. A zero or negative `after_s` fires at
-once, and `nan` raises `Invalid_argument`.
+cancelled once `f`'s promise settles. A zero or negative `after_s` fires on
+the next turn of the Lwt main loop, after `f` has started, and `nan` raises
+`Invalid_argument`.
 
 ```ocaml
 let summarize ~model text =
@@ -114,11 +115,12 @@ This example assumes `open Ai_provider`:
 
 ```ocaml
 Abort_signal.with_timeout timeout @@ fun deadline ->
-Abort_signal.choose [ deadline; Daemon.wait_exit () ] @@ fun abort_signal ->
+Abort_signal.choose [ deadline; Abort_signal.of_promise (Daemon.wait_exit ()) ] @@ fun abort_signal ->
 Agent_runner.run ~abort_signal ~model cfg
 ```
 
-`Daemon.wait_exit ()` stands for a signal your app aborts when it shuts down,
+`Daemon.wait_exit ()` stands for a promise that settles when your app shuts
+down, which `of_promise` turns into a signal,
 and `Agent_runner.run` for your own function that passes `abort_signal` to
 `generate_text` or `stream_text`. When the deadline fires first, the call
 fails with `Aborted { reason = Some (Timeout _) }`. When the daemon exits
@@ -144,22 +146,28 @@ process by default.
 
 A tool's `execute` gets its arguments and a `Core_tool.execute_options`
 record, as upstream's tools get `ToolExecutionOptions`. It holds
-`tool_call_id`, the step's `messages` without the system prompt, as upstream
-passes them, and the `abort_signal` given to `generate_text` or
-`stream_text`.
+`tool_call_id`, the step's `messages` without the system prompt and without
+that step's response, as upstream passes them, and the `abort_signal` given
+to `generate_text` or `stream_text`.
 
-Both functions follow one rule: a tool's result counts only if the tool
-returned before the signal fired. No tool starts once the signal has fired.
+Both functions follow one rule: a tool's result counts only if its `execute`
+returned before the signal fired. An abort from the code that reports the
+result, such as telemetry or `on_chunk` on the `Tool_result` part, does not
+drop it. No tool starts once the signal has fired.
 When it fires while a tool runs, the call fails at once and cancels the
 tool's promise, even when the tool ignores the signal, and a result the tool
 returns later is dropped.
 
 Cancelling the promise stops work built on cancelable promises, such as
 `Lwt_unix.sleep` or a provider request. Work that ignores `Lwt.cancel` keeps
-running in the background, so a tool that does slow work should stop when
-the signal fires. If its work goes through a function that takes a signal,
-such as `Ai_provider.Http_client.post`, pass the signal on. Otherwise race
-the work against the signal with `Abort_signal.race`:
+running in the background, so it must watch the signal itself. If it goes
+through a function that takes a signal, such as
+`Ai_provider.Http_client.post`, pass the signal on.
+
+`generate_text` and `stream_text` already race every tool against the
+signal. Where the SDK doesn't race, such as a direct
+`Core_tool.execute_tool` call or a tool's own sub-steps, race the work with
+`Abort_signal.race` to stop waiting at the abort and cancel the work:
 
 ```ocaml
 let lookup_order =
@@ -169,9 +177,10 @@ let lookup_order =
     ()
 ```
 
-`Orders.lookup` and `order_schema` stand for your own code. `race` fails with
-`Aborted` as soon as the signal fires and cancels the work, and it never
-cancels the signal.
+`Orders.lookup` and `order_schema` stand for your own code. The race stops
+the lookup at the abort even when the tool runs through `execute_tool`.
+`race` fails with `Aborted` as soon as the signal fires and cancels the
+work. Cancelling `race` cancels the work too, and never the signal.
 
 `Core_tool.execute_tool` turns an exception from a tool into an error result
 for the model. That includes an `Aborted` or `Lwt.Canceled` from the tool's
@@ -197,8 +206,8 @@ Both `generate_text` and `stream_text` take
 `?on_abort:(steps:Generate_text_result.step list -> unit)`. It runs once when
 the signal stops the call, with the steps recorded so far, in order, and
 before any result promise fails. `Generate_text_result.total_usage` adds up
-their usage. When a step has no `total_tokens`, the sum's total falls back to
-its input plus output tokens. To use the steps after `generate_text` fails,
+their usage. A step with no `total_tokens` counts as its input plus output
+tokens, so the sum does not depend on the order of the steps. To use the steps after `generate_text` fails,
 keep them in a ref:
 
 ```ocaml

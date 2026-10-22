@@ -14,8 +14,10 @@ type execute_options = {
         without the system prompt and without that step's response. For an
         approved tool, the request's messages. *)
   abort_signal : Ai_provider.Abort_signal.t option;
-    (** The [abort_signal] given to [generate_text] or [stream_text]. A tool
-        that ignores it runs to the end after an abort. *)
+    (** The [abort_signal] given to [generate_text] or [stream_text]. When it
+        fires, both functions cancel the tool's promise and drop any result
+        it returns later. Work that ignores [Lwt.cancel] keeps running in the
+        background, so a tool with such work must watch the signal itself. *)
 }
 
 type t = {
