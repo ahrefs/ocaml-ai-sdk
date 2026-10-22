@@ -12,6 +12,17 @@
       (* [result.text] is "Hi", and [generate_calls mock] holds the options of
          the one call, including the prompt. *)
       Lwt.return (result.text, Ai_mock.Language_model.generate_calls mock)
+    ]}
+
+    For code that takes an {!Ai_provider.Provider.t}, wrap the model in a
+    provider that returns it for every model ID:
+
+    {[
+      let provider : Ai_provider.Provider.t =
+        (module struct
+          let name = "mock-provider"
+          let language_model (_ : string) = model
+        end)
     ]} *)
 
 (** What a call returns. ['result] is the model's return type. ['canned] is a
