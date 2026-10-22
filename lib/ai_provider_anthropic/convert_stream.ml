@@ -64,7 +64,7 @@ type error_info = {
 
 type error_event = { error : error_info } [@@json.allow_extra_fields] [@@deriving of_json]
 
-let transform events ~warnings =
+let transform ?abort_signal events ~warnings =
   let blocks : (int, block_state) Hashtbl.t = Hashtbl.create 8 in
   let is_first = ref true in
   (* Anthropic emits cache_creation_input_tokens / cache_read_input_tokens on
@@ -73,7 +73,7 @@ let transform events ~warnings =
      omits the cache fields, mirroring upstream @ai-sdk/anthropic. *)
   let start_usage : Convert_usage.anthropic_usage option ref = ref None in
   let stream, push = Lwt_stream.create () in
-  Ai_provider.Stream_pump.pump ~provider:"anthropic" ~push
+  Ai_provider.Stream_pump.pump ?abort_signal ~provider:"anthropic" ~push
     (fun (evt : Sse.event) ->
       let json = Yojson.Basic.from_string evt.data in
       match evt.event_type with

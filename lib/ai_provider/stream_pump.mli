@@ -3,7 +3,8 @@
     Providers use this to turn an SSE event stream into {!Stream_part.t}
     parts. *)
 
-(** [pump ~provider ~push f events] runs [f] on each event in the background,
+(** [pump ?abort_signal ~provider ~push f events] runs [f] on each event in
+    the background,
     then closes the output with [push None], whatever happens. Every error
     part it creates is non-retryable and names [provider]. A [Provider_error]
     keeps its own fields.
@@ -18,8 +19,14 @@
     Any other exception, raised by [events] or by [f], is pushed as an [Error]
     part and ends the stream. A [Provider_error] is pushed as it is. Anything
     else becomes an [Unexpected_error] whose message is the exception as
-    [Printexc.to_string] prints it. [Abort_signal.Aborted] and [Lwt.Canceled]
-    end the stream without an [Error] part, as the SDK treats a cancel like
-    an abort. *)
+    [Printexc.to_string] prints it. Once [abort_signal], the call's signal,
+    has fired, [Abort_signal.Aborted] and [Lwt.Canceled] end the stream
+    without an [Error] part: the caller asked for them. Before then, or with
+    no signal, they are [Unexpected_error]s like any other exception. *)
 val pump :
-  provider:string -> push:(Stream_part.t option -> unit) -> (Sse.event -> unit) -> Sse.event Lwt_stream.t -> unit
+  ?abort_signal:Abort_signal.t ->
+  provider:string ->
+  push:(Stream_part.t option -> unit) ->
+  (Sse.event -> unit) ->
+  Sse.event Lwt_stream.t ->
+  unit

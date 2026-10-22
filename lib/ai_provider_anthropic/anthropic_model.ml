@@ -220,7 +220,7 @@ let create ~config ~model =
       match%lwt Anthropic_api.messages ?abort_signal:opts.abort_signal ~config ~body ~extra_headers ~stream:true () with
       | `Stream line_stream ->
         let sse_events = Sse.parse_events line_stream in
-        let parts = Convert_stream.transform sse_events ~warnings in
+        let parts = Convert_stream.transform ?abort_signal:opts.abort_signal sse_events ~warnings in
         Lwt.return { Ai_provider.Stream_result.stream = parts; warnings; raw_response = None }
       | `Json _ -> Lwt.fail_with "unexpected non-streaming response for streaming request"
   end in

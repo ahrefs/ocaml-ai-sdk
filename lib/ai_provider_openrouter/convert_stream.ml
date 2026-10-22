@@ -143,7 +143,7 @@ let process_tool_call_delta ~push ~has_tool_calls ~tool_calls (tc : delta_tool_c
     | None -> ())
   | Some _ | None -> ()
 
-let transform events ~warnings =
+let transform ?abort_signal events ~warnings =
   let tool_calls : (int, tool_call_state) Hashtbl.t = Hashtbl.create 4 in
   let is_first = ref true in
   let finished = ref false in
@@ -192,7 +192,7 @@ let transform events ~warnings =
       finished := true
     end
   in
-  Ai_provider.Stream_pump.pump ~provider:"openrouter" ~push
+  Ai_provider.Stream_pump.pump ?abort_signal ~provider:"openrouter" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->

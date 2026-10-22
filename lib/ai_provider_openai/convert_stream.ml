@@ -40,7 +40,7 @@ type chunk_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
-let transform events ~warnings =
+let transform ?abort_signal events ~warnings =
   let tool_calls : (int, tool_call_state) Hashtbl.t = Hashtbl.create 4 in
   let is_first = ref true in
   let finished = ref false in
@@ -59,7 +59,7 @@ let transform events ~warnings =
       tool_calls;
     Hashtbl.clear tool_calls
   in
-  Ai_provider.Stream_pump.pump ~provider:"openai" ~push
+  Ai_provider.Stream_pump.pump ?abort_signal ~provider:"openai" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->

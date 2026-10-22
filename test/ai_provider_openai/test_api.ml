@@ -89,8 +89,8 @@ let test_headers_with_org () =
   in
   (check bool) "called" true !called
 
-(* The fetch gets the call's signal. It waits for the signal and then returns
-   a value anyway, and the call still fails with Aborted. *)
+(* The fetch gets the call's signal, watches it and returns once it fires.
+   The call fails with Aborted. *)
 let test_abort_during_fetch () =
   let signal, abort = Ai_provider.Abort_signal.create () in
   let received = ref None in

@@ -1,6 +1,6 @@
 let non_retryable ~provider kind = { Provider_error.provider; kind; is_retryable = false; retry_after_s = None }
 
-let pump ~provider ~push f events =
+let pump ?abort_signal ~provider ~push f events =
   let fail error = push (Some (Stream_part.Error { error })) in
   (* A malformed event is reported and skipped; any other failure ends the stream. *)
   let on_event (evt : Sse.event) =
@@ -22,9 +22,10 @@ let pump ~provider ~push f events =
       push None;
       Lwt.return_unit)
     (fun exn ->
-      (* The caller asked for the abort or the cancel, so there is nothing to
-         report. *)
-      (match exn with
-      | Abort_signal.Aborted _ | Lwt.Canceled -> ()
-      | exn -> fail (stream_failed exn));
+      (* Once the call's signal has fired, its abort or cancel is what the
+         caller asked for, so there is nothing to report. Any other is an
+         error, as a stray cancel would otherwise look like a normal end. *)
+      (match exn, abort_signal with
+      | (Abort_signal.Aborted _ | Lwt.Canceled), Some signal when Abort_signal.is_aborted signal -> ()
+      | exn, (Some _ | None) -> fail (stream_failed exn));
       push None)

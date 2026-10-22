@@ -461,10 +461,10 @@ let post_sse_then_hold () =
   let signal, abort = Ai_provider.Abort_signal.create () in
   let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
   let%lwt response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
-  Lwt.return (response, abort, request)
+  Lwt.return (response, signal, abort, request)
 
 let test_abort_mid_lines () =
-  let%lwt response, abort, request = post_sse_then_hold () in
+  let%lwt response, (_ : Ai_provider.Abort_signal.t), abort, request = post_sse_then_hold () in
   let lines = Ai_provider.Http_client.body_lines response in
   let%lwt received = Lwt_stream.nget 4 lines in
   (check (list string)) "lines before the abort" [ "data: one"; ""; "data: two"; "" ] received;
@@ -482,9 +482,9 @@ let describe_part = function
 
 (* The full provider read path: an abort closes the part stream with no Error part. *)
 let test_abort_mid_sse_pump () =
-  let%lwt response, abort, request = post_sse_then_hold () in
+  let%lwt response, signal, abort, request = post_sse_then_hold () in
   let parts, push = Lwt_stream.create () in
-  Ai_provider.Stream_pump.pump ~provider:"test" ~push
+  Ai_provider.Stream_pump.pump ~abort_signal:signal ~provider:"test" ~push
     (fun evt -> push (Some (Ai_provider.Stream_part.Text { text = evt.data })))
     (Ai_provider.Sse.parse_events (Ai_provider.Http_client.body_lines response));
   let%lwt received = Lwt_stream.nget 2 parts in

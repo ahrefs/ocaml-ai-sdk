@@ -622,8 +622,8 @@ let expect_aborted_call call () =
   | _ -> fail "expected Aborted"
   | exception Ai_provider.Abort_signal.Aborted _ -> ()
 
-(* The fetch gets [Call_options.abort_signal]. It waits for the signal and
-   then returns a value anyway, and the call still fails with Aborted. *)
+(* The fetch gets [Call_options.abort_signal], watches it and returns once
+   it fires. The call fails with Aborted. *)
 let expect_abort_during_fetch call () =
   let signal, abort = Ai_provider.Abort_signal.create () in
   let received = ref None in
@@ -651,6 +651,38 @@ let expect_abort_during_fetch call () =
   match Lwt_main.run pending with
   | _ -> fail "expected Aborted"
   | exception Ai_provider.Abort_signal.Aborted _ -> ()
+
+(* A fetch that ignores the signal and never returns. The call races it
+   against the signal, so it fails with Aborted right after the abort, and
+   the fetch's promise is cancelled. *)
+let expect_fetch_raced call () =
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let fetched = ref None in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ =
+    let promise, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
+    fetched := Some promise;
+    promise
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some signal;
+    }
+  in
+  let pending = call model opts in
+  abort ();
+  (check bool) "aborted at once" true
+    (match Lwt.state pending with
+    | Lwt.Fail (Ai_provider.Abort_signal.Aborted _) -> true
+    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
+  (check bool) "fetch cancelled" true
+    (match Option.map Lwt.state !fetched with
+    | Some (Lwt.Fail Lwt.Canceled) -> true
+    | Some (Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep) | None -> false)
 
 let () =
   run "Anthropic_model"
@@ -694,5 +726,9 @@ let () =
           test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
           test_case "generate during fetch" `Quick (expect_abort_during_fetch Ai_provider.Language_model.generate);
           test_case "stream during fetch" `Quick (expect_abort_during_fetch Ai_provider.Language_model.stream);
+          test_case "generate with a fetch ignoring the signal" `Quick
+            (expect_fetch_raced Ai_provider.Language_model.generate);
+          test_case "stream with a fetch ignoring the signal" `Quick
+            (expect_fetch_raced Ai_provider.Language_model.stream);
         ] );
     ]
