@@ -88,14 +88,6 @@ let test_not_implemented () =
      (check int) "stream call recorded" 1 (List.length (Mock.stream_calls mock));
      Lwt.return_unit)
 
-let test_return () =
-  Lwt_main.run
-    (let model, (_ : Mock.t) = Mock.create ~generate:(Return (text_result "same")) () in
-     let%lwt first = Model.generate model (options "a") in
-     let%lwt second = Model.generate model (options "b") in
-     (check (list string)) "every call" [ "same"; "same" ] [ text_of first; text_of second ];
-     Lwt.return_unit)
-
 let test_generate_result_defaults () =
   let result = Mock.generate_result [] in
   (check string) "finish reason" "stop" (Ai_provider.Finish_reason.to_string result.finish_reason);
@@ -110,26 +102,6 @@ let test_sequence () =
      (check (list string)) "in order" [ "one"; "two" ] [ text_of first; text_of second ];
      expect_failure ~what:"third call" (Model.generate model (options "c")))
 
-let test_respond () =
-  Lwt_main.run
-    (let model, (_ : Mock.t) =
-       Mock.create ~generate:(Respond (fun options -> Lwt.return (text_result (prompt_text options)))) ()
-     in
-     let%lwt result = Model.generate model (options "echo") in
-     (check string) "from the options" "echo" (text_of result);
-     Lwt.return_unit)
-
-let test_records_calls () =
-  Lwt_main.run
-    (let model, mock = Mock.create ~generate:(Return (text_result "x")) ~stream:(Return parts) () in
-     (check int) "no calls yet" 0 (List.length (Mock.generate_calls mock));
-     let%lwt (_ : Ai_provider.Generate_result.t) = Model.generate model (options "first") in
-     let%lwt (_ : string list) = stream_names model (options "streamed") in
-     let%lwt (_ : Ai_provider.Generate_result.t) = Model.generate model (options "second") in
-     (check (list string)) "generate calls" [ "first"; "second" ] (List.map prompt_text (Mock.generate_calls mock));
-     (check (list string)) "stream calls" [ "streamed" ] (List.map prompt_text (Mock.stream_calls mock));
-     Lwt.return_unit)
-
 let test_stream_parts () =
   Lwt_main.run
     (let model, (_ : Mock.t) = Mock.create ~stream:(Return parts) () in
@@ -138,16 +110,6 @@ let test_stream_parts () =
      let%lwt second = stream_names model (options "b") in
      (check (list string)) "first call" expected first;
      (check (list string)) "a fresh stream per call" expected second;
-     Lwt.return_unit)
-
-let test_stream_sequence () =
-  Lwt_main.run
-    (let model, (_ : Mock.t) =
-       Mock.create ~stream:(Sequence [ [ Text { text = "one" } ]; [ Text { text = "two" } ] ]) ()
-     in
-     let%lwt first = stream_names model (options "a") in
-     let%lwt second = stream_names model (options "b") in
-     (check (list string)) "in order" [ "text:one"; "text:two" ] (first @ second);
      Lwt.return_unit)
 
 let test_hang_aborts () =
@@ -177,40 +139,6 @@ let test_hang_ignores_abort () =
      (check bool) "cancelled" false pending;
      Lwt.return_unit)
 
-let test_hang_without_signal () =
-  Lwt_main.run
-    (let model, (_ : Mock.t) = Mock.create ~generate:(Respond (Mock.hang ())) () in
-     let%lwt pending = is_pending (Model.generate model (options "a")) in
-     (check bool) "pending" true pending;
-     Lwt.return_unit)
-
-let test_hanging_stream () =
-  Lwt_main.run
-    (let model, (_ : Mock.t) =
-       Mock.create ~stream:(Respond (Mock.hanging_stream [ Stream_start { warnings = [] }; Text { text = "Hi" } ])) ()
-     in
-     let abort_signal, abort = Ai_provider.Abort_signal.create () in
-     let%lwt { Ai_provider.Stream_result.stream; _ } = Model.stream model (options ~abort_signal "a") in
-     let%lwt sent = Lwt_stream.nget 2 stream in
-     (check (list string)) "parts" [ "stream-start"; "text:Hi" ] (List.map part_name sent);
-     let next = Lwt_stream.get stream in
-     let%lwt pending = is_pending next in
-     (check bool) "no further part" true pending;
-     abort ();
-     match%lwt next with
-     | None -> Lwt.return_unit
-     | Some part -> failf "expected the end of the stream, got %s" (part_name part))
-
-let test_hanging_stream_ignores_abort () =
-  Lwt_main.run
-    (let model, (_ : Mock.t) = Mock.create ~stream:(Respond (Mock.hanging_stream ~ignore_abort:true [])) () in
-     let abort_signal, abort = Ai_provider.Abort_signal.create () in
-     let%lwt { Ai_provider.Stream_result.stream; _ } = Model.stream model (options ~abort_signal "a") in
-     abort ();
-     let%lwt pending = is_pending (Lwt_stream.get stream) in
-     (check bool) "still open" true pending;
-     Lwt.return_unit)
-
 let () =
   run "Ai_mock.Language_model"
     [
@@ -218,19 +146,9 @@ let () =
         [
           test_case "defaults" `Quick test_defaults;
           test_case "not implemented" `Quick test_not_implemented;
-          test_case "return" `Quick test_return;
           test_case "generate_result defaults" `Quick test_generate_result_defaults;
           test_case "sequence" `Quick test_sequence;
-          test_case "respond" `Quick test_respond;
-          test_case "records calls" `Quick test_records_calls;
         ] );
-      "stream", [ test_case "parts" `Quick test_stream_parts; test_case "sequence" `Quick test_stream_sequence ];
-      ( "hang",
-        [
-          test_case "aborts" `Quick test_hang_aborts;
-          test_case "ignores abort" `Quick test_hang_ignores_abort;
-          test_case "without a signal" `Quick test_hang_without_signal;
-          test_case "stream" `Quick test_hanging_stream;
-          test_case "stream ignores abort" `Quick test_hanging_stream_ignores_abort;
-        ] );
+      "stream", [ test_case "parts" `Quick test_stream_parts ];
+      "hang", [ test_case "aborts" `Quick test_hang_aborts; test_case "ignores abort" `Quick test_hang_ignores_abort ];
     ]

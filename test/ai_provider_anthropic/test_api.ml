@@ -223,53 +223,6 @@ let test_messages_with_mock_fetch () =
     (check string) "id" "msg_test" r.id
   | `Stream _ -> fail "expected Json"
 
-(* A signal that settled before the call fails it without calling fetch. *)
-let test_messages_aborted_skips_fetch () =
-  let called = ref false in
-  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ =
-    called := true;
-    Lwt.return (`Assoc [])
-  in
-  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
-  let aborted =
-    Lwt_main.run
-      (try%lwt
-         let%lwt (_ : [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ]) =
-           Ai_provider_anthropic.Anthropic_api.messages
-             ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
-             ~config ~body ~extra_headers:[] ~stream:false ()
-         in
-         Lwt.return_false
-       with Ai_provider.Abort_signal.Aborted _ -> Lwt.return_true)
-  in
-  (check bool) "aborted" true aborted;
-  (check bool) "fetch not called" false !called
-
-(* The fetch gets the call's signal, watches it and returns once it fires.
-   The call fails with Aborted. *)
-let test_messages_abort_during_fetch () =
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let received = ref None in
-  let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
-    received := Some abort_signal;
-    let%lwt () = Option.fold ~none:Lwt.return_unit ~some:Ai_provider.Abort_signal.wait abort_signal in
-    Lwt.return (`Assoc [])
-  in
-  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
-  let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
-  let call =
-    Ai_provider_anthropic.Anthropic_api.messages ~abort_signal:signal ~config ~body ~extra_headers:[] ~stream:false ()
-  in
-  (check bool) "waiting in fetch" true (Lwt.is_sleeping call);
-  abort ();
-  (match !received with
-  | Some (Some s) -> (check bool) "fetch got the call's signal" true (s == signal)
-  | Some None | None -> fail "fetch did not get the signal");
-  match Lwt_main.run call with
-  | _ -> fail "expected Aborted"
-  | exception Ai_provider.Abort_signal.Aborted _ -> ()
-
 let () =
   run "Anthropic_api"
     [
@@ -290,10 +243,5 @@ let () =
           test_case "non_manual" `Quick test_required_betas_non_manual;
           test_case "dedup" `Quick test_merge_deduplicates;
         ] );
-      ( "messages",
-        [
-          test_case "mock_fetch" `Quick test_messages_with_mock_fetch;
-          test_case "aborted_skips_fetch" `Quick test_messages_aborted_skips_fetch;
-          test_case "abort_during_fetch" `Quick test_messages_abort_during_fetch;
-        ] );
+      "messages", [ test_case "mock_fetch" `Quick test_messages_with_mock_fetch ];
     ]

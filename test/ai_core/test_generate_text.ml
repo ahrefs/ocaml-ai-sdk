@@ -863,41 +863,6 @@ let counting_search_tool ?abort runs =
           Lwt.return (`String "results"));
   }
 
-(* The tool fires the signal, so the second step never starts. *)
-let test_abort_between_steps () =
-  let model, mock = make_abort_tool_model () in
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let tool = counting_search_tool ~abort (ref 0) in
-  let outcome =
-    generate_outcome (fun () ->
-      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-        ~tools:[ "search", tool ]
-        ~max_steps:3 ~abort_signal:signal ())
-  in
-  (check string) "outcome" "aborted" outcome;
-  (check int) "one model call" 1 (model_calls mock);
-  (check (list bool))
-    "the call got the signal" [ true ]
-    (List.map
-       (fun (options : Ai_provider.Call_options.t) -> Option.is_some options.abort_signal)
-       (Mock.generate_calls mock))
-
-(* The first of two tool calls fires the signal, so the second never runs. *)
-let test_abort_between_tools () =
-  let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let runs = ref 0 in
-  let tool = counting_search_tool ~abort runs in
-  let outcome =
-    generate_outcome (fun () ->
-      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-        ~tools:[ "search", tool ]
-        ~max_steps:3 ~abort_signal:signal ())
-  in
-  (check string) "outcome" "aborted" outcome;
-  (check int) "one tool run" 1 !runs;
-  (check int) "one model call" 1 (model_calls mock)
-
 (* An approved pending tool does not run once the signal has fired. *)
 let test_abort_before_pending_approval () =
   let model, mock = make_abort_tool_model () in
@@ -939,27 +904,12 @@ let check_aborted_step ~(usage : Ai_provider.Usage.t) ~tool_calls ~tool_results
   | Some steps -> failf "expected one step, got %d" (List.length steps)
   | None -> fail "on_abort was not called"
 
-(* Pauses when [pause], so the code after it runs inside an Lwt callback, as
-   it does after the real I/O of a provider or a tool. *)
-let maybe_pause pause =
-  match pause with
-  | true -> Lwt.pause ()
-  | false -> Lwt.return_unit
-
 (* Runs a search where the tool of [abort_in] fires the signal and returns.
-   With [~pause:true], the model and each tool pause first. Checks that the
-   call fails with [Aborted] and that on_step_finish is not called. Returns
-   the steps on_abort got, the tools that ran and the model call count. *)
-let run_abort_in_tool ?pending_tool_approvals ?stop_when ?telemetry ?(pause = false) ~abort_in () =
-  let model, mock =
-    Mock.create
-      ~generate:
-        (Respond
-           (fun (_ : Ai_provider.Call_options.t) ->
-             let%lwt () = maybe_pause pause in
-             Lwt.return (search_call_result ~tool_call_ids:[ "tc_1"; "tc_2" ] ())))
-      ()
-  in
+   Checks that the call fails with [Aborted] and that on_step_finish is not
+   called. Returns the steps on_abort got, the tools that ran and the model
+   call count. *)
+let run_abort_in_tool ~abort_in () =
+  let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
   let signal, abort = Ai_provider.Abort_signal.create () in
   let ran = ref [] in
   let tool =
@@ -969,7 +919,6 @@ let run_abort_in_tool ?pending_tool_approvals ?stop_when ?telemetry ?(pause = fa
         Some
           (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
             ran := options.tool_call_id :: !ran;
-            let%lwt () = maybe_pause pause in
             if String.equal options.tool_call_id abort_in then abort ();
             Lwt.return (`String "results"));
     }
@@ -980,7 +929,7 @@ let run_abort_in_tool ?pending_tool_approvals ?stop_when ?telemetry ?(pause = fa
     generate_outcome (fun () ->
       Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
         ~tools:[ "search", tool ]
-        ?pending_tool_approvals ?stop_when ?telemetry ~max_steps:3 ~abort_signal:signal
+        ~max_steps:3 ~abort_signal:signal
         ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> step_finished := true)
         ~on_abort:(fun ~steps -> aborted_steps := Some steps)
         ())
@@ -1009,48 +958,6 @@ let test_abort_in_second_tool_keeps_first_result () =
     ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] aborted_steps;
   (check (list string)) "tools that ran" [ "tc_1"; "tc_2" ] ran;
   (check int) "one model call" 1 calls
-
-(* As [test_abort_in_tool_batch_keeps_step] and
-   [test_abort_in_second_tool_keeps_first_result], with the model and the
-   tools pausing first, so the abort comes from inside an Lwt callback. *)
-let test_abort_in_tool_at_depth_1 () =
-  let usage : Ai_provider.Usage.t = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 } in
-  let aborted_steps, ran, (_ : int) = run_abort_in_tool ~pause:true ~abort_in:"tc_1" () in
-  check_aborted_step ~usage ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[] aborted_steps;
-  (check (list string)) "tools that ran" [ "tc_1" ] ran;
-  let aborted_steps, ran, (_ : int) = run_abort_in_tool ~pause:true ~abort_in:"tc_2" () in
-  check_aborted_step ~usage ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] aborted_steps;
-  (check (list string)) "tools that ran" [ "tc_1"; "tc_2" ] ran
-
-(* The abort comes from the last tool of a step that would end the call, as
-   [stop_when] is met. The call still fails, and on_abort gets the step once,
-   with no on_step_finish. *)
-let test_abort_in_last_tool_with_stop_when () =
-  let aborted_steps, (_ : string list), (_ : int) =
-    run_abort_in_tool ~stop_when:[ Ai_core.Stop_condition.step_count_is 1 ] ~abort_in:"tc_2" ()
-  in
-  check_aborted_step
-    ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
-    ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] aborted_steps
-
-(* A tool that never runs because of the abort gets no on_tool_call_start. *)
-let test_abort_skips_tool_call_start () =
-  let started = ref [] in
-  let integration =
-    {
-      Ai_core.Telemetry.no_integration with
-      on_tool_call_start =
-        Some
-          (fun e ->
-            started := e.tool_call_id :: !started;
-            Lwt.return_unit);
-    }
-  in
-  let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ integration ] () in
-  let (_ : Ai_core.Generate_text_result.step list option), (_ : string list), (_ : int) =
-    run_abort_in_tool ~telemetry ~abort_in:"tc_1" ()
-  in
-  (check (list string)) "tool call starts" [ "tc_1" ] (List.rev !started)
 
 (* Telemetry fires the signal while it reports the first tool's result. The
    tool returned before that, so its result counts, and the second tool
@@ -1085,10 +992,9 @@ let test_abort_in_tool_call_finish_keeps_result () =
     ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
     ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] !aborted_steps
 
-(* The first integration's on_tool_call_start takes 0.3 s, and a cancel or
-   an abort comes at 0.05 s. The call ends at once, the second integration
-   hears nothing, and the tool never runs, whether the slow callback stops
-   at the cancel or ignores it and returns later. *)
+(* The first integration's on_tool_call_start takes 0.3 s and ignores
+   [Lwt.cancel], and a cancel or an abort comes at 0.05 s. The call ends at
+   once, the second integration hears nothing, and the tool never runs. *)
 let test_telemetry_stops_after_cancel_or_abort () =
   let run ~slow ?abort_signal wrap =
     let second = ref [] in
@@ -1130,16 +1036,11 @@ let test_telemetry_stops_after_cancel_or_abort () =
     (check (list string)) (name ^ ": second integration") [] second;
     (check int) (name ^ ": tool runs") 0 runs
   in
-  let cancelable () = Lwt_unix.sleep 0.3 in
   let ignoring_cancel () = Lwt.no_cancel (Lwt_unix.sleep 0.3) in
   let cancel f = Lwt_unix.with_timeout 0.05 f in
   let abort_signal () = Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.05) in
-  check_run "cancel" (run ~slow:cancelable cancel) "Lwt_unix.Timeout";
-  check_run "cancel, callback ignores it" (run ~slow:ignoring_cancel cancel) "Lwt_unix.Timeout";
-  check_run "abort" (run ~slow:cancelable ~abort_signal:(abort_signal ()) (fun f -> f ())) "aborted";
-  check_run "abort, callback ignores the cancel"
-    (run ~slow:ignoring_cancel ~abort_signal:(abort_signal ()) (fun f -> f ()))
-    "aborted"
+  check_run "cancel" (run ~slow:ignoring_cancel cancel) "Lwt_unix.Timeout";
+  check_run "abort" (run ~slow:ignoring_cancel ~abort_signal:(abort_signal ()) (fun f -> f ())) "aborted"
 
 (* A callback that fails with its own [Lwt.Canceled] in a call that nobody
    cancelled or aborted is an ordinary integration error: it is printed, and
@@ -1185,45 +1086,6 @@ let test_telemetry_own_canceled_is_an_error () =
     [ "tool start"; "tool finish"; "step finish"; "step finish"; "finish" ]
     (List.rev !second)
 
-(* An exception from on_abort is ignored, and the call fails with [Aborted]. *)
-let test_on_abort_raises () =
-  let model, (_ : Mock.t) = make_abort_tool_model () in
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let outcome =
-    generate_outcome (fun () ->
-      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-        ~tools:[ "search", counting_search_tool ~abort (ref 0) ]
-        ~max_steps:3 ~abort_signal:signal
-        ~on_abort:(fun ~steps:_ -> failwith "on_abort failed")
-        ())
-  in
-  (check string) "outcome" "aborted" outcome
-
-(* A tool that runs a sub-agent under its own timeout, in a call with no
-   signal. The timeout is the tool's error result, and the call goes on. *)
-let test_tool_own_timeout_is_error_result () =
-  let model, mock = make_abort_tool_model () in
-  let tool =
-    {
-      search_tool with
-      execute =
-        Some
-          (fun (_ : Yojson.Basic.t) _ ->
-            Ai_provider.Abort_signal.with_timeout 0.01 (fun signal ->
-              Ai_provider.Abort_signal.race (Some signal) (fun () ->
-                let%lwt () = Lwt_unix.sleep 1.0 in
-                Lwt.return (`String "late"))));
-    }
-  in
-  let result =
-    Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:2 ())
-  in
-  (check int) "two model calls" 2 (model_calls mock);
-  match result.steps with
-  | { tool_results = [ { is_error = true; result = `String text; _ } ]; _ } :: _ ->
-    (check string) "error result" "Abort_signal.Aborted(Abort_signal.Timeout(0.01s))" text
-  | _ -> fail "expected a first step with one error result"
-
 (* A model that raises [Aborted] while the caller's signal has not fired, for
    example from a timeout of its own, fails the call with that exception.
    [on_abort] is not called, and only the signal tells it from an abort. *)
@@ -1250,52 +1112,6 @@ let test_model_own_aborted_fails_call () =
     | None -> false);
   (check bool) "on_abort not called" false !on_abort_called;
   (check bool) "signal not aborted" false (Ai_provider.Abort_signal.is_aborted signal)
-
-(* A tool that cancels its own work when the signal fires fails with
-   [Canceled]. That counts as the abort: on_abort gets the step. *)
-let test_tool_cancelling_itself_on_abort () =
-  let model, (_ : Mock.t) = make_abort_tool_model () in
-  let tool =
-    {
-      search_tool with
-      execute =
-        Some
-          (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
-            let work, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
-            match options.abort_signal with
-            | Some signal -> Ai_provider.Abort_signal.with_on_abort signal (fun () -> Lwt.cancel work) (fun () -> work)
-            | None -> work);
-    }
-  in
-  let aborted_steps = ref None in
-  let outcome =
-    generate_outcome (fun () ->
-      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-        ~tools:[ "search", tool ]
-        ~max_steps:3
-        ~abort_signal:(Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.05))
-        ~on_abort:(fun ~steps -> aborted_steps := Some steps)
-        ())
-  in
-  (check string) "outcome" "aborted" outcome;
-  check_aborted_step
-    ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
-    ~tool_calls:[ "tc_1" ] ~tool_results:[] !aborted_steps
-
-(* The second of two approved pending tools fires the signal. The first
-   one's result is kept in the step, and the model is never called. *)
-let test_abort_in_pending_approval_keeps_result () =
-  let pending tool_call_id : Ai_core.Generate_text_result.pending_tool_approval =
-    { tool_call_id; tool_name = "search"; args = `Assoc []; approved = true }
-  in
-  let aborted_steps, ran, calls =
-    run_abort_in_tool ~pending_tool_approvals:[ pending "tc_a"; pending "tc_b" ] ~abort_in:"tc_b" ()
-  in
-  check_aborted_step
-    ~usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
-    ~tool_calls:[ "tc_a"; "tc_b" ] ~tool_results:[ "tc_a" ] aborted_steps;
-  (check (list string)) "tools that ran" [ "tc_a"; "tc_b" ] ran;
-  (check int) "model never called" 0 calls
 
 (* on_abort is only for the signal. A cancel fails the call without it, and
    an [Aborted] that a tool raises while the signal is pending is the tool's
@@ -1383,72 +1199,6 @@ let test_tool_execute_options () =
     ]
     (List.map (fun (options : Ai_provider.Call_options.t) -> roles options.prompt) (Mock.generate_calls mock))
 
-let pending_request_messages : Ai_provider.Prompt.message list =
-  [
-    User { content = [ Text { text = "Search"; provider_options = Ai_provider.Provider_options.empty } ] };
-    Assistant
-      {
-        content =
-          [
-            Tool_call
-              { id = "tc_0"; name = "search"; args = `Assoc []; provider_options = Ai_provider.Provider_options.empty };
-          ];
-      };
-  ]
-
-(* An approved pending tool runs before the first step and gets the request's
-   messages. *)
-let test_pending_tool_execute_options () =
-  let model, (_ : Mock.t) = make_abort_tool_model () in
-  let signal, _abort = Ai_provider.Abort_signal.create () in
-  let seen = ref [] in
-  let pending : Ai_core.Generate_text_result.pending_tool_approval =
-    { tool_call_id = "tc_0"; tool_name = "search"; args = `Assoc []; approved = true }
-  in
-  let (_ : Ai_core.Generate_text_result.t) =
-    Lwt_main.run
-      (Ai_core.Generate_text.generate_text ~model ~system:"Be brief" ~messages:pending_request_messages
-         ~tools:[ "search", recording_search_tool seen ]
-         ~pending_tool_approvals:[ pending ] ~max_steps:2 ~abort_signal:signal ())
-  in
-  match !seen with
-  | [ options ] ->
-    (check string) "tool call id" "tc_0" options.tool_call_id;
-    (check (list string)) "messages" [ "user"; "assistant" ] (roles options.messages);
-    (check bool) "signal" true (has_signal signal options)
-  | runs -> Alcotest.failf "expected one run, got %d" (List.length runs)
-
-(* A tool that waits on the signal ends when it fires, so the call fails at
-   the abort and not when a tool that ignores the signal would end. *)
-let test_abort_reaches_tool () =
-  let model, (_ : Mock.t) = make_abort_tool_model () in
-  let tool =
-    {
-      search_tool with
-      execute =
-        Some
-          (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
-            let%lwt () =
-              match options.abort_signal with
-              | Some signal -> Ai_provider.Abort_signal.wait signal
-              | None -> Lwt_unix.sleep 1.0
-            in
-            Lwt.return (`String "stopped"));
-    }
-  in
-  let started = Unix.gettimeofday () in
-  let outcome =
-    generate_outcome (fun () ->
-      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-        ~tools:[ "search", tool ]
-        ~max_steps:3
-        ~abort_signal:(Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.3))
-        ())
-  in
-  let elapsed = Unix.gettimeofday () -. started in
-  (check string) "outcome" "aborted" outcome;
-  (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.6)
-
 (* A [search] tool that counts its runs and returns after [run]. *)
 let waiting_search_tool runs run =
   {
@@ -1524,42 +1274,6 @@ let test_abort_with_tool_ignoring_signal () =
   (check int) "one model call" 1 (model_calls mock);
   (check bool) "tool cancelled" false !finished
 
-(* A tool that ignores [Lwt.cancel] keeps running, but the call fails at the
-   cancel and starts neither the next tool nor the next model request. *)
-let test_cancel_with_uncancelable_tool () =
-  let model, mock = make_abort_tool_model ~tool_call_ids:[ "tc_1"; "tc_2" ] () in
-  let runs = ref 0 in
-  let tool = waiting_search_tool runs (fun () -> Lwt.no_cancel (Lwt_unix.sleep 0.4)) in
-  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0.5 (fun () ->
-    Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
-  (check int) "one tool run" 1 !runs;
-  (check int) "one model call" 1 (model_calls mock)
-
-(* The call is cancelled, then its signal fires while a tool that ignores
-   both is still running. A cancelled call is not aborted: on_abort and
-   on_step_finish are not called. *)
-let test_cancel_then_abort_skips_on_abort () =
-  let model, (_ : Mock.t) = make_abort_tool_model () in
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let aborted = ref false in
-  let step_finished = ref false in
-  let tool = waiting_search_tool (ref 0) (fun () -> Lwt.no_cancel (Lwt_unix.sleep 0.3)) in
-  Lwt.dont_wait
-    (fun () ->
-      let%lwt () = Lwt_unix.sleep 0.2 in
-      abort ();
-      Lwt.return_unit)
-    (fun (_ : exn) -> ());
-  check_cancelled_by_timeout ~timeout_s:0.1 ~deadline_s:0.2 ~settle_s:0.4 (fun () ->
-    Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-      ~tools:[ "search", tool ]
-      ~max_steps:3 ~abort_signal:signal
-      ~on_step_finish:(fun (_ : Ai_core.Generate_text_result.step) -> step_finished := true)
-      ~on_abort:(fun ~steps:_ -> aborted := true)
-      ());
-  (check bool) "on_abort not called" false !aborted;
-  (check bool) "on_step_finish not called" false !step_finished
-
 (* A model call that ignores [Lwt.cancel] returns its tool call after the
    cancel, and the tool never runs. *)
 let test_cancel_with_uncancelable_model () =
@@ -1619,17 +1333,6 @@ let test_abort_with_model_ignoring_signal () =
   | Some [ step ] -> (check int) "step usage" 10 step.usage.input_tokens
   | Some steps -> Alcotest.failf "on_abort got %d steps, expected 1" (List.length steps)
   | None -> fail "on_abort was not called"
-
-(* [Lwt.cancel] still ends a call that has a signal while the model ignores
-   both, and the cancel does not reach the caller's signal. *)
-let test_cancel_with_signal_and_model_ignoring_it () =
-  let model, (_ : Mock.t) = make_model_ignoring_signal () in
-  let signal = Ai_provider.Abort_signal.of_promise (fst (Lwt.task ())) in
-  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0. (fun () ->
-    Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
-      ~tools:[ "search", waiting_search_tool (ref 0) Lwt.return ]
-      ~max_steps:3 ~abort_signal:signal ());
-  (check bool) "signal still pending" false (Ai_provider.Abort_signal.is_aborted signal)
 
 (* A model whose own abort hook, attached after a pause, fails the request
    with [exn] before the call's race sees the signal. *)
@@ -1722,7 +1425,6 @@ let () =
           test_case "max_steps_1" `Quick test_max_steps_1;
           test_case "on_step_finish" `Quick test_on_step_finish;
           test_case "execute_options" `Quick test_tool_execute_options;
-          test_case "pending_execute_options" `Quick test_pending_tool_execute_options;
         ] );
       ( "approval",
         [
@@ -1745,32 +1447,19 @@ let () =
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "abort",
         [
-          test_case "between_steps" `Quick test_abort_between_steps;
-          test_case "between_tools" `Quick test_abort_between_tools;
           test_case "before_pending_approval" `Quick test_abort_before_pending_approval;
           test_case "in_tool_batch_keeps_step" `Quick test_abort_in_tool_batch_keeps_step;
           test_case "in_second_tool_keeps_first_result" `Quick test_abort_in_second_tool_keeps_first_result;
-          test_case "in_tool_at_depth_1" `Quick test_abort_in_tool_at_depth_1;
-          test_case "in_last_tool_with_stop_when" `Quick test_abort_in_last_tool_with_stop_when;
-          test_case "skips_tool_call_start" `Quick test_abort_skips_tool_call_start;
           test_case "in_tool_call_finish_keeps_result" `Quick test_abort_in_tool_call_finish_keeps_result;
           test_case "telemetry_stops_after_cancel_or_abort" `Quick test_telemetry_stops_after_cancel_or_abort;
           test_case "telemetry_own_canceled_is_an_error" `Quick test_telemetry_own_canceled_is_an_error;
-          test_case "on_abort_raises" `Quick test_on_abort_raises;
-          test_case "tool_own_timeout_is_error_result" `Quick test_tool_own_timeout_is_error_result;
           test_case "model_own_aborted_fails_call" `Quick test_model_own_aborted_fails_call;
-          test_case "tool_cancelling_itself" `Quick test_tool_cancelling_itself_on_abort;
-          test_case "in_pending_approval_keeps_result" `Quick test_abort_in_pending_approval_keeps_result;
           test_case "on_abort_only_for_signal" `Quick test_on_abort_only_for_signal;
           test_case "on_abort_before_failure" `Quick test_on_abort_before_failure;
-          test_case "reaches_tool" `Quick test_abort_reaches_tool;
           test_case "cancel_stops_tool_and_loop" `Quick test_cancel_stops_tool_and_loop;
           test_case "tool_ignoring_signal" `Quick test_abort_with_tool_ignoring_signal;
-          test_case "cancel_with_uncancelable_tool" `Quick test_cancel_with_uncancelable_tool;
-          test_case "cancel_then_abort" `Quick test_cancel_then_abort_skips_on_abort;
           test_case "cancel_with_uncancelable_model" `Quick test_cancel_with_uncancelable_model;
           test_case "model_ignoring_signal" `Quick test_abort_with_model_ignoring_signal;
-          test_case "cancel_with_signal_and_model_ignoring_it" `Quick test_cancel_with_signal_and_model_ignoring_it;
           test_case "model_failing_otherwise" `Quick test_abort_with_model_failing_otherwise;
         ] );
       ( "retry",

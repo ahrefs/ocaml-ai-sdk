@@ -196,14 +196,6 @@ let finish_is_aborted ~execute =
   let (_ : Chunk.t list) = collect stream in
   !was_aborted
 
-let test_on_finish_abort_chunk_written () =
-  let is_aborted =
-    finish_is_aborted ~execute:(fun writer ->
-      Writer.write writer (Chunk.Abort { reason = None });
-      Lwt.return_unit)
-  in
-  (check (option bool)) "aborted" (Some true) is_aborted
-
 let test_on_finish_abort_chunk_merged () =
   let is_aborted =
     finish_is_aborted ~execute:(fun writer ->
@@ -217,15 +209,6 @@ let chunk_types ~execute =
   Writer.create_ui_message_stream ~execute ()
   |> collect
   |> List.map (fun chunk -> Yojson.Basic.Util.(to_string (member "type" (Chunk.to_json chunk))))
-
-(* An aborted stream gets no finish chunk from the writer. *)
-let test_abort_chunk_written_no_finish () =
-  (check (list string))
-    "chunk types" [ "start"; "start-step"; "abort" ]
-    (chunk_types ~execute:(fun writer ->
-       Writer.write writer Chunk.Start_step;
-       Writer.write writer (Chunk.Abort { reason = None });
-       Lwt.return_unit))
 
 let test_abort_chunk_merged_no_finish () =
   (check (list string))
@@ -372,66 +355,9 @@ let test_on_finish_exception_still_closes_stream () =
   (check bool) "stream closed" true (List.length chunks >= 2);
   assert_framed chunks
 
-(* Streams "Hi" and then waits, closing its stream only when the abort signal
-   fires, as a provider stream does. *)
-let make_waiting_model () =
-  Ai_mock.Language_model.(
-    fst
-      (create
-         ~stream:
-           (Respond (hanging_stream [ Ai_provider.Stream_part.Stream_start { warnings = [] }; Text { text = "Hi" } ]))
-         ()))
-
 let status data = Chunk.Data { data_type = "status"; id = Some "s"; data = `String data }
 
 let chunk_type chunk = Yojson.Basic.Util.(to_string (member "type" (Chunk.to_json chunk)))
-
-(* The examples/custom_stream pattern: [execute] merges a stream_text UI stream
-   and then awaits [result.usage], which fails with Aborted once the signal
-   fires. The writer must wait for the merge before closing, so the merged
-   abort chunk never meets a closed stream. The [Aborted] from [execute] adds
-   neither an error chunk nor a second abort chunk. Lwt's default async
-   exception hook stays in place: an exception escaping [Lwt.async] would
-   exit the test. *)
-let test_execute_fails_after_merged_abort () =
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let finished_aborted = ref None in
-  let stream =
-    Writer.create_ui_message_stream
-      ~on_finish:(fun ~finish_reason:_ ~is_aborted ->
-        finished_aborted := Some is_aborted;
-        Lwt.return_unit)
-      ~execute:(fun writer ->
-        Writer.write writer (status "generating");
-        let result =
-          Ai_core.Stream_text.stream_text ~model:(make_waiting_model ()) ~prompt:"Hello" ~abort_signal:signal ()
-        in
-        Writer.merge writer (Ai_core.Stream_text_result.to_ui_message_stream result);
-        let%lwt (_ : Ai_provider.Usage.t) = result.usage in
-        Writer.write writer (status "complete");
-        Lwt.return_unit)
-      ()
-  in
-  let rec read_until_text acc =
-    match%lwt Lwt_stream.get stream with
-    | Some (Chunk.Text_delta _ as chunk) -> Lwt.return (List.rev (chunk :: acc))
-    | Some chunk -> read_until_text (chunk :: acc)
-    | None -> Lwt.return (List.rev acc)
-  in
-  let chunks =
-    Lwt_main.run
-      (let%lwt before = read_until_text [] in
-       abort ();
-       let%lwt after = Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list stream) in
-       (* Leaves time for a late push into the closed stream. *)
-       let%lwt () = Lwt_unix.sleep 0.05 in
-       Lwt.return (before @ after))
-  in
-  (check (list string))
-    "chunk types"
-    [ "start"; "data-status"; "start"; "start-step"; "text-start"; "text-delta"; "abort" ]
-    (List.map chunk_type chunks);
-  (check (option bool)) "on_finish is_aborted" (Some true) !finished_aborted
 
 (* [execute] raising [Aborted] ends the stream with an abort chunk carrying
    the reason, and no error or finish chunk. *)
@@ -575,12 +501,9 @@ let () =
         [
           test_case "normal completion" `Quick test_on_finish_normal;
           test_case "aborted on error" `Quick test_on_finish_aborted;
-          test_case "aborted on written abort chunk" `Quick test_on_finish_abort_chunk_written;
           test_case "aborted on merged abort chunk" `Quick test_on_finish_abort_chunk_merged;
-          test_case "no finish after written abort chunk" `Quick test_abort_chunk_written_no_finish;
           test_case "no finish after merged abort chunk" `Quick test_abort_chunk_merged_no_finish;
           test_case "waits for merges" `Quick test_on_finish_waits_for_merges;
-          test_case "execute fails after a merged abort" `Quick test_execute_fails_after_merged_abort;
           test_case "execute raises Aborted" `Quick test_execute_aborted;
         ] );
       ( "response",

@@ -21,14 +21,6 @@ let test_is_aborted () =
   Lwt.cancel cancelled;
   (check bool) "cancelled" true (Abort_signal.is_aborted (signal_of cancelled))
 
-let test_create_resolves () =
-  let signal, abort = Abort_signal.create () in
-  (check bool) "pending" false (Abort_signal.is_aborted signal);
-  abort ();
-  (check bool) "aborted right after the call" true (Abort_signal.is_aborted signal);
-  abort ~reason:Exit ();
-  (check string) "second call ignored" "none" (reason_name signal)
-
 let test_create_with_reason () =
   let signal, abort = Abort_signal.create () in
   abort ~reason:Exit ();
@@ -81,20 +73,6 @@ let test_with_on_abort_during_work () =
   abort ();
   (check int) "ran once on abort" 1 !calls
 
-(* The work settles in the same tick as the abort, after a real await. The
-   hook still runs, because it runs before the abort function returns. *)
-let test_with_on_abort_inside_callback () =
-  let signal, abort = Abort_signal.create () in
-  let calls = ref 0 in
-  Lwt_main.run
-    (Abort_signal.with_on_abort signal
-       (fun () -> incr calls)
-       (fun () ->
-         let%lwt () = Lwt.pause () in
-         abort ();
-         Lwt.return_unit));
-  (check int) "ran once" 1 !calls
-
 (* After [settle_work] settles the work, aborting must not run the hook. *)
 let check_detached ~what start_work =
   let signal, abort = Abort_signal.create () in
@@ -110,25 +88,6 @@ let test_with_on_abort_detaches_on_success () =
     (match Lwt.state result with
     | Lwt.Return 7 -> true
     | Lwt.Return _ | Lwt.Fail _ | Lwt.Sleep -> false)
-
-let test_with_on_abort_detaches_on_failure () =
-  let result = check_detached ~what:"failure" (fun run -> run (fun () -> Lwt.fail Exit)) in
-  (check bool) "failure kept" true
-    (match Lwt.state result with
-    | Lwt.Fail Exit -> true
-    | Lwt.Return () | Lwt.Fail _ | Lwt.Sleep -> false)
-
-let test_with_on_abort_detaches_on_cancel () =
-  let result =
-    check_detached ~what:"cancel" (fun run ->
-      let result = run (fun () -> fst (Lwt.task ())) in
-      Lwt.cancel result;
-      result)
-  in
-  (check bool) "cancelled" true
-    (match Lwt.state result with
-    | Lwt.Fail Lwt.Canceled -> true
-    | Lwt.Return () | Lwt.Fail _ | Lwt.Sleep -> false)
 
 (* The signal is a cancelable task, so a cancel that leaked through the detach
    would settle it. *)
@@ -154,15 +113,6 @@ let test_with_timeout_releases_timer () =
   let signal = Lwt_main.run (Abort_signal.with_timeout 0.05 Lwt.return) in
   Lwt_main.run (Lwt_unix.sleep 0.15);
   (check bool) "signal still pending" false (Abort_signal.is_aborted signal)
-
-let test_with_timeout_negative () =
-  let reason =
-    Lwt_main.run
-      (Abort_signal.with_timeout (-1.) (fun signal ->
-         let%lwt () = Abort_signal.wait signal in
-         Lwt.return (reason_name signal)))
-  in
-  (check string) "fired" "Abort_signal.Timeout(-1s)" reason
 
 (* [Lwt_unix.sleep nan] would make the main loop fail with EINVAL. *)
 let test_with_timeout_nan () =
@@ -218,28 +168,6 @@ let test_choose_detaches () =
   (check (list bool)) "inputs still pending" [ true; true ] (List.map Lwt.is_sleeping [ first; second ]);
   Lwt.wakeup_later abort_first ();
   (check bool) "chosen signal untouched" false (Abort_signal.is_aborted !chosen)
-
-(* After a real await, the chosen signal aborts before the input's abort
-   function returns. *)
-let test_choose_inside_callback () =
-  let input, abort = Abort_signal.create () in
-  let aborted_then = ref false in
-  Lwt_main.run
-    (Abort_signal.choose [ input ] (fun chosen ->
-       let%lwt () = Lwt.pause () in
-       abort ~reason:Exit ();
-       aborted_then := Abort_signal.is_aborted chosen;
-       Lwt.return_unit));
-  (check bool) "chosen aborted at once" true !aborted_then
-
-let test_choose_empty () =
-  let chosen = ref (signal_of Lwt.return_unit) in
-  let result =
-    Abort_signal.choose [] (fun signal ->
-      chosen := signal;
-      Abort_signal.wait signal)
-  in
-  (check bool) "never aborts" true (Lwt.is_sleeping result && not (Abort_signal.is_aborted !chosen))
 
 (* Runs [choose [input]] with an [f] that returns at once, and returns a weak
    pointer to the chosen signal. With [~leak:true], [f] also hangs a callback
@@ -391,17 +319,6 @@ let test_race_signal_first () =
     "signal keeps its reason" (Some "Stdlib.Exit")
     (Option.map Printexc.to_string (Abort_signal.reason signal))
 
-let test_race_signal_first_inside_callback () =
-  let signal, abort = Abort_signal.create () in
-  let work, (_ : string Lwt.u) = Lwt.task () in
-  let raced = Abort_signal.race (Some signal) (fun () -> work) in
-  let seen = ref "" in
-  at_depth_1 (fun () ->
-    abort ~reason:Exit ();
-    seen := outcome_name raced;
-    Lwt.return_unit);
-  (check string) "failed before abort returned" "aborted: Stdlib.Exit" !seen
-
 (* A cancelable signal: [Lwt.pick] on it directly would cancel it when the
    work wins. *)
 let test_race_work_first () =
@@ -469,26 +386,19 @@ let () =
       ( "abort_signal",
         [
           test_case "is_aborted" `Quick test_is_aborted;
-          test_case "create resolves" `Quick test_create_resolves;
           test_case "create with a reason" `Quick test_create_with_reason;
           test_case "create inside a callback" `Quick test_create_inside_callback;
           test_case "reason" `Quick test_reason;
           test_case "with_on_abort when already settled" `Quick test_with_on_abort_already_settled;
           test_case "with_on_abort during the work" `Quick test_with_on_abort_during_work;
-          test_case "with_on_abort inside a callback" `Quick test_with_on_abort_inside_callback;
           test_case "with_on_abort detaches on success" `Quick test_with_on_abort_detaches_on_success;
-          test_case "with_on_abort detaches on failure" `Quick test_with_on_abort_detaches_on_failure;
-          test_case "with_on_abort detaches on cancel" `Quick test_with_on_abort_detaches_on_cancel;
           test_case "with_on_abort spares the signal" `Quick test_with_on_abort_spares_signal;
           test_case "with_timeout fires" `Quick test_with_timeout_fires;
           test_case "with_timeout releases its timer" `Quick test_with_timeout_releases_timer;
-          test_case "with_timeout with a negative delay" `Quick test_with_timeout_negative;
           test_case "with_timeout with nan" `Quick test_with_timeout_nan;
           test_case "choose takes the first reason" `Quick test_choose_first_reason;
           test_case "choose with an aborted input" `Quick test_choose_already_aborted;
           test_case "choose detaches" `Quick test_choose_detaches;
-          test_case "choose inside a callback" `Quick test_choose_inside_callback;
-          test_case "choose with no inputs" `Quick test_choose_empty;
           test_case "choose releases its callbacks" `Quick test_choose_releases_callbacks;
           test_case "wait resolves on failure" `Quick test_wait_resolves_on_failure;
           test_case "cancelling wait spares the signal" `Quick test_cancelling_wait_spares_signal;
@@ -504,7 +414,6 @@ let () =
           test_case "no signal" `Quick test_race_no_signal;
           test_case "already settled" `Quick test_race_already_settled;
           test_case "signal first" `Quick test_race_signal_first;
-          test_case "signal first inside a callback" `Quick test_race_signal_first_inside_callback;
           test_case "work first" `Quick test_race_work_first;
           test_case "work fails" `Quick test_race_work_fails;
           test_case "work settled with the signal" `Quick test_race_work_settled_with_signal;

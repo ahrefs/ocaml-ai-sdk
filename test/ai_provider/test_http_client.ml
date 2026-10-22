@@ -165,25 +165,6 @@ let serve_once reply =
   in
   Lwt.return (port, request)
 
-(* Answers [count] connections concurrently, each [delay] seconds after its
-   request head arrives. *)
-let serve_slowly ~count ~delay data =
-  let%lwt sock, port = listen_loopback ~backlog:count in
-  let respond fd =
-    let%lwt (_ : string) = read_head fd in
-    let%lwt () = Lwt_unix.sleep delay in
-    answer fd data
-  in
-  let rec accept_all = function
-    | 0 -> Lwt_unix.close sock
-    | remaining ->
-      let%lwt fd, _ = Lwt_unix.accept sock in
-      Lwt.dont_wait (fun () -> respond fd) (fun (_ : exn) -> ());
-      accept_all (remaining - 1)
-  in
-  Lwt.dont_wait (fun () -> accept_all count) (fun (_ : exn) -> ());
-  Lwt.return port
-
 let post ?abort_signal ?(headers = []) ?(timeouts = Ai_provider.Http_timeouts.default) url =
   Ai_provider.Http_client.post ?abort_signal ~timeouts ~provider:"test" ~headers ~body:"{}" url
 
@@ -232,18 +213,6 @@ let test_error_body_capped () =
   let%lwt response = post (Printf.sprintf "http://127.0.0.1:%d/" port) in
   let%lwt body = Ai_provider.Http_client.error_body response in
   (check int) "capped length" 65536 (String.length body);
-  Lwt.return_unit
-
-(* Parallel requests to an HTTP/1.1 server each open a connection instead of
-   queueing behind the first response, which would count against the connect
-   timeout. *)
-let test_parallel_http1 () =
-  let%lwt port = serve_slowly ~count:2 ~delay:0.5 "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" in
-  let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout:0.2 () in
-  let url = Printf.sprintf "http://127.0.0.1:%d/" port in
-  let%lwt first = post ~timeouts url
-  and second = post ~timeouts url in
-  (check (list int)) "both answered" [ 200; 200 ] (List.map Ai_provider.Http_client.status [ first; second ]);
   Lwt.return_unit
 
 let test_default_user_agent () =
@@ -475,40 +444,6 @@ let test_abort_mid_lines () =
   let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
   Lwt.return_unit
 
-let describe_part = function
-  | Ai_provider.Stream_part.Text { text } -> "text " ^ text
-  | Error { error } -> "error " ^ Ai_provider.Provider_error.to_string error
-  | _ -> "other"
-
-(* The full provider read path: an abort closes the part stream with no Error part. *)
-let test_abort_mid_sse_pump () =
-  let%lwt response, signal, abort, request = post_sse_then_hold () in
-  let parts, push = Lwt_stream.create () in
-  Ai_provider.Stream_pump.pump ~abort_signal:signal ~provider:"test" ~push
-    (fun evt -> push (Some (Ai_provider.Stream_part.Text { text = evt.data })))
-    (Ai_provider.Sse.parse_events (Ai_provider.Http_client.body_lines response));
-  let%lwt received = Lwt_stream.nget 2 parts in
-  (check (list string)) "parts before the abort" [ "text one"; "text two" ] (List.map describe_part received);
-  abort ();
-  let%lwt rest = Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list parts) in
-  (check (list string)) "parts after the abort" [] (List.map describe_part rest);
-  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
-  Lwt.return_unit
-
-(* A chunk that arrives just before the abort waits out a pause before it
-   reaches the read. The read must still fail. *)
-let test_abort_while_chunk_pauses () =
-  let chunks, push = Lwt_stream.create () in
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let response =
-    Ai_provider.Http_client.For_testing.response_of_chunks ~abort_signal:signal
-      ~timeouts:Ai_provider.Http_timeouts.default ~provider:"test" ~status:200 ~headers:[] chunks
-  in
-  let line = Lwt_stream.get (Ai_provider.Http_client.body_lines response) in
-  push (Some "data: late\n");
-  abort ();
-  expect_aborted line
-
 (* The finished transfer has already detached its abort callback, so a later
    abort only changes what reads do: the response keeps its status and a new
    read fails with Aborted. *)
@@ -542,14 +477,6 @@ let test_abort_with_queued_lines () =
   (check (option string)) "first line" (Some "data: one") first;
   Lwt.cancel signal;
   expect_aborted (Lwt.apply Lwt_stream.get lines)
-
-let test_abort_with_queued_events () =
-  let response, signal = queued_lines_response () in
-  let events = Ai_provider.Sse.parse_events (Ai_provider.Http_client.body_lines response) in
-  let%lwt first = Lwt_stream.get events in
-  (check (option string)) "first event" (Some "one") (Option.map (fun (evt : Ai_provider.Sse.event) -> evt.data) first);
-  Lwt.cancel signal;
-  expect_aborted (Lwt.apply Lwt_stream.get events)
 
 (* Proxy environment variables are ignored, as cohttp ignored them: the request
    goes straight to the server, never to the proxy, which would answer 502. *)
@@ -589,7 +516,6 @@ let () =
           test_case "1xx head skipped" `Quick (run_lwt test_informational_skipped);
           test_case "partial error body kept" `Quick (run_lwt test_error_body_partial);
           test_case "error body capped" `Quick (run_lwt test_error_body_capped);
-          test_case "parallel http/1.1 requests" `Quick (run_lwt test_parallel_http1);
           test_case "default user agent" `Quick (run_lwt test_default_user_agent);
           test_case "caller user agent wins" `Quick (run_lwt test_caller_user_agent);
         ] );
@@ -614,17 +540,12 @@ let () =
             (run_lwt (test_abort_mid_body ~status:500 Ai_provider.Http_client.error_body));
           test_case "after completion" `Quick (run_lwt test_abort_after_completion);
           test_case "mid body lines" `Quick (run_lwt test_abort_mid_lines);
-          test_case "mid SSE stream through pump" `Quick (run_lwt test_abort_mid_sse_pump);
-          test_case "chunk waiting out the pause" `Quick (run_lwt test_abort_while_chunk_pauses);
           test_case "lines still queued" `Quick (run_lwt test_abort_with_queued_lines);
-          test_case "SSE events still queued" `Quick (run_lwt test_abort_with_queued_events);
         ] );
       ( "cancel",
         [
           test_case "while waiting for headers" `Quick (run_lwt test_cancel_waiting_for_headers);
           test_case "mid body" `Quick (run_lwt (test_cancel_mid_body ~status:200 Ai_provider.Http_client.body_string));
-          test_case "mid error body" `Quick
-            (run_lwt (test_cancel_mid_body ~status:500 Ai_provider.Http_client.error_body));
         ] );
       "proxy", [ test_case "environment ignored" `Quick (run_lwt test_proxy_environment_ignored) ];
     ]

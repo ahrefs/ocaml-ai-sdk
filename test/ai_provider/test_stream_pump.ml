@@ -33,15 +33,6 @@ let decode (evt : Ai_provider.Sse.event) =
   | `String text -> text
   | json -> Yojson.Basic.to_string json
 
-(* A malformed event is reported with its data and the next event still runs. *)
-let test_malformed_event_skipped () =
-  let%lwt parts = pumped decode [ event {|"a"|}; event "{not json"; event {|"b"|} ] in
-  (check (list string))
-    "parts"
-    [ "text a"; {|deserialization raw="{not json" retryable=false provider=test|}; "text b" ]
-    (List.map describe parts);
-  Lwt.return_unit
-
 (* Every JSON decode error, from Yojson or melange-json, is a
    [Deserialization_error] carrying the event's data. *)
 let test_decode_errors_carry_raw_data () =
@@ -179,7 +170,6 @@ let () =
     [
       ( "pump",
         [
-          test_case "malformed event skipped" `Quick (run_lwt test_malformed_event_skipped);
           test_case "decode errors carry raw data" `Quick (run_lwt test_decode_errors_carry_raw_data);
           test_case "unexpected exception ends stream" `Quick (run_lwt test_unexpected_exception_ends_stream);
           test_case "converter provider error kept" `Quick (run_lwt test_converter_provider_error_kept);

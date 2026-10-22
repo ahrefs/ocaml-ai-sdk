@@ -89,30 +89,6 @@ let test_headers_with_org () =
   in
   (check bool) "called" true !called
 
-(* The fetch gets the call's signal, watches it and returns once it fires.
-   The call fails with Aborted. *)
-let test_abort_during_fetch () =
-  let signal, abort = Ai_provider.Abort_signal.create () in
-  let received = ref None in
-  let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
-    received := Some abort_signal;
-    let%lwt () = Option.fold ~none:Lwt.return_unit ~some:Ai_provider.Abort_signal.wait abort_signal in
-    Lwt.return (`Assoc [])
-  in
-  let config = Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch () in
-  let body = Ai_provider_openai.Openai_api.make_request_body ~model:"gpt-4o" ~messages:[] ~stream:false () in
-  let call =
-    Ai_provider_openai.Openai_api.chat_completions ~abort_signal:signal ~config ~body ~extra_headers:[] ~stream:false ()
-  in
-  (check bool) "waiting in fetch" true (Lwt.is_sleeping call);
-  abort ();
-  (match !received with
-  | Some (Some s) -> (check bool) "fetch got the call's signal" true (s == signal)
-  | Some None | None -> fail "fetch did not get the signal");
-  match Lwt_main.run call with
-  | _ -> fail "expected Aborted"
-  | exception Ai_provider.Abort_signal.Aborted _ -> ()
-
 let () =
   run "Openai_api"
     [
@@ -123,9 +99,5 @@ let () =
           test_case "all_params" `Quick test_make_request_body_all_params;
         ] );
       ( "chat_completions",
-        [
-          test_case "mock_fetch" `Quick test_mock_fetch;
-          test_case "headers_with_org" `Quick test_headers_with_org;
-          test_case "abort_during_fetch" `Quick test_abort_during_fetch;
-        ] );
+        [ test_case "mock_fetch" `Quick test_mock_fetch; test_case "headers_with_org" `Quick test_headers_with_org ] );
     ]

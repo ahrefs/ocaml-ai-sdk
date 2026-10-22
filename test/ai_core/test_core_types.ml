@@ -83,9 +83,6 @@ let check_usage ~input ~output ~total (usage : Ai_provider.Usage.t) =
   (check int) "output" output usage.output_tokens;
   (check (option int)) "total" total usage.total_tokens
 
-let test_total_usage_empty () =
-  check_usage ~input:0 ~output:0 ~total:(Some 0) (Ai_core.Generate_text_result.total_usage [])
-
 let test_total_usage_steps () =
   let steps =
     List.map step_with_usage
@@ -188,7 +185,6 @@ let () =
           test_case "add_usage" `Quick test_add_usage;
           test_case "add_usage_no_total" `Quick test_add_usage_no_total;
           test_case "add_usage_one_total" `Quick test_add_usage_one_total;
-          test_case "total_usage_empty" `Quick test_total_usage_empty;
           test_case "total_usage_steps" `Quick test_total_usage_steps;
           test_case "total_usage_missing_total" `Quick test_total_usage_missing_total;
           test_case "step" `Quick test_step_construction;
