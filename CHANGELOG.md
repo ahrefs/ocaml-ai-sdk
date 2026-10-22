@@ -166,15 +166,15 @@ All notable changes to this project will be documented in this file.
     runs. `guard`, `wait` and `fail_if_aborted` help code that takes a signal.
 - `Http_client.post` takes `?abort_signal`. A signal that has already settled
   fails the call before it connects. An abort before the headers arrive fails
-  `post` at once instead of waiting for `request_timeout`. An abort during the
-  body fails the waiting or next read, `error_body` included. In both cases
-  libcurl drops the transfer and closes its connection. Cancelling the
-  promise from `post` or from a body read drops the transfer too.
+  `post` at once. An abort during the body fails the waiting or next read,
+  `error_body` included. In both cases libcurl drops the transfer and closes
+  its connection. Cancelling the promise from `post` or from a body read
+  drops the transfer too.
 
 ### Provider wiring (`ai_provider_anthropic`, `ai_provider_openai`, `ai_provider_openrouter`)
 
 - The models pass `Call_options.abort_signal` to the HTTP client, through the
-  API functions' new `?abort_signal`.
+  API functions' new `?abort_signal`. They used to ignore it.
 - A custom `fetch` gets the call's signal as `~abort_signal` and should stop
   once it settles. A call whose signal settles before `fetch` fails with
   `Aborted` without calling it. One whose signal settles during `fetch` fails
@@ -296,7 +296,8 @@ All notable changes to this project will be documented in this file.
 - `Stream_text.stream_text` now pushes each step's `Finish_step` part before
   calling `on_step_finish`, as upstream does. It used to call
   `on_step_finish` first. An exception from `on_finish` is ignored, since the
-  streams and promises have already settled by then.
+  streams and promises have already settled by then. It used to escape to
+  `Lwt.async_exception_hook`, whose default handler exits the process.
 - `Stream_text_result.to_ui_message_stream` turns the `Abort` part into an
   `abort` chunk carrying the reason, with no `finish` chunk after it.
 - `Ui_message_stream_writer.create_ui_message_stream` passes
