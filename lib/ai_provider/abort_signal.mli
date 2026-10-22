@@ -34,7 +34,11 @@ type t = private unit Lwt.t
     resolves, fails, whose exception is then the {!reason}, or is cancelled.
     You abort by settling [promise]. [Lwt.cancel] does nothing to a promise
     from [Lwt.wait], so cancelling such a promise never aborts. Prefer
-    {!create}, whose abort function always works. *)
+    {!create}, whose abort function always works.
+
+    [of_promise] is a coercion and adds no callback to [promise], so making a
+    signal from a long-lived promise, such as one that settles at shutdown,
+    once per call costs nothing. *)
 val of_promise : unit Lwt.t -> t
 
 (** [create ()] returns a pending signal and the function that aborts it. The
