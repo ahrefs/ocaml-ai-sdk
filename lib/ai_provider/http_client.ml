@@ -105,8 +105,8 @@ let readable_file path =
 
 (* libcurl verifies against its compiled-in CA bundle and ignores OpenSSL's
    SSL_CERT_FILE and SSL_CERT_DIR, so pass them on as the curl tool does. As
-   OpenSSL did for the cohttp client, a file that cannot be read is skipped,
-   leaving libcurl's default. A TLS backend without CA directory support
+   OpenSSL does, a file that cannot be read is skipped, leaving libcurl's
+   default. A TLS backend without CA directory support
    rejects CAPATH, and the directory is then skipped too. *)
 let configure_ca_from_env handle =
   Option.iter (Curl.set_cainfo handle)
@@ -130,7 +130,7 @@ let configure handle ~(timeouts : Http_timeouts.t) ~url ~headers ~body ~error_de
   Curl.set_httpheader handle (List.map format_request_header headers @ [ "Expect:" ]);
   Curl.set_useragent handle User_agent.value;
   (* An empty proxy stops libcurl from reading http_proxy, https_proxy and
-     all_proxy, which the cohttp client ignored. *)
+     all_proxy: provider requests never go through a proxy. *)
   Curl.set_proxy handle "";
   configure_ca_from_env handle;
   (* libcurl treats 0 as its 300s default, so round up to at least 1ms, and

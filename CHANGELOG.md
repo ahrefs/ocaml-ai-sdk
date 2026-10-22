@@ -18,12 +18,20 @@ All notable changes to this project will be documented in this file.
   `Ui_message_stream_writer.create_ui_message_stream_response` return a
   `Server_handler.response` record. `?status` is an integer code. See Core SDK
   below for the cohttp version of a chat route.
+- `handle_chat` answers `400` with `{"error": message}` for a body that
+  `parse_chat_request` rejects, such as one whose `messages` is missing or
+  empty, or a message with no `parts` array. Such a body used to reach the
+  model as an empty or partial prompt. See Core SDK below for every check.
 - Building the package now needs a system libcurl and its headers. opam's
   `curl` package pulls in `conf-libcurl`, which checks for them.
 - `Ai_provider.Http_client` has a new API built on libcurl. See Provider HTTP
   client below.
 - `Provider_error.error_kind` has a new `Unexpected_error` constructor, so
   exhaustive matches on it need a new case.
+- `stream_text` reports `Finish_reason.Error` (`"error"` in the UI stream) for
+  a step whose provider stream emitted an error. It used to report `Unknown`
+  (`"other"`), so code that matched `Unknown` to spot such a step no longer
+  sees it.
 - `Openrouter_api.provider_error_of_http_response` takes an
   `Http_client.response`.
 - Transport failures fail with `Provider_error` `Network_error` instead of
@@ -31,18 +39,15 @@ All notable changes to this project will be documented in this file.
 
 ### Provider HTTP client (`ai_provider`)
 
-- Provider requests now go through libcurl (`curl` and `curl_lwt`) instead of
-  cohttp. A system libcurl is required. The package no longer depends on
-  cohttp or `lwt_ssl` (see `Server_handler` under Core SDK), so a project that
-  used them only through it must now depend on them itself.
+- Provider requests go through libcurl (`curl` and `curl_lwt`). A system
+  libcurl is required.
 - `Http_client` has a new API. `post` takes a string URL, header pairs and a
   string body, and returns an abstract `response` read with `status`, `header`
   (case-insensitive), `body_string`, `error_body` and `body_lines`. `body_lines`
   replaces `wrap_body_with_idle_timeout`, and `For_testing.response_of_chunks`
   builds a response from in-memory chunks for tests.
-- Transport failures now fail with `Provider_error` `Network_error` (carrying
-  libcurl's message) instead of the exception cohttp raised, such as
-  `Unix.Unix_error`. DNS, connect, send, receive, empty-reply, truncated-body,
+- Transport failures fail with `Provider_error` `Network_error`, carrying
+  libcurl's message. DNS, connect, send, receive, empty-reply, truncated-body,
   timeout and HTTP/2 failures are marked retryable. A failed TLS handshake is
   not.
 - A transfer option that libcurl rejects, such as a URL over its 8 MB string
@@ -50,14 +55,13 @@ All notable changes to this project will be documented in this file.
 - Only `http` and `https` URLs are accepted, whatever protocols the system
   libcurl was built with.
 - TLS certificates are verified against the system libcurl's default CA file
-  and directory. As with cohttp's OpenSSL backend, `SSL_CERT_FILE` replaces the
-  default file and `SSL_CERT_DIR` the default directory. A file that cannot be
-  read is skipped, as OpenSSL skipped it, and so is `SSL_CERT_DIR` on a TLS
-  backend without CA directory support. Unlike OpenSSL, a readable
+  and directory. `SSL_CERT_FILE` replaces the default file and `SSL_CERT_DIR`
+  the default directory. A file that cannot be read is skipped, and so is
+  `SSL_CERT_DIR` on a TLS backend without CA directory support. A readable
   `SSL_CERT_FILE` that holds no usable certificate fails every HTTPS request
-  with a non-retryable `Network_error`.
+  with a non-retryable `Network_error`. 0.6.3 ignored such a file.
 - libcurl built with OpenSSL writes TLS session keys to the file named by
-  `SSLKEYLOGFILE` when that variable is set, as browsers do. cohttp ignored it.
+  `SSLKEYLOGFILE` when that variable is set, as browsers do. 0.6.3 ignored it.
   Anyone holding that file and a packet capture can read the API keys sent to
   providers, so leave it unset outside local debugging.
 - New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
@@ -75,9 +79,8 @@ All notable changes to this project will be documented in this file.
   error, keeping the status and the `retry-after` headers, even when its body
   stalls or breaks off. The error body is read for at most 10 seconds and
   64 KiB. A stalled error body used to hang the call.
-- As with cohttp, requests never go through a proxy: libcurl's use of the
-  `http_proxy`, `https_proxy` and `all_proxy` environment variables is turned
-  off.
+- Requests still never go through a proxy. The client turns off libcurl's use
+  of the `http_proxy`, `https_proxy` and `all_proxy` environment variables.
 - `stream_idle_timeout` now also bounds non-streaming response bodies, which
   previously could hang on a stalled connection.
 - A stream that fails partway through (idle timeout, dropped or truncated
