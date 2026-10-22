@@ -40,8 +40,9 @@
     @param on_abort Called once when [abort_signal] fires, before the
       [Abort] part and before the result promises settle, with the steps
       recorded so far in order. A step is recorded once its model response
-      is complete, with the results its tools returned before the abort. An
-      exception it raises is ignored.
+      is complete, with the results its tools returned before the abort. The
+      steps start with those [on_step_finish] got, and any step after those
+      is one it did not get. An exception it raises is ignored.
 
     The work given to {!Ai_provider.Abort_signal.with_timeout} must last until
     the stream ends, since its timer stops once that promise settles:

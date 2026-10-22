@@ -202,30 +202,40 @@ abort came. It keeps the results of the tools that returned before the
 signal fired, and its other calls stay in `tool_calls` with no result. A
 response that the abort cuts off mid-stream is billed too, but its usage
 never arrives, so no step records it. `on_step_finish` is not called for a
-step whose tools an abort stopped, so count usage from `on_abort`, not from
-`on_step_finish`.
+step whose tools an abort stopped, so usage counted only in `on_step_finish`
+misses that step.
 
 Both `generate_text` and `stream_text` take
 `?on_abort:(steps:Generate_text_result.step list -> unit)`. It runs once when
 the signal stops the call, with the steps recorded so far, in order, and
 before any result promise fails. `Generate_text_result.total_usage` adds up
 their usage. A step with no `total_tokens` counts as its input plus output
-tokens, so the sum does not depend on the order of the steps. To use the
-steps after `generate_text` fails, keep them in a ref:
+tokens, so the sum does not depend on the order of the steps.
+
+`on_abort`'s steps start with the ones `on_step_finish` already got. To
+charge each step once, charge it in `on_step_finish`, and in `on_abort`
+charge only the steps past those. Inside `on_abort`,
+`Abort_signal.reason` of the signal is already the reason the call fails
+with, so it needs no catch around the call:
 
 ```ocaml
-let answer ~model ~abort_signal prompt =
-  let aborted_steps = ref [] in
-  try%lwt
-    let%lwt result =
-      Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal
-        ~on_abort:(fun ~steps -> aborted_steps := steps)
-        ()
-    in
-    Lwt.return (Ok result)
-  with Ai_provider.Abort_signal.Aborted _ ->
-    Lwt.return (Error (Ai_core.Generate_text_result.total_usage !aborted_steps))
+let answer ~model ~abort_signal ~charge prompt =
+  let charged = ref 0 in
+  let charge_step (step : Ai_core.Generate_text_result.step) =
+    charge step.usage;
+    incr charged
+  in
+  Ai_core.Generate_text.generate_text ~model ~prompt ~abort_signal ~on_step_finish:charge_step
+    ~on_abort:(fun ~steps ->
+      List.iteri (fun i step -> if i >= !charged then charge_step step) steps;
+      match Ai_provider.Abort_signal.reason abort_signal with
+      | Some reason -> Printf.eprintf "aborted: %s\n%!" (Printexc.to_string reason)
+      | None -> Printf.eprintf "aborted\n%!")
+    ()
 ```
+
+`charge` stands for your own billing code. The call still fails with
+`Aborted`, with that same reason.
 
 `on_abort` is not called for `Lwt.cancel`, once the call has been cancelled,
 or for a failure other than the abort. An exception it raises is ignored.

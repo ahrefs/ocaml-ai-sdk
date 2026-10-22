@@ -27,9 +27,13 @@
       an abort stopped.
     @param on_abort Called once when the call fails with
       [Ai_provider.Abort_signal.Aborted] because [abort_signal] fired, before
-      the returned promise fails, with the steps recorded so far in order. An
-      exception it raises is ignored. It is not called for any other failure,
-      nor once the call has been cancelled.
+      the returned promise fails, with the steps recorded so far in order.
+      They start with the steps [on_step_finish] got, and any step after
+      those is one it did not get, such as the step whose tools the abort
+      stopped. Inside [on_abort], [Ai_provider.Abort_signal.reason] of the
+      signal is the reason the call fails with. An exception it raises is
+      ignored. It is not called for any other failure, nor once the call has
+      been cancelled.
 
     [Lwt.cancel] on the returned promise, for example from
     [Lwt_unix.with_timeout], fails it with [Lwt.Canceled] at once and
