@@ -2116,9 +2116,8 @@ let test_outcome_failed () =
   Lwt.return_unit
 
 (* A provider error inside a step gives an [Error] part, and the step goes
-   on to [Finish_step] and [Finish]. That is why [is_terminal] is false for
-   [Error]. *)
-let test_provider_error_part_not_terminal () =
+   on to [Finish_step] and [Finish]. *)
+let test_provider_error_part_does_not_end_stream () =
   let error = Ai_provider.Provider_error.make_api_error ~provider:"mock" ~status:500 ~body:"boom" () in
   let model, (_ : Mock.t) =
     Mock.create ~stream:(Return [ stream_start; Text { text = "Hi" }; Error { error }; finish_part (tokens 1 1) ]) ()
@@ -2131,45 +2130,11 @@ let test_provider_error_part_not_terminal () =
     "parts"
     [ "start"; "start-step"; "text-start"; "text-delta"; "error"; "text-end"; "finish-step"; "finish" ]
     (List.map part_name parts);
-  (check (list string))
-    "only the last part is terminal" [ "finish" ]
-    (List.map part_name (List.filter Ai_core.Text_stream_part.is_terminal parts));
   (check bool) "outcome is Finished" true
     (match Lwt.state result.outcome with
     | Lwt.Return (Finished _) -> true
     | Lwt.Return (Aborted _ | Failed _) | Lwt.Fail _ | Lwt.Sleep -> false);
   Lwt.return_unit
-
-let test_is_terminal () =
-  let usage = { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None } in
-  let parts : (Ai_core.Text_stream_part.t * bool) list =
-    [
-      Start, false;
-      Start_step, false;
-      Text_start { id = "t" }, false;
-      Text_delta { id = "t"; text = "x" }, false;
-      Text_end { id = "t" }, false;
-      Reasoning_start { id = "r"; provider_metadata = None }, false;
-      Reasoning_delta { id = "r"; text = "x"; provider_metadata = None }, false;
-      Reasoning_end { id = "r"; provider_metadata = None }, false;
-      Tool_call { tool_call_id = "tc"; tool_name = "search"; args = `Null }, false;
-      Tool_call_delta { tool_call_id = "tc"; tool_name = "search"; args_text_delta = "" }, false;
-      ( Tool_result
-          { tool_call_id = "tc"; tool_name = "search"; result = `Null; is_error = false; provider_metadata = None },
-        false );
-      Tool_output_denied { tool_call_id = "tc" }, false;
-      Tool_approval_request { approval_id = "a"; tool_call_id = "tc"; tool_name = "search"; args = `Null }, false;
-      Source { source_id = "s"; url = "https://example.com"; title = None }, false;
-      File { url = "https://example.com/f"; media_type = "text/plain" }, false;
-      Finish_step { finish_reason = Stop; usage }, false;
-      Finish { finish_reason = Stop; usage }, true;
-      Error { error = "boom" }, false;
-      Abort { reason = None }, true;
-    ]
-  in
-  List.iter
-    (fun (part, expected) -> (check bool) (part_name part) expected (Ai_core.Text_stream_part.is_terminal part))
-    parts
 
 (* on_abort runs before any result promise rejects and before [outcome]
    resolves. The abort hook runs inside an Lwt callback, which defers the
@@ -2324,7 +2289,6 @@ let () =
         ] );
       ( "terminal_parts",
         [
-          test_case "is_terminal" `Quick test_is_terminal;
-          test_case "provider_error_part_not_terminal" `Quick (run_lwt test_provider_error_part_not_terminal);
+          test_case "provider_error_part_does_not_end_stream" `Quick (run_lwt test_provider_error_part_does_not_end_stream);
         ] );
     ]

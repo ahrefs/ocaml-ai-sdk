@@ -67,16 +67,10 @@ type t =
     (** An error. When the call fails, it is the last part of the stream.
           A provider reports some errors inside a step's stream, and those
           do not end the call: the step goes on, so more parts follow, such
-          as its [Finish_step]. *)
+          as its [Finish_step]. An [Error] part therefore does not say
+          whether the call is over. [Stream_text_result.outcome] tells how
+          the call ended. *)
   | Abort of { reason : string option }
     (** The caller's abort signal fired. It is the last part of the stream:
           no [Finish_step] or [Finish] follows. [reason] is the signal's
           {!Ai_provider.Abort_signal.reason} as text, from [Printexc.to_string]. *)
-
-(** To learn how a call ended, use [Stream_text_result.outcome].
-    [is_terminal] is true for [Finish] and [Abort], which always end
-    [full_stream], and false for every other part. A failed call ends with an
-    [Error] part, but [Error] is not terminal, because a provider error
-    inside a step does not end the stream. A [transform] passed to
-    [stream_text] can change which part comes last. *)
-val is_terminal : t -> bool

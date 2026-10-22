@@ -274,11 +274,11 @@ runs with no steps before `stream_text` returns.
 the signal has none, and sends no `finish` chunk. The SSE stream then ends
 with `data: [DONE]`.
 
-To learn how a call ended, wait for `outcome`. `Text_stream_part.is_terminal`
-is true for `Finish` and `Abort`, which always come last in `full_stream`. It
-is false for `Error`, because a provider can report an error inside a step
-and the step goes on. A consumer that matches `Finish` and `Error` and sends
-everything else to `| _ ->` silently drops an abort.
+To learn how a call ended, wait for `outcome`. `Finish` and `Abort` always
+come last in `full_stream`. A failed call ends with an `Error` part, but a
+provider can also report an error inside a step, and the step goes on, so an
+`Error` part does not mean the call is over. A consumer that matches `Finish`
+and `Error` and sends everything else to `| _ ->` silently drops an abort.
 
 ### Inside `Ui_message_stream_writer`
 

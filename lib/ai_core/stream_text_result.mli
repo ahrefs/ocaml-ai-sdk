@@ -43,7 +43,11 @@ type t = {
         [StreamTextResult]. *)
   outcome : outcome Lwt.t;
     (** Resolves once the call has finished, failed or been aborted, after
-          the other promises settle. It never fails. *)
+          the other promises settle. It never fails. Use it to learn how the
+          call ended: a failed call's [full_stream] ends with an [Error] part,
+          but a provider error inside a step gives an [Error] part too and
+          the step goes on, so an [Error] part does not mean the call is
+          over. *)
 }
 
 (** Transform the full stream into UIMessage protocol chunks

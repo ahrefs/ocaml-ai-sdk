@@ -274,8 +274,9 @@ All notable changes to this project will be documented in this file.
 - New `Stream_text_result.outcome`, a promise that never fails and resolves
   to `Finished result`, `Aborted { steps; reason }` or `Failed exn` once the
   call ends.
-- New `Text_stream_part.is_terminal`, true for `Finish` and `Abort`, the parts
-  that end `full_stream`. `Finish` is now always the last part.
+- `Finish` is now always the last part of `full_stream`. A failed call ends
+  with an `Error` part, but a provider error inside a step gives an `Error`
+  part too and the step goes on, so use `outcome` to learn how a call ended.
 - Tools get a `Core_tool.execute_options` with the call's `abort_signal`, the
   `tool_call_id` and the step's `messages` without the system prompt, as
   upstream's tools get `ToolExecutionOptions`. `execute_tool` fails with
