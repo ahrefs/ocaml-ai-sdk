@@ -104,15 +104,22 @@ type model_info = {
 (** Lifecycle callbacks for telemetry events.
 
     All callbacks are optional — implement only the ones you need.
-    Errors in callbacks are caught and ignored (they must not break
-    the generation pipeline), [Ai_provider.Abort_signal.Aborted] included.
+    An exception from a callback, [Lwt.Canceled] and
+    [Ai_provider.Abort_signal.Aborted] included, is printed to stderr and
+    ignored, so it doesn't break the generation pipeline, and the next
+    integration is called.
+
     [Lwt.cancel] on [generate_text] ends the call at once, and so does an
-    abort that comes while a tool's callbacks run: the running callback is
-    cancelled, and the integrations after it are not called. An abort at any
-    other time ends the call once the callback returns. Callbacks are called
-    in order:
-    global integrations first, then per-call integrations
-    (matching upstream). *)
+    abort that comes while a tool's callbacks run. The running callback is
+    then cancelled, its failure is not printed, and no later integration
+    hears of that event or the tool, even when the running callback ignores
+    the cancel. An abort at any other time ends the call once the callback
+    returns. After an abort, an integration may get [on_tool_call_start]
+    with no [on_tool_call_finish] for a tool whose result still counts in
+    the steps [on_abort] gets.
+
+    Callbacks are called in order: global integrations first, then per-call
+    integrations (matching upstream). *)
 and integration = {
   on_start : (on_start_event -> unit Lwt.t) option;
   on_step_finish : (on_step_finish_event -> unit Lwt.t) option;
@@ -400,13 +407,18 @@ val no_integration : integration
 (** {1 Integration Notification}
 
     Notify all integrations (per-call + global) of an event.
-    Errors are caught and logged to stderr. *)
+    Errors are caught and logged to stderr.
 
-val notify_on_start : t -> on_start_event -> unit Lwt.t
-val notify_on_step_finish : t -> on_step_finish_event -> unit Lwt.t
-val notify_on_tool_call_start : t -> on_tool_call_start_event -> unit Lwt.t
-val notify_on_tool_call_finish : t -> on_tool_call_finish_event -> unit Lwt.t
-val notify_on_finish : t -> on_finish_event -> unit Lwt.t
+    [stop] says whether the call has ended. It is checked before each
+    integration, and once it is true the rest are skipped and a callback's
+    failure is not logged. [generate_text] and [stream_text] pass it. By
+    default every integration is notified. *)
+
+val notify_on_start : ?stop:(unit -> bool) -> t -> on_start_event -> unit Lwt.t
+val notify_on_step_finish : ?stop:(unit -> bool) -> t -> on_step_finish_event -> unit Lwt.t
+val notify_on_tool_call_start : ?stop:(unit -> bool) -> t -> on_tool_call_start_event -> unit Lwt.t
+val notify_on_tool_call_finish : ?stop:(unit -> bool) -> t -> on_tool_call_finish_event -> unit Lwt.t
+val notify_on_finish : ?stop:(unit -> bool) -> t -> on_finish_event -> unit Lwt.t
 
 (** {1 Global Integration Registry} *)
 

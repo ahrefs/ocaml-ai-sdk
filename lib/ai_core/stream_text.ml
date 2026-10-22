@@ -504,12 +504,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
         Option.iter (fun f -> f step) on_step_finish;
         Lwt.return_unit)
     in
-    let execute_and_emit ~messages (tc : Generate_text_result.tool_call) ~execute =
-      let%lwt (tr : Generate_text_result.tool_result) =
-        execute (fun () ->
-          Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
-            ~args:tc.args ())
-      in
+    let emit_tool_result (tr : Generate_text_result.tool_result) =
       emit_event
         (Text_stream_part.Tool_result
            {
@@ -518,9 +513,20 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
              result = tr.result;
              is_error = tr.is_error;
              provider_metadata = tr.provider_metadata;
-           });
+           })
+    in
+    let execute_and_emit ~messages (tc : Generate_text_result.tool_call) ~execute =
+      let%lwt (tr : Generate_text_result.tool_result) =
+        execute (fun () ->
+          Core_tool.execute_tool ?abort_signal ~tools ~messages ~tool_call_id:tc.tool_call_id ~tool_name:tc.tool_name
+            ~args:tc.args ())
+      in
+      emit_tool_result tr;
       Lwt.return_unit
     in
+    (* An abort during a tool's notifications ends the call, so later
+       integrations need not hear of the tool. *)
+    let tool_stopped () = Call_signal.is_aborted abort_signal in
     let execute_tool_with_telemetry ~step_num ~messages (tc : Generate_text_result.tool_call) ~execute =
       Telemetry.maybe_span telemetry "ai.toolCall" ~__FILE__ ~__LINE__ ~data:(fun () ->
         match telemetry with
@@ -531,7 +537,7 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       @@ fun tool_span ->
       let%lwt () =
         Telemetry.maybe_notify telemetry (fun t ->
-          Telemetry.notify_on_tool_call_start t
+          Telemetry.notify_on_tool_call_start ~stop:tool_stopped t
             {
               step_number = step_num;
               model = tp.model_info;
@@ -549,12 +555,15 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
             ~args:tc.args ())
       in
       let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+      (* The part goes out with the result, before telemetry hears of it, so an
+         abort from a telemetry callback cannot keep it from [full_stream]. *)
+      emit_tool_result tr;
       let%lwt () =
         Telemetry.maybe_notify telemetry (fun t ->
           let outcome =
             if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result) else Telemetry.Success tr.result
           in
-          Telemetry.notify_on_tool_call_finish t
+          Telemetry.notify_on_tool_call_finish ~stop:tool_stopped t
             {
               step_number = step_num;
               model = tp.model_info;
@@ -571,15 +580,6 @@ let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
       | Some t when Telemetry.enabled t ->
         Trace_core.add_data_to_span tool_span (Telemetry.tool_call_result_attrs ~result:tr.result t)
       | _ -> ());
-      emit_event
-        (Text_stream_part.Tool_result
-           {
-             tool_call_id = tr.tool_call_id;
-             tool_name = tr.tool_name;
-             result = tr.result;
-             is_error = tr.is_error;
-             provider_metadata = tr.provider_metadata;
-           });
       Lwt.return_unit
     in
     (* Runs a step's tools one after another. [step_with] builds the step from

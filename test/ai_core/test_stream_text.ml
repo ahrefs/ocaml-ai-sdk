@@ -1382,6 +1382,48 @@ let test_abort_on_tool_result_part_keeps_result () =
   | Finished _ | Failed _ -> fail "expected Aborted");
   Lwt.return_unit
 
+(* Telemetry fires the signal while it reports the first tool's result. The
+   [Tool_result] part went out before that, so [full_stream] has it, as do
+   [on_abort] and [outcome]. *)
+let test_abort_in_tool_call_finish_keeps_part () =
+  let model, (_ : Mock.t) =
+    make_abort_stream_model ~tool_call_ids:[ "tc_1"; "tc_2" ]
+      ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
+      ()
+  in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let integration =
+    {
+      Ai_core.Telemetry.no_integration with
+      on_tool_call_finish =
+        Some
+          (fun e ->
+            if String.equal e.tool_call_id "tc_1" then abort ();
+            Lwt.return_unit);
+    }
+  in
+  let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ integration ] () in
+  let aborted_steps = ref None in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Search"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:3 ~abort_signal:signal ~telemetry
+      ~on_abort:(fun ~steps -> aborted_steps := Some steps)
+      ()
+  in
+  let%lwt parts = Lwt_stream.to_list result.full_stream in
+  let%lwt () = Lwt.pause () in
+  check_ends_with_abort parts;
+  (check (list string))
+    "tool-result parts" [ "tc_1" ]
+    (List.filter_map
+       (function
+         | Ai_core.Text_stream_part.Tool_result { tool_call_id; _ } -> Some tool_call_id
+         | _ -> None)
+       parts);
+  check_aborted_step ~tool_results:[ "tc_1" ] !aborted_steps;
+  Lwt.return_unit
+
 (* As the two tests above, with the abort coming from inside an Lwt
    callback. The result is the same: a result counts only if its tool
    returned before the signal fired. *)
@@ -2254,6 +2296,7 @@ let () =
           test_case "in_first_tool_keeps_step" `Quick (run_lwt test_abort_in_first_tool_keeps_step);
           test_case "in_second_tool_keeps_first_result" `Quick (run_lwt test_abort_in_second_tool_keeps_first_result);
           test_case "on_tool_result_part_keeps_result" `Quick (run_lwt test_abort_on_tool_result_part_keeps_result);
+          test_case "in_tool_call_finish_keeps_part" `Quick (run_lwt test_abort_in_tool_call_finish_keeps_part);
           test_case "in_tool_batch_at_depth_1" `Quick (run_lwt test_abort_in_tool_batch_at_depth_1);
           test_case "after_provider_finish" `Quick (run_lwt test_abort_after_provider_finish);
           test_case "on_abort_raises" `Quick (run_lwt test_on_abort_raises);

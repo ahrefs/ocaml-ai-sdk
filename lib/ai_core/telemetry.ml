@@ -410,33 +410,31 @@ let clear_global_integrations () = global_integrations := []
 
 let all_integrations t = List.rev !global_integrations @ t.integrations
 
-(* A cancel of the call, or an abort, which the tool batch's race turns into
-   a cancel, can land in a callback while it runs. The integrations after it
-   are then skipped, so none hears of a tool that never runs. The call checks
-   for its own cancel and abort after the notification returns. *)
-let notify_all t extract_callback event =
+(* [stop] says whether the call has ended. It is checked before each
+   integration, so none hears of an event once the call has ended, even when
+   a callback before it ignored the cancel. A failure that comes with the
+   end of the call is not reported; any other is, and the loop goes on. *)
+let notify_all ?(stop = fun () -> false) t extract_callback event =
   match t.enabled with
   | false -> Lwt.return_unit
   | true ->
-    let rec notify = function
-      | [] -> Lwt.return_unit
-      | integration :: rest ->
-      match extract_callback integration with
-      | None -> notify rest
-      | Some callback ->
-        Lwt.try_bind
-          (fun () -> callback event)
-          (fun () -> notify rest)
-          (function
-            | Lwt.Canceled -> Lwt.return_unit
-            | exn ->
-              Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
-              notify rest)
-    in
-    notify (all_integrations t)
+    let integrations = all_integrations t in
+    Lwt_list.iter_s
+      (fun integration ->
+        match stop (), extract_callback integration with
+        | true, (Some _ | None) | false, None -> Lwt.return_unit
+        | false, Some callback ->
+          Lwt.catch
+            (fun () -> callback event)
+            (function
+              | (_ : exn) when stop () -> Lwt.return_unit
+              | exn ->
+                Printf.eprintf "[ai_core] telemetry integration error: %s\n%!" (Printexc.to_string exn);
+                Lwt.return_unit))
+      integrations
 
-let notify_on_start t event = notify_all t (fun i -> i.on_start) event
-let notify_on_step_finish t event = notify_all t (fun i -> i.on_step_finish) event
-let notify_on_tool_call_start t event = notify_all t (fun i -> i.on_tool_call_start) event
-let notify_on_tool_call_finish t event = notify_all t (fun i -> i.on_tool_call_finish) event
-let notify_on_finish t event = notify_all t (fun i -> i.on_finish) event
+let notify_on_start ?stop t event = notify_all ?stop t (fun i -> i.on_start) event
+let notify_on_step_finish ?stop t event = notify_all ?stop t (fun i -> i.on_step_finish) event
+let notify_on_tool_call_start ?stop t event = notify_all ?stop t (fun i -> i.on_tool_call_start) event
+let notify_on_tool_call_finish ?stop t event = notify_all ?stop t (fun i -> i.on_tool_call_finish) event
+let notify_on_finish ?stop t event = notify_all ?stop t (fun i -> i.on_finish) event

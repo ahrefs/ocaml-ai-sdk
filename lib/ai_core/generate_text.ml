@@ -119,6 +119,9 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     | true -> Lwt.fail Lwt.Canceled
     | false -> Lwt.return_unit
   in
+  (* An abort during a tool's notifications ends the call, so later
+     integrations need not hear of the tool. *)
+  let tool_stopped () = is_cancelled () || Call_signal.is_aborted abort_signal in
   (* A telemetry callback ignores a cancel that lands in it, so check after. *)
   let maybe_notify telemetry notify =
     let%lwt () = Telemetry.maybe_notify telemetry notify in
@@ -129,7 +132,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
   Telemetry.maybe_span telemetry "ai.generateText" ~__FILE__ ~__LINE__ ~data:root_span_data @@ fun root_span ->
   let%lwt () =
     maybe_notify telemetry (fun t ->
-      Telemetry.notify_on_start t
+      Telemetry.notify_on_start ~stop:is_cancelled t
         {
           model = tp.model_info;
           messages = initial_messages;
@@ -149,7 +152,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
     @@ fun tool_span ->
     let%lwt () =
       maybe_notify telemetry (fun t ->
-        Telemetry.notify_on_tool_call_start t
+        Telemetry.notify_on_tool_call_start ~stop:tool_stopped t
           {
             step_number = step_num;
             model = tp.model_info;
@@ -172,7 +175,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         let outcome =
           if tr.is_error then Telemetry.Error (Yojson.Basic.to_string tr.result) else Telemetry.Success tr.result
         in
-        Telemetry.notify_on_tool_call_finish t
+        Telemetry.notify_on_tool_call_finish ~stop:tool_stopped t
           {
             step_number = step_num;
             model = tp.model_info;
@@ -269,7 +272,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
           maybe_notify telemetry (fun t ->
-            Telemetry.notify_on_step_finish t
+            Telemetry.notify_on_step_finish ~stop:is_cancelled t
               { step_number = step_num; step; function_id = tp.function_id_; metadata = tp.metadata_ })
         in
         match blocked_calls with
@@ -303,7 +306,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
         Option.iter (fun f -> f step) on_step_finish;
         let%lwt () =
           maybe_notify telemetry (fun t ->
-            Telemetry.notify_on_step_finish t
+            Telemetry.notify_on_step_finish ~stop:is_cancelled t
               { step_number = step_num; step; function_id = tp.function_id_; metadata = tp.metadata_ })
         in
         Lwt.return (finished (List.rev (step :: steps)))
@@ -396,7 +399,7 @@ let generate_text ~model ?system ?system_provider_options ?prompt ?messages ?too
   | _ -> ());
   let%lwt () =
     maybe_notify telemetry (fun t ->
-      Telemetry.notify_on_finish t
+      Telemetry.notify_on_finish ~stop:is_cancelled t
         {
           steps = final_result.steps;
           total_usage = final_result.usage;

@@ -1085,13 +1085,14 @@ let test_abort_in_tool_call_finish_keeps_result () =
     ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
     ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] !aborted_steps
 
-(* The first integration's on_tool_call_start outlasts a cancel or an abort
-   at 0.05 s. The call ends at once, the second integration hears nothing,
-   and the tool never runs. *)
+(* The first integration's on_tool_call_start takes 0.3 s, and a cancel or
+   an abort comes at 0.05 s. The call ends at once, the second integration
+   hears nothing, and the tool never runs, whether the slow callback stops
+   at the cancel or ignores it and returns later. *)
 let test_telemetry_stops_after_cancel_or_abort () =
-  let run ?abort_signal wrap =
+  let run ~slow ?abort_signal wrap =
     let second = ref [] in
-    let slow = { Ai_core.Telemetry.no_integration with on_tool_call_start = Some (fun _ -> Lwt_unix.sleep 0.1) } in
+    let first = { Ai_core.Telemetry.no_integration with on_tool_call_start = Some (fun _ -> slow ()) } in
     let recording =
       {
         Ai_core.Telemetry.no_integration with
@@ -1107,7 +1108,7 @@ let test_telemetry_stops_after_cancel_or_abort () =
               Lwt.return_unit);
       }
     in
-    let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ slow; recording ] () in
+    let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ first; recording ] () in
     let model, (_ : Mock.t) = make_abort_tool_model () in
     let runs = ref 0 in
     let started = Unix.gettimeofday () in
@@ -1119,20 +1120,70 @@ let test_telemetry_stops_after_cancel_or_abort () =
             ~telemetry ~max_steps:3 ?abort_signal ()))
     in
     let elapsed = Unix.gettimeofday () -. started in
-    (* Let the slow callback's sleep run out. *)
-    Lwt_main.run (Lwt_unix.sleep 0.1);
+    (* Let the slow callback run out. *)
+    Lwt_main.run (Lwt_unix.sleep 0.3);
     outcome, elapsed, List.rev !second, !runs
   in
   let check_run name (outcome, elapsed, second, runs) expected =
     (check string) (name ^ ": outcome") expected outcome;
-    (check bool) (Printf.sprintf "%s: ends at once (%.2f s)" name elapsed) true (elapsed < 0.09);
+    (check bool) (Printf.sprintf "%s: ends at once (%.2f s)" name elapsed) true (elapsed < 0.2);
     (check (list string)) (name ^ ": second integration") [] second;
     (check int) (name ^ ": tool runs") 0 runs
   in
-  check_run "cancel" (run (fun f -> Lwt_unix.with_timeout 0.05 f)) "Lwt_unix.Timeout";
-  check_run "abort"
-    (run ~abort_signal:(Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.05)) (fun f -> f ()))
+  let cancelable () = Lwt_unix.sleep 0.3 in
+  let ignoring_cancel () = Lwt.no_cancel (Lwt_unix.sleep 0.3) in
+  let cancel f = Lwt_unix.with_timeout 0.05 f in
+  let abort_signal () = Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.05) in
+  check_run "cancel" (run ~slow:cancelable cancel) "Lwt_unix.Timeout";
+  check_run "cancel, callback ignores it" (run ~slow:ignoring_cancel cancel) "Lwt_unix.Timeout";
+  check_run "abort" (run ~slow:cancelable ~abort_signal:(abort_signal ()) (fun f -> f ())) "aborted";
+  check_run "abort, callback ignores the cancel"
+    (run ~slow:ignoring_cancel ~abort_signal:(abort_signal ()) (fun f -> f ()))
     "aborted"
+
+(* A callback that fails with its own [Lwt.Canceled] in a call that nobody
+   cancelled or aborted is an ordinary integration error: it is printed, and
+   the next integration still hears every event. *)
+let test_telemetry_own_canceled_is_an_error () =
+  let second = ref [] in
+  let own_cancel _ = Lwt.fail Lwt.Canceled in
+  let first =
+    {
+      Ai_core.Telemetry.no_integration with
+      on_tool_call_start = Some own_cancel;
+      on_tool_call_finish = Some own_cancel;
+      on_step_finish = Some own_cancel;
+      on_finish = Some own_cancel;
+    }
+  in
+  let record name _ =
+    second := name :: !second;
+    Lwt.return_unit
+  in
+  let recording =
+    {
+      Ai_core.Telemetry.no_integration with
+      on_tool_call_start = Some (record "tool start");
+      on_tool_call_finish = Some (record "tool finish");
+      on_step_finish = Some (record "step finish");
+      on_finish = Some (record "finish");
+    }
+  in
+  let telemetry = Ai_core.Telemetry.create ~enabled:true ~integrations:[ first; recording ] () in
+  let model, (_ : Mock.t) = make_abort_tool_model () in
+  let outcome =
+    generate_outcome (fun () ->
+      Ai_core.Generate_text.generate_text ~model ~prompt:"Search"
+        ~tools:[ "search", counting_search_tool (ref 0) ]
+        ~telemetry ~max_steps:2 ())
+  in
+  (check string) "outcome" "finished" outcome;
+  (* The first step runs the tool. The second reaches [max_steps], so its
+     tool call doesn't run. *)
+  (check (list string))
+    "second integration"
+    [ "tool start"; "tool finish"; "step finish"; "step finish"; "finish" ]
+    (List.rev !second)
 
 (* An exception from on_abort is ignored, and the call fails with [Aborted]. *)
 let test_on_abort_raises () =
@@ -1677,6 +1728,7 @@ let () =
           test_case "skips_tool_call_start" `Quick test_abort_skips_tool_call_start;
           test_case "in_tool_call_finish_keeps_result" `Quick test_abort_in_tool_call_finish_keeps_result;
           test_case "telemetry_stops_after_cancel_or_abort" `Quick test_telemetry_stops_after_cancel_or_abort;
+          test_case "telemetry_own_canceled_is_an_error" `Quick test_telemetry_own_canceled_is_an_error;
           test_case "on_abort_raises" `Quick test_on_abort_raises;
           test_case "tool_own_timeout_is_error_result" `Quick test_tool_own_timeout_is_error_result;
           test_case "tool_cancelling_itself" `Quick test_tool_cancelling_itself_on_abort;
