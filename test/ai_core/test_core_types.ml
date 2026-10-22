@@ -35,7 +35,9 @@ let test_tool_execute () =
     | Some f -> f
     | None -> failwith "expected execute"
   in
-  let options = { Ai_core.Core_tool.tool_call_id = "tc_1"; messages = []; abort_signal = None } in
+  let options = Ai_core.Core_tool.execute_options ~tool_call_id:"tc_1" () in
+  (check int) "messages default" 0 (List.length options.messages);
+  (check bool) "abort_signal default" true (Option.is_none options.abort_signal);
   let result = Lwt_main.run (exec (`Assoc [ "query", `String "ocaml" ]) options) in
   (check string) "result" {|"Found: ocaml"|} (Yojson.Basic.to_string result)
 

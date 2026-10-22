@@ -4,6 +4,8 @@ type execute_options = {
   abort_signal : Ai_provider.Abort_signal.t option;
 }
 
+let execute_options ?abort_signal ?(messages = []) ~tool_call_id () = { tool_call_id; messages; abort_signal }
+
 type t = {
   description : string option;
   parameters : Yojson.Basic.t;
@@ -62,7 +64,7 @@ let execute_tool ?abort_signal ~tools ~messages ~tool_call_id ~tool_name ~args (
        failures, its own [Aborted] or [Canceled] included, into a result. *)
     Lwt.wrap_in_cancelable
       (try%lwt
-         let%lwt result = exec args { tool_call_id; messages; abort_signal } in
+         let%lwt result = exec args (execute_options ?abort_signal ~messages ~tool_call_id ()) in
          Lwt.return { Generate_text_result.tool_call_id; tool_name; result; is_error = false; provider_metadata = None }
        with exn ->
          (match Call_signal.aborted abort_signal with

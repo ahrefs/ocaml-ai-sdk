@@ -40,7 +40,10 @@ All notable changes to this project will be documented in this file.
   record with `tool_call_id`, `messages` and `abort_signal`. This changes the
   type of `Core_tool.t.execute` and of the `~execute` argument of
   `Core_tool.create` and `create_with_approval`. A tool written as
-  `fun args -> ...` becomes `fun args _options -> ...`.
+  `fun args -> ...` becomes `fun args _options -> ...`. The record is
+  private: a test that calls `execute` directly builds it with
+  `Core_tool.execute_options ~tool_call_id ()`, whose `?messages` defaults
+  to `[]` and `?abort_signal` to none.
 - `Core_tool.execute_tool` takes `~messages` and `?abort_signal`, and a
   trailing `()`. Once the signal has fired, a tool's failure fails it with
   `Abort_signal.Aborted`, and cancelling its promise fails it with

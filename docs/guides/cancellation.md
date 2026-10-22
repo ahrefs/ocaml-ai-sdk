@@ -148,7 +148,10 @@ A tool's `execute` gets its arguments and a `Core_tool.execute_options`
 record, as upstream's tools get `ToolExecutionOptions`. It holds
 `tool_call_id`, the step's `messages` without the system prompt and without
 that step's response, as upstream passes them, and the `abort_signal` given
-to `generate_text` or `stream_text`.
+to `generate_text` or `stream_text`. The record is private. To call a tool's
+`execute` directly, for example in a test, build it with
+`Core_tool.execute_options ~tool_call_id ()`, which also takes `?messages`
+and `?abort_signal`.
 
 Both functions follow one rule: a tool's result counts only if its `execute`
 returned before the signal fired. An abort from the code that reports the

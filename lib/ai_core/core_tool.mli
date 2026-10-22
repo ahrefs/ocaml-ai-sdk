@@ -6,8 +6,8 @@
     before execution via [needs_approval]. *)
 
 (** What a tool's [execute] receives besides its arguments. Mirrors upstream's
-    [ToolExecutionOptions]. *)
-type execute_options = {
+    [ToolExecutionOptions]. Build one with {!val-execute_options}. *)
+type execute_options = private {
   tool_call_id : string;
   messages : Ai_provider.Prompt.message list;
     (** The messages sent to the model for the step that produced the call,
@@ -19,6 +19,16 @@ type execute_options = {
         it returns later. Work that ignores [Lwt.cancel] keeps running in the
         background, so a tool with such work must watch the signal itself. *)
 }
+
+(** Build an {!type-execute_options}, for example to call a tool's [execute]
+    directly in a test. [messages] defaults to [[]] and [abort_signal] to
+    [None]. *)
+val execute_options :
+  ?abort_signal:Ai_provider.Abort_signal.t ->
+  ?messages:Ai_provider.Prompt.message list ->
+  tool_call_id:string ->
+  unit ->
+  execute_options
 
 type t = {
   description : string option;
