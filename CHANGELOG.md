@@ -16,8 +16,14 @@ All notable changes to this project will be documented in this file.
   `Ui_message_stream_writer.create_ui_message_stream_response` return a
   `Server_handler.response` record. `?status` is an integer code. See Core SDK
   below for the cohttp version of a chat route.
+- Building the package now needs a system libcurl and its headers. opam's
+  `curl` package pulls in `conf-libcurl`, which checks for them.
 - `Ai_provider.Http_client` has a new API built on libcurl. See Provider HTTP
   client below.
+- OpenRouter's `stream` reports a failure before the first completion chunk
+  as an in-band `Error` part instead of failing the call. `stream_text` no
+  longer retries such a failure, and the call ends normally with finish reason
+  `error`.
 - `Provider_error.error_kind` has a new `Unexpected_error` constructor, so
   exhaustive matches on it need a new case.
 - `Openrouter_api.provider_error_of_http_response` takes an
