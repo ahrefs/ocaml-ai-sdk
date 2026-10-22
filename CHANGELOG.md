@@ -25,7 +25,7 @@ All notable changes to this project will be documented in this file.
 - `Openrouter_api.provider_error_of_http_response` takes an
   `Http_client.response`.
 - Transport failures fail with `Provider_error` `Network_error` instead of
-  `Unix.Unix_error`.
+  the exception cohttp raised, such as `Unix.Unix_error`.
 
 ### Provider HTTP client (`ai_provider`)
 
@@ -39,9 +39,10 @@ All notable changes to this project will be documented in this file.
   replaces `wrap_body_with_idle_timeout`, and `For_testing.response_of_chunks`
   builds a response from in-memory chunks for tests.
 - Transport failures now fail with `Provider_error` `Network_error` (carrying
-  libcurl's message) instead of `Unix.Unix_error`. DNS, connect,
-  send, receive, empty-reply, truncated-body, timeout and HTTP/2 failures are
-  marked retryable. A failed TLS handshake is not.
+  libcurl's message) instead of the exception cohttp raised, such as
+  `Unix.Unix_error`. DNS, connect, send, receive, empty-reply, truncated-body,
+  timeout and HTTP/2 failures are marked retryable. A failed TLS handshake is
+  not.
 - A transfer option that libcurl rejects, such as a URL over its 8 MB string
   limit, fails with a non-retryable `Network_error`.
 - Only `http` and `https` URLs are accepted, whatever protocols the system
@@ -68,10 +69,10 @@ All notable changes to this project will be documented in this file.
   `Accept: */*`, and over HTTPS uses HTTP/2 when the provider offers it and the
   system libcurl supports it. A header with an empty value goes out as
   `Name;`, libcurl's form for an empty header.
-- An error response (status 400 or above) whose body stalls or breaks off
-  still fails with the provider's API error, keeping the status and the
-  `retry-after` headers. The error body is read for at most 10 seconds and
-  64 KiB, so a stalled error body no longer hangs the call.
+- An error response (status 400 or above) fails with the provider's API
+  error, keeping the status and the `retry-after` headers, even when its body
+  stalls or breaks off. The error body is read for at most 10 seconds and
+  64 KiB. A stalled error body used to hang the call.
 - As with cohttp, requests never go through a proxy: libcurl's use of the
   `http_proxy`, `https_proxy` and `all_proxy` environment variables is turned
   off.
@@ -137,7 +138,7 @@ All notable changes to this project will be documented in this file.
   as upstream's `validateUIMessages` checks. Such a body used to reach the
   model as an empty or partial prompt. Message `id`s are not required, and
   unknown part types are still skipped. `parse_messages_from_body` and
-  `collect_pending_tool_approvals` are unchanged.
+  `collect_pending_tool_approvals` do not run these checks.
 - `parse_messages_from_body`, and so `handle_chat`, no longer drop the whole
   conversation when a message has a data part (`data-*`) whose `data` is not
   a string, such as an object written with `Ui_message_stream_writer`. Such
