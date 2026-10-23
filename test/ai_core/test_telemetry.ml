@@ -3,29 +3,8 @@ open Alcotest
 (* ---- Mock model for span tests ---- *)
 
 let make_mock_model response_text =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-v1"
-
-    let generate _opts =
-      Lwt.return
-        {
-          Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = response_text } ];
-          finish_reason = Ai_provider.Finish_reason.Stop;
-          usage = { input_tokens = 10; output_tokens = 5; total_tokens = Some 15 };
-          warnings = [];
-          provider_metadata = Ai_provider.Provider_options.empty;
-          request = { body = `Null };
-          response = { id = Some "r1"; model = Some "mock-v1"; headers = []; body = `Null };
-        }
-
-    let stream _opts =
-      let stream, push = Lwt_stream.create () in
-      push None;
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let usage = { Ai_provider.Usage.input_tokens = 10; output_tokens = 5; total_tokens = Some 15 } in
+  Ai_mock.Language_model.(fst (create ~generate:(Return (generate_result ~usage [ Text { text = response_text } ])) ()))
 
 (* ---- Test collector for span assertions ---- *)
 

@@ -211,11 +211,11 @@ let test_messages_with_mock_fetch () =
           };
       }
   in
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return mock_response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return mock_response in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
   let result =
-    Lwt_main.run (Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false)
+    Lwt_main.run (Ai_provider_anthropic.Anthropic_api.messages ~config ~body ~extra_headers:[] ~stream:false ())
   in
   match result with
   | `Json json ->

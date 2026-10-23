@@ -3,7 +3,7 @@ open Alcotest
 (* End-to-end tests using mock fetch *)
 
 let make_mock_config response =
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch ()
 
 let test_text_through_abstraction () =

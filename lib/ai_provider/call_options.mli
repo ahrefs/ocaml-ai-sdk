@@ -15,7 +15,7 @@ type t = {
   presence_penalty : float option;
   provider_options : Provider_options.t;
   headers : (string * string) list;
-  abort_signal : unit Lwt.t option;
+  abort_signal : Abort_signal.t option;  (** Aborts the request once it settles. See {!Abort_signal}. *)
 }
 
 (** Create call options with sensible defaults. Only [prompt] is required. *)

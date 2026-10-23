@@ -56,5 +56,12 @@ val join_text : step list -> string
 (** Concatenate reasoning from all steps, separated by newlines. *)
 val join_reasoning : step list -> string
 
-(** Combine two usage records, summing tokens. *)
+(** Combine two usage records, summing tokens. A record with no
+    [total_tokens] counts as its input plus output tokens, so the result
+    always has a total, and the sum of several records does not depend on
+    their order. *)
 val add_usage : Ai_provider.Usage.t -> Ai_provider.Usage.t -> Ai_provider.Usage.t
+
+(** The usage of all [steps], combined with {!add_usage} starting from zero
+    tokens. An empty list gives zero tokens, with [total_tokens = Some 0]. *)
+val total_usage : step list -> Ai_provider.Usage.t

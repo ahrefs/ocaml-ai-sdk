@@ -1,3 +1,11 @@
+type outcome =
+  | Finished of Generate_text_result.t
+  | Aborted of {
+      steps : Generate_text_result.step list;
+      reason : exn option;
+    }
+  | Failed of exn
+
 type t = {
   text_stream : string Lwt_stream.t;
   full_stream : Text_stream_part.t Lwt_stream.t;
@@ -8,6 +16,7 @@ type t = {
   warnings : Ai_provider.Warning.t list;
   output : Yojson.Basic.t option Lwt.t;
   provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
+  outcome : outcome Lwt.t;
 }
 
 let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) (result : t) =
@@ -69,7 +78,8 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
           | Finish_step _ -> push (Some Ui_message_chunk.Finish_step)
           | Finish { finish_reason; usage = _ } ->
             push (Some (Ui_message_chunk.Finish { finish_reason = Some finish_reason; message_metadata = None }))
-          | Error { error } -> push (Some (Ui_message_chunk.Error { error_text = error })))
+          | Error { error } -> push (Some (Ui_message_chunk.Error { error_text = Printexc.to_string error }))
+          | Abort { reason } -> push (Some (Ui_message_chunk.Abort { reason })))
         result.full_stream
     in
     push None;

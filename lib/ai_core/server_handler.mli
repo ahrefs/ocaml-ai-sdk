@@ -101,7 +101,21 @@ val parse_chat_request : string -> (chat_request, string) result
     Note: generation parameters like [temperature], [top_p], [max_output_tokens]
     are not exposed here. Pass them via [provider_options] or call
     {!Stream_text.stream_text} directly with {!Stream_text_result.to_ui_message_sse_stream}
-    and {!make_sse_response} for full control. *)
+    and {!make_sse_response} for full control.
+
+    When [abort_signal] fires, the request is aborted: the SSE stream ends
+    with an [abort] chunk, carrying the signal's reason when it has one, and
+    [data: [DONE]], and no further model call or tool starts. See
+    [?abort_signal] on {!Stream_text.stream_text}.
+
+    @param abort_signal Aborts the request. To stop the generation when the
+      client goes away, as after [useChat().stop()] or a closed tab, pass a
+      signal that your web server settles when the client disconnects. The
+      signal may outlive the request, such as one for server shutdown. Once
+      the request's stream ends, on finish, error or abort, only the provider
+      request may still hold a callback on it, until its transfer ends. That
+      happens at once on abort. After an error, such as a raising telemetry
+      integration, a streaming transfer may run on until its body ends. *)
 val handle_chat :
   model:Ai_provider.Language_model.t ->
   ?tools:(string * Core_tool.t) list ->
@@ -118,6 +132,7 @@ val handle_chat :
   ?provider_options:Ai_provider.Provider_options.t ->
   ?transform:(Text_stream_part.t Lwt_stream.t -> Text_stream_part.t Lwt_stream.t) ->
   ?telemetry:Telemetry.t ->
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   string ->
   response
 (** [system_provider_options] attaches per-message provider options to the

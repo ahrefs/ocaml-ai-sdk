@@ -20,6 +20,7 @@ type response = {
   error_detail : string ref;
   timeouts : Http_timeouts.t;
   provider : string;
+  abort_signal : Abort_signal.t option;
 }
 
 (* curl_lwt hands back libcurl's raw result code, which can be newer than
@@ -170,7 +171,7 @@ let failure_before_head ~provider ~error_detail code =
   | true -> network_error ~provider ~detail:"" Curl.CURLE_GOT_NOTHING
   | false -> network_error ~provider ~detail:!error_detail code
 
-let start ~timeouts ~provider ~url ~headers ~body =
+let start ?abort_signal ~timeouts ~provider ~url ~headers ~body () =
   let handle = Curl.init () in
   let head_ready = Lwt_mvar.create_empty () in
   let chunks, push = Lwt_stream.create () in
@@ -197,9 +198,22 @@ let start ~timeouts ~provider ~url ~headers ~body =
       Curl.cleanup handle;
       push None
     in
+    (* Before the head arrives, the abort fails [post] through head_ready.
+       Body reads check the signal themselves, so the hook is detached once
+       the transfer settles, before [watched] settles. *)
+    let watched =
+      match abort_signal with
+      | None -> transfer
+      | Some signal ->
+        Abort_signal.with_on_abort signal
+          (fun () ->
+            deliver ~state ~head_ready (Error (Abort_signal.Aborted { reason = Abort_signal.reason signal }));
+            Lwt.cancel transfer)
+          (fun () -> transfer)
+    in
     (* Lwt runs curl_lwt's on_cancel, which detaches the handle from the multi,
        before regular callbacks, so cleanup never frees an attached handle. *)
-    Lwt.on_any transfer
+    Lwt.on_any watched
       (fun code ->
         match !state with
         | Delivered -> release ()
@@ -239,15 +253,18 @@ let await_head ~(timeouts : Http_timeouts.t) ~provider ~transfer head_ready =
       in
       Lwt.fail (Provider_error.Provider_error err))
 
-let post ~timeouts ~provider ~headers ~body url =
-  let%lwt head_ready, transfer, chunks, error_detail =
-    Lwt.wrap (fun () -> start ~timeouts ~provider ~url ~headers ~body)
-  in
-  let%lwt head = await_head ~timeouts ~provider ~transfer head_ready in
-  Lwt.return { head; transfer; chunks; error_detail; timeouts; provider }
+(* The guard's second check matters: the head can wait out a pause in
+   await_head while the abort fires. *)
+let post ?abort_signal ~timeouts ~provider ~headers ~body url =
+  Abort_signal.guard abort_signal (fun () ->
+    let%lwt head_ready, transfer, chunks, error_detail =
+      Lwt.wrap (fun () -> start ?abort_signal ~timeouts ~provider ~url ~headers ~body ())
+    in
+    let%lwt head = await_head ~timeouts ~provider ~transfer head_ready in
+    Lwt.return { head; transfer; chunks; error_detail; timeouts; provider; abort_signal })
 
 module For_testing = struct
-  let response_of_chunks ~timeouts ~provider ~status ~headers chunks =
+  let response_of_chunks ?abort_signal ~timeouts ~provider ~status ~headers chunks =
     let headers = List.map (fun (name, value) -> String.lowercase_ascii name, value) headers in
     {
       head = { status; headers };
@@ -256,6 +273,7 @@ module For_testing = struct
       error_detail = ref "";
       timeouts;
       provider;
+      abort_signal;
     }
 end
 
@@ -277,22 +295,27 @@ let next_chunk r =
             Lwt.return `Idle);
          ])
 
+(* An abort cancels the transfer, which ends the chunk stream early, so the
+   end of the body is checked against the signal before the transfer result. *)
 let transfer_result r =
-  let%lwt code = r.transfer in
-  if succeeded code then Lwt.return_unit
-  else Lwt.fail (network_error ~provider:r.provider ~detail:!(r.error_detail) code)
+  Abort_signal.guard r.abort_signal (fun () ->
+    let%lwt code = r.transfer in
+    if succeeded code then Lwt.return_unit
+    else Lwt.fail (network_error ~provider:r.provider ~detail:!(r.error_detail) code))
 
+(* As in [post], the abort can fire while a chunk waits out the pause. *)
 let read_chunk r =
-  cancel_on_failure r.transfer (fun () ->
-    match%lwt next_chunk r with
-    | `Chunk (Some chunk) -> Lwt.return_some chunk
-    | `Chunk None ->
-      let%lwt () = transfer_result r in
-      Lwt.return_none
-    | `Idle ->
-      let limit_s = r.timeouts.stream_idle_timeout in
-      let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
-      Lwt.fail (Provider_error.Provider_error err))
+  Abort_signal.guard r.abort_signal (fun () ->
+    cancel_on_failure r.transfer (fun () ->
+      match%lwt next_chunk r with
+      | `Chunk (Some chunk) -> Lwt.return_some chunk
+      | `Chunk None ->
+        let%lwt () = transfer_result r in
+        Lwt.return_none
+      | `Idle ->
+        let limit_s = r.timeouts.stream_idle_timeout in
+        let err = Provider_error.make_timeout ~provider:r.provider ~phase:Stream_idle ~elapsed_s:limit_s ~limit_s in
+        Lwt.fail (Provider_error.Provider_error err)))
 
 (* With lwt_ppx, [match%lwt], and [try%lwt] without a catch-all handler, raise at
    once on a promise that has already failed instead of returning it. [body_string] and
@@ -350,7 +373,12 @@ let body_lines r =
   let partial = Buffer.create 256 in
   let ready = Queue.create () in
   let reading = ref true in
+  (* Lines left over from a chunk read before the abort are dropped too, and
+     [read_chunk] drops a chunk that arrives once the abort has fired. The
+     check is not a [guard]: its second check would take the recursive call
+     out of tail position and hold every pending read until the line ends. *)
   let rec next_line () =
+    let%lwt () = Abort_signal.fail_if_aborted r.abort_signal in
     match Queue.take_opt ready, !reading with
     | Some line, (true | false) -> Lwt.return_some line
     | None, false -> Lwt.return_none

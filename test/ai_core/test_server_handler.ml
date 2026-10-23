@@ -63,25 +63,17 @@ let test_make_sse_response_body_content () =
 (* === handle_chat tests === *)
 
 let text_model text =
-  let module M : Ai_provider.Language_model.S = struct
-    let specification_version = "V3"
-    let provider = "mock"
-    let model_id = "mock-model"
-    let generate _opts = Lwt.fail_with "handle_chat streams"
-
-    let stream _opts =
-      let usage = { Ai_provider.Usage.input_tokens = 1; output_tokens = 1; total_tokens = Some 2 } in
-      let stream =
-        Lwt_stream.of_list
-          [
-            Ai_provider.Stream_part.Stream_start { warnings = [] };
-            Text { text };
-            Finish { finish_reason = Stop; usage; provider_metadata = None };
-          ]
-      in
-      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
-  end in
-  (module M : Ai_provider.Language_model.S)
+  let usage = { Ai_provider.Usage.input_tokens = 1; output_tokens = 1; total_tokens = Some 2 } in
+  fst
+    (Ai_mock.Language_model.create
+       ~stream:
+         (Return
+            [
+              Ai_provider.Stream_part.Stream_start { warnings = [] };
+              Text { text };
+              Finish { finish_reason = Stop; usage; provider_metadata = None };
+            ])
+       ())
 
 let chat_body = {|{"messages":[{"id":"1","role":"user","parts":[{"type":"text","text":"Hi"}]}]}|}
 
@@ -177,6 +169,52 @@ let test_parse_chat_request_errors () =
   match Ai_core.Server_handler.parse_chat_request "{" with
   | Error msg -> (check bool) "invalid json" true (String.starts_with ~prefix:"Invalid JSON: " msg)
   | Ok _ -> fail "accepted invalid JSON"
+
+(* Sends "Hi", then nothing until the abort signal fires, and ends without a
+   Finish part, as Stream_pump.pump does on abort. *)
+let hanging_model () =
+  Ai_mock.Language_model.(
+    create
+      ~stream:
+        (Respond (hanging_stream [ Ai_provider.Stream_part.Stream_start { warnings = [] }; Text { text = "Hi" } ]))
+      ())
+
+(* Fails the test instead of hanging when [promise] takes over a second. *)
+let within ~what promise =
+  Lwt.pick
+    [
+      promise;
+      (let%lwt () = Lwt_unix.sleep 1. in
+       failf "timed out waiting for %s" what);
+    ]
+
+let sse_type event =
+  match String.trim event with
+  | "data: [DONE]" -> "[DONE]"
+  | line ->
+    let json = Yojson.Basic.from_string (String.sub line 6 (String.length line - 6)) in
+    Yojson.Basic.Util.(to_string (member "type" json))
+
+let test_handle_chat_abort_signal () =
+  Lwt_main.run
+    (let model, mock = hanging_model () in
+     let abort_signal, abort = Ai_provider.Abort_signal.create () in
+     let response = Ai_core.Server_handler.handle_chat ~model ~abort_signal chat_body in
+     let rec read_to_delta () =
+       match%lwt Lwt_stream.get response.body with
+       | Some event when String.equal (sse_type event) "text-delta" -> Lwt.return_unit
+       | Some (_ : string) -> read_to_delta ()
+       | None -> fail "the stream ended before a text delta"
+     in
+     let%lwt () = within ~what:"the first text delta" (read_to_delta ()) in
+     abort ();
+     let%lwt rest = within ~what:"the end of the stream" (Lwt_stream.to_list response.body) in
+     (check (list string)) "stream tail" [ "abort"; "[DONE]" ] (List.map sse_type rest);
+     (match Ai_mock.Language_model.stream_calls mock with
+     | [ { abort_signal = Some signal; _ } ] ->
+       (check bool) "model call aborted" true (Ai_provider.Abort_signal.is_aborted signal)
+     | _ -> fail "expected one model call with an abort signal");
+     Lwt.return_unit)
 
 let test_handle_cors_preflight () =
   let response = Ai_core.Server_handler.handle_cors_preflight () in
@@ -861,6 +899,7 @@ let () =
           test_case "no cors" `Quick test_handle_chat_no_cors;
           test_case "invalid request" `Quick test_handle_chat_invalid_request;
           test_case "cors preflight" `Quick test_handle_cors_preflight;
+          test_case "abort signal" `Quick test_handle_chat_abort_signal;
         ] );
       ( "parse_chat_request",
         [ test_case "ok" `Quick test_parse_chat_request_ok; test_case "errors" `Quick test_parse_chat_request_errors ] );

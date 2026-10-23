@@ -13,7 +13,7 @@ type t = {
   presence_penalty : float option;
   provider_options : Provider_options.t;
   headers : (string * string) list;
-  abort_signal : unit Lwt.t option;
+  abort_signal : Abort_signal.t option;
 }
 
 let default ~prompt =

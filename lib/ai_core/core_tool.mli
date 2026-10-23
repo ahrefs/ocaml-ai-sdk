@@ -5,10 +5,35 @@
     provides results via [addToolOutput]. Tools can optionally require approval
     before execution via [needs_approval]. *)
 
+(** What a tool's [execute] receives besides its arguments. Mirrors upstream's
+    [ToolExecutionOptions]. Build one with {!val-execute_options}. *)
+type execute_options = private {
+  tool_call_id : string;
+  messages : Ai_provider.Prompt.message list;
+    (** The messages sent to the model for the step that produced the call,
+        without the system prompt and without that step's response. For an
+        approved tool, the request's messages. *)
+  abort_signal : Ai_provider.Abort_signal.t option;
+    (** The [abort_signal] given to [generate_text] or [stream_text]. When it
+        fires, both functions cancel the tool's promise and drop any result
+        it returns later. Work that ignores [Lwt.cancel] keeps running in the
+        background, so a tool with such work must watch the signal itself. *)
+}
+
+(** Build an {!type-execute_options}, for example to call a tool's [execute]
+    directly in a test. [messages] defaults to [[]] and [abort_signal] to
+    [None]. *)
+val execute_options :
+  ?abort_signal:Ai_provider.Abort_signal.t ->
+  ?messages:Ai_provider.Prompt.message list ->
+  tool_call_id:string ->
+  unit ->
+  execute_options
+
 type t = {
   description : string option;
   parameters : Yojson.Basic.t;  (** JSON Schema for tool parameters *)
-  execute : (Yojson.Basic.t -> Yojson.Basic.t Lwt.t) option;
+  execute : (Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) option;
     (** Execute the tool server-side. [None] for client-side tools
         where the frontend provides results. *)
   needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
@@ -29,7 +54,7 @@ val create :
   ?needs_approval:(Yojson.Basic.t -> bool Lwt.t) ->
   ?provider_options:Ai_provider.Provider_options.t ->
   parameters:Yojson.Basic.t ->
-  execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) ->
+  execute:(Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) ->
   unit ->
   t
 
@@ -38,7 +63,7 @@ val create_with_approval :
   ?description:string ->
   ?provider_options:Ai_provider.Provider_options.t ->
   parameters:Yojson.Basic.t ->
-  execute:(Yojson.Basic.t -> Yojson.Basic.t Lwt.t) ->
+  execute:(Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) ->
   unit ->
   t
 
@@ -55,13 +80,26 @@ val safe_parse_json_args : string -> Yojson.Basic.t
     Matches upstream's [{type: "execution-denied"}] format. *)
 val denied_result : Yojson.Basic.t
 
-(** Execute a tool by name from the tools list.
-    Returns an error result if the tool is not found, is client-side only, or throws. *)
+(** Execute a tool by name from the tools list. The tool gets
+    [abort_signal], [messages] and [tool_call_id] in its {!execute_options}.
+
+    Returns an error result if the tool is not found, is client-side only,
+    or fails, an [Ai_provider.Abort_signal.Aborted] or [Lwt.Canceled] from
+    the tool's own work included, such as a timeout of its own. Two failures
+    are not the tool's:
+    - once [abort_signal] has fired, any failure of the tool fails with
+      [Aborted] and the signal's reason, and the tool does not start when the
+      signal has fired before the call;
+    - cancelling the returned promise fails it with [Lwt.Canceled] at once
+      and cancels the tool. *)
 val execute_tool :
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   tools:(string * t) list ->
+  messages:Ai_provider.Prompt.message list ->
   tool_call_id:string ->
   tool_name:string ->
   args:Yojson.Basic.t ->
+  unit ->
   Generate_text_result.tool_result Lwt.t
 
 (** Partition tool calls into [(blocked, executable)].

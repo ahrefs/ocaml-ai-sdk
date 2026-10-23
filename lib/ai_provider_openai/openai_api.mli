@@ -34,10 +34,14 @@ val make_request_body :
   request_body
 
 (** Send a request to the Chat Completions API.
-    Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines). *)
+    Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines).
+    Fails with [Ai_provider.Abort_signal.Aborted] once [abort_signal] settles.
+    The models pass [Call_options.abort_signal]. *)
 val chat_completions :
+  ?abort_signal:Ai_provider.Abort_signal.t ->
   config:Config.t ->
   body:request_body ->
   extra_headers:(string * string) list ->
   stream:bool ->
+  unit ->
   [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t

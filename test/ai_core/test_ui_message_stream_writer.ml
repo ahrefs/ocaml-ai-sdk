@@ -183,6 +183,40 @@ let test_on_finish_aborted () =
   (check bool) "on_finish called" true !finish_called;
   (check bool) "aborted" true !was_aborted
 
+(* Runs [execute] and returns the [is_aborted] that [on_finish] received. *)
+let finish_is_aborted ~execute =
+  let was_aborted = ref None in
+  let stream =
+    Writer.create_ui_message_stream
+      ~on_finish:(fun ~finish_reason:_ ~is_aborted ->
+        was_aborted := Some is_aborted;
+        Lwt.return_unit)
+      ~execute ()
+  in
+  let (_ : Chunk.t list) = collect stream in
+  !was_aborted
+
+let test_on_finish_abort_chunk_merged () =
+  let is_aborted =
+    finish_is_aborted ~execute:(fun writer ->
+      Writer.merge writer (Lwt_stream.of_list [ Chunk.Start_step; Chunk.Abort { reason = None } ]);
+      Lwt.return_unit)
+  in
+  (check (option bool)) "aborted" (Some true) is_aborted
+
+(* The chunk types [execute] leads to, in order. *)
+let chunk_types ~execute =
+  Writer.create_ui_message_stream ~execute ()
+  |> collect
+  |> List.map (fun chunk -> Yojson.Basic.Util.(to_string (member "type" (Chunk.to_json chunk))))
+
+let test_abort_chunk_merged_no_finish () =
+  (check (list string))
+    "chunk types" [ "start"; "start-step"; "abort" ]
+    (chunk_types ~execute:(fun writer ->
+       Writer.merge writer (Lwt_stream.of_list [ Chunk.Start_step; Chunk.Abort { reason = None } ]);
+       Lwt.return_unit))
+
 let test_on_finish_waits_for_merges () =
   let merge_completed = ref false in
   let finish_saw_merge_done = ref false in
@@ -321,6 +355,124 @@ let test_on_finish_exception_still_closes_stream () =
   (check bool) "stream closed" true (List.length chunks >= 2);
   assert_framed chunks
 
+let status data = Chunk.Data { data_type = "status"; id = Some "s"; data = `String data }
+
+let chunk_type chunk = Yojson.Basic.Util.(to_string (member "type" (Chunk.to_json chunk)))
+
+(* [execute] raising [Aborted] ends the stream with an abort chunk carrying
+   the reason, and no error or finish chunk. *)
+let test_execute_aborted () =
+  let run reason =
+    let finished_aborted = ref None in
+    let chunks =
+      collect
+        (Writer.create_ui_message_stream
+           ~on_finish:(fun ~finish_reason:_ ~is_aborted ->
+             finished_aborted := Some is_aborted;
+             Lwt.return_unit)
+           ~execute:(fun writer ->
+             Writer.write writer Chunk.Start_step;
+             Lwt.fail (Ai_provider.Abort_signal.Aborted { reason }))
+           ())
+    in
+    (check (option bool)) "on_finish is_aborted" (Some true) !finished_aborted;
+    match chunks with
+    | Chunk.Start _ :: rest -> List.map (fun chunk -> Yojson.Basic.to_string (Chunk.to_json chunk)) rest
+    | _ -> fail "expected Start as first chunk"
+  in
+  (check (list string))
+    "with a reason"
+    [ {|{"type":"start-step"}|}; {|{"type":"abort","reason":"Stdlib.Exit"}|} ]
+    (run (Some Exit));
+  (check (list string)) "without a reason" [ {|{"type":"start-step"}|}; {|{"type":"abort"}|} ] (run None)
+
+let error_texts chunks =
+  List.filter_map
+    (function
+      | Chunk.Error { error_text } -> Some error_text
+      | _ -> None)
+    chunks
+
+let failing_source () = Lwt_stream.from (fun () -> Lwt.fail (Failure "merge secret"))
+
+(* A merged stream's failure goes through [on_error] like one from [execute]. *)
+let test_merge_error_uses_on_error () =
+  let chunks =
+    collect
+      (Writer.create_ui_message_stream
+         ~on_error:(fun _ -> "sanitized")
+         ~execute:(fun writer ->
+           Writer.merge writer (failing_source ());
+           Lwt.return_unit)
+         ())
+  in
+  (check (list string)) "error text" [ "sanitized" ] (error_texts chunks)
+
+(* An [on_error] that raises must not expose the original exception. *)
+let test_on_error_raising () =
+  let chunks =
+    collect
+      (Writer.create_ui_message_stream
+         ~on_error:(fun _ -> failwith "formatter broke")
+         ~execute:(fun _ -> Lwt.fail (Failure "execute secret"))
+         ())
+  in
+  (check (list string)) "error text" [ "An error occurred." ] (error_texts chunks)
+
+(* A chunk written while [on_finish] runs is dropped instead of landing after
+   the finish chunk, and the stream ends only once [on_finish] has returned. *)
+let test_write_during_on_finish_dropped () =
+  let saved = ref None in
+  let finished = ref false in
+  let chunks =
+    collect
+      (Writer.create_ui_message_stream
+         ~on_finish:(fun ~finish_reason:_ ~is_aborted:_ ->
+           Option.iter (fun writer -> Writer.write writer (status "late")) !saved;
+           let%lwt () = Lwt.pause () in
+           finished := true;
+           Lwt.return_unit)
+         ~execute:(fun writer ->
+           saved := Some writer;
+           Lwt.return_unit)
+         ())
+  in
+  (check (list string)) "chunk types" [ "start"; "finish" ] (List.map chunk_type chunks);
+  (check bool) "stream ends after on_finish" true !finished
+
+(* A failing [execute] does not cut short a merge that keeps running: its later
+   chunks follow the error chunk, then the finish chunk closes the stream. *)
+let test_execute_fails_with_running_merge () =
+  let source, push = Lwt_stream.create () in
+  let stream =
+    Writer.create_ui_message_stream
+      ~on_error:(fun _ -> "failed")
+      ~execute:(fun writer ->
+        Writer.merge writer source;
+        push (Some (status "before"));
+        let%lwt () = Lwt.pause () in
+        Lwt.fail (Failure "execute failed"))
+      ()
+  in
+  let chunks =
+    Lwt_main.run
+      (let%lwt () = Lwt.pause () in
+       let%lwt () = Lwt.pause () in
+       push (Some (status "after"));
+       push None;
+       Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list stream))
+  in
+  (check (list string))
+    "chunks"
+    [ "start"; "data-status:before"; "error:failed"; "data-status:after"; "finish" ]
+    (List.map
+       (fun chunk ->
+         match chunk with
+         | Chunk.Data { data = `String text; _ } -> chunk_type chunk ^ ":" ^ text
+         | Chunk.Error { error_text } -> "error:" ^ error_text
+         | _ -> chunk_type chunk)
+       chunks)
+
 let () =
   run "Ui_message_stream_writer"
     [
@@ -341,12 +493,18 @@ let () =
         [
           test_case "execute exception" `Quick test_execute_exception;
           test_case "custom on_error" `Quick test_custom_on_error;
+          test_case "merge error uses on_error" `Quick test_merge_error_uses_on_error;
+          test_case "on_error raising" `Quick test_on_error_raising;
+          test_case "execute fails with a running merge" `Quick test_execute_fails_with_running_merge;
         ] );
       ( "on_finish",
         [
           test_case "normal completion" `Quick test_on_finish_normal;
           test_case "aborted on error" `Quick test_on_finish_aborted;
+          test_case "aborted on merged abort chunk" `Quick test_on_finish_abort_chunk_merged;
+          test_case "no finish after merged abort chunk" `Quick test_abort_chunk_merged_no_finish;
           test_case "waits for merges" `Quick test_on_finish_waits_for_merges;
+          test_case "execute raises Aborted" `Quick test_execute_aborted;
         ] );
       ( "response",
         [
@@ -361,5 +519,6 @@ let () =
           test_case "merge already closed stream" `Quick test_merge_already_closed_stream;
           test_case "multiple concurrent merges" `Quick test_multiple_concurrent_merges;
           test_case "on_finish exception still closes stream" `Quick test_on_finish_exception_still_closes_stream;
+          test_case "write during on_finish dropped" `Quick test_write_during_on_finish_dropped;
         ] );
     ]

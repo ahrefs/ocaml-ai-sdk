@@ -40,11 +40,12 @@ type chunk_json = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
-let transform events ~warnings =
+let transform ?abort_signal events ~warnings =
   let tool_calls : (int, tool_call_state) Hashtbl.t = Hashtbl.create 4 in
   let is_first = ref true in
   let finished = ref false in
   let last_usage = ref None in
+  let last_finish_reason = ref None in
   let stream, push = Lwt_stream.create () in
   let emit_start () =
     if !is_first then begin
@@ -59,23 +60,27 @@ let transform events ~warnings =
       tool_calls;
     Hashtbl.clear tool_calls
   in
-  Ai_provider.Stream_pump.pump ~provider:"openai" ~push
+  (* The usage comes in a chunk after the finish reason, so Finish waits for
+     [DONE] or the end of the stream. *)
+  let emit_finish finish_reason =
+    if not !finished then begin
+      let usage =
+        match !last_usage with
+        | Some u -> Convert_usage.to_usage u
+        | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
+      in
+      push (Some (Ai_provider.Stream_part.Finish { finish_reason; usage; provider_metadata = None }));
+      finished := true
+    end
+  in
+  Ai_provider.Stream_pump.pump ?abort_signal
+    ~on_end:(fun () -> Stdlib.Option.iter emit_finish !last_finish_reason)
+    ~provider:"openai" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->
         finish_open_tool_calls ();
-        if not !finished then begin
-          let usage =
-            match !last_usage with
-            | Some u -> Convert_usage.to_usage u
-            | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
-          in
-          push
-            (Some
-               (Ai_provider.Stream_part.Finish
-                  { finish_reason = Ai_provider.Finish_reason.Stop; usage; provider_metadata = None }));
-          finished := true
-        end
+        emit_finish (Stdlib.Option.value ~default:Ai_provider.Finish_reason.Stop !last_finish_reason)
       | false ->
         let json = Yojson.Basic.from_string evt.data in
         let chunk = chunk_json_of_json json in
@@ -117,20 +122,7 @@ let transform events ~warnings =
           Stdlib.Option.iter
             (fun reason ->
               finish_open_tool_calls ();
-              let usage =
-                match !last_usage with
-                | Some u -> Convert_usage.to_usage u
-                | None -> { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
-              in
-              push
-                (Some
-                   (Ai_provider.Stream_part.Finish
-                      {
-                        finish_reason = Convert_response.map_finish_reason (Some reason);
-                        usage;
-                        provider_metadata = None;
-                      }));
-              finished := true)
+              last_finish_reason := Some (Convert_response.map_finish_reason (Some reason)))
             choice.finish_reason))
     events;
   stream

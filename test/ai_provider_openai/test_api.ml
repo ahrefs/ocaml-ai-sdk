@@ -51,7 +51,7 @@ let test_mock_fetch () =
         "usage", `Assoc [ "prompt_tokens", `Int 5; "completion_tokens", `Int 3 ];
       ]
   in
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return mock_response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return mock_response in
   let config = Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch () in
   let body =
     Ai_provider_openai.Openai_api.make_request_body ~model:"gpt-4o"
@@ -59,7 +59,7 @@ let test_mock_fetch () =
       ~stream:false ()
   in
   let result =
-    Lwt_main.run (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false)
+    Lwt_main.run (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false ())
   in
   match result with
   | `Json json ->
@@ -69,7 +69,7 @@ let test_mock_fetch () =
 
 let test_headers_with_org () =
   let called = ref false in
-  let fetch ~url:_ ~headers ~body:_ =
+  let fetch ~abort_signal:_ ~url:_ ~headers ~body:_ =
     called := true;
     let has_org = List.exists (fun (k, _) -> String.equal k "openai-organization") headers in
     let has_proj = List.exists (fun (k, _) -> String.equal k "openai-project") headers in
@@ -84,7 +84,9 @@ let test_headers_with_org () =
     Ai_provider_openai.Config.create ~api_key:"sk-test" ~organization:"org-123" ~project:"proj-456" ~fetch ()
   in
   let body = Ai_provider_openai.Openai_api.make_request_body ~model:"gpt-4o" ~messages:[] ~stream:false () in
-  let _ = Lwt_main.run (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false) in
+  let _ =
+    Lwt_main.run (Ai_provider_openai.Openai_api.chat_completions ~config ~body ~extra_headers:[] ~stream:false ())
+  in
   (check bool) "called" true !called
 
 let () =

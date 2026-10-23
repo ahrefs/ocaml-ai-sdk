@@ -118,7 +118,7 @@ let create ?(delay_ms = 10) ?(chunking = Word) ?(sleep = Lwt_unix.sleep) () inpu
       push None;
       Lwt.return_unit
     with exn ->
-      push (Some (Text_stream_part.Error { error = Printexc.to_string exn }));
+      push (Some (Text_stream_part.Error { error = exn }));
       push None;
       Lwt.return_unit);
   output_stream

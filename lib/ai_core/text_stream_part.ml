@@ -61,4 +61,5 @@ type t =
       finish_reason : Ai_provider.Finish_reason.t;
       usage : Ai_provider.Usage.t;
     }
-  | Error of { error : string }
+  | Error of { error : exn }
+  | Abort of { reason : string option }

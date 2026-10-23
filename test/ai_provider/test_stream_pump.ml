@@ -6,9 +6,9 @@ let event data = { Ai_provider.Sse.event_type = "message"; data }
 
 (* Pumps [events] through [f], which pushes a [Text] part per event, and
    collects what reaches the output. *)
-let pumped_stream f events =
+let pumped_stream ?abort_signal f events =
   let output, push = Lwt_stream.create () in
-  Ai_provider.Stream_pump.pump ~provider:"test" ~push
+  Ai_provider.Stream_pump.pump ?abort_signal ~provider:"test" ~push
     (fun evt -> push (Some (Ai_provider.Stream_part.Text { text = f evt })))
     events;
   Lwt_stream.to_list output
@@ -32,15 +32,6 @@ let decode (evt : Ai_provider.Sse.event) =
   match Yojson.Basic.from_string evt.data with
   | `String text -> text
   | json -> Yojson.Basic.to_string json
-
-(* A malformed event is reported with its data and the next event still runs. *)
-let test_malformed_event_skipped () =
-  let%lwt parts = pumped decode [ event {|"a"|}; event "{not json"; event {|"b"|} ] in
-  (check (list string))
-    "parts"
-    [ "text a"; {|deserialization raw="{not json" retryable=false provider=test|}; "text b" ]
-    (List.map describe parts);
-  Lwt.return_unit
 
 (* Every JSON decode error, from Yojson or melange-json, is a
    [Deserialization_error] carrying the event's data. *)
@@ -121,15 +112,69 @@ let test_provider_error_kept () =
   (check (list string)) "parts" [ "text a"; "api 503 retryable=true provider=upstream" ] (List.map describe parts);
   Lwt.return_unit
 
+(* Events "a", then a read that fails with [exn]. *)
+let failing_after_a exn =
+  let reads = ref [ event "a" ] in
+  Lwt_stream.from (fun () ->
+    match !reads with
+    | evt :: rest ->
+      reads := rest;
+      Lwt.return_some evt
+    | [] -> Lwt.fail exn)
+
+(* The source fails with [Aborted] and then with [Lwt.Canceled]; returns
+   what reaches the output each time. *)
+let pumped_abort_and_cancel ?abort_signal () =
+  let%lwt aborted =
+    pumped_stream ?abort_signal
+      (fun (evt : Ai_provider.Sse.event) -> evt.data)
+      (failing_after_a (Ai_provider.Abort_signal.Aborted { reason = None }))
+  in
+  let%lwt cancelled =
+    pumped_stream ?abort_signal (fun (evt : Ai_provider.Sse.event) -> evt.data) (failing_after_a Lwt.Canceled)
+  in
+  Lwt.return (List.map describe aborted, List.map describe cancelled)
+
+(* Once the call's signal has fired, an aborted or cancelled source ends the
+   stream quietly: the caller asked for it. *)
+let test_abort_ends_stream_without_error () =
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  abort ();
+  let%lwt aborted, cancelled = pumped_abort_and_cancel ~abort_signal:signal () in
+  (check (list string)) "aborted" [ "text a" ] aborted;
+  (check (list string)) "cancelled" [ "text a" ] cancelled;
+  Lwt.return_unit
+
+(* With no signal, or one that has not fired, the abort or cancel is not the
+   caller's, so it is reported like any other failure. *)
+let test_stray_abort_is_error () =
+  let check_reported name (aborted, cancelled) =
+    (check (list string))
+      (name ^ ": aborted")
+      [ "text a"; "unexpected Abort_signal.Aborted retryable=false provider=test" ]
+      aborted;
+    (check (list string))
+      (name ^ ": cancelled")
+      [ "text a"; "unexpected Lwt.Resolution_loop.Canceled retryable=false provider=test" ]
+      cancelled
+  in
+  let%lwt no_signal = pumped_abort_and_cancel () in
+  check_reported "no signal" no_signal;
+  let signal, (_ : ?reason:exn -> unit -> unit) = Ai_provider.Abort_signal.create () in
+  let%lwt not_fired = pumped_abort_and_cancel ~abort_signal:signal () in
+  check_reported "signal not fired" not_fired;
+  Lwt.return_unit
+
 let () =
   run "Stream_pump"
     [
       ( "pump",
         [
-          test_case "malformed event skipped" `Quick (run_lwt test_malformed_event_skipped);
           test_case "decode errors carry raw data" `Quick (run_lwt test_decode_errors_carry_raw_data);
           test_case "unexpected exception ends stream" `Quick (run_lwt test_unexpected_exception_ends_stream);
           test_case "converter provider error kept" `Quick (run_lwt test_converter_provider_error_kept);
           test_case "provider error kept" `Quick (run_lwt test_provider_error_kept);
+          test_case "abort or cancel ends stream without error" `Quick (run_lwt test_abort_ends_stream_without_error);
+          test_case "stray abort or cancel is an error" `Quick (run_lwt test_stray_abort_is_error);
         ] );
     ]

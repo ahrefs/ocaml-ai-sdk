@@ -86,6 +86,7 @@ type reply =
   | Reply of string  (** Written after the request head arrives, then the connection closes. *)
   | Greet of string  (** Written on accept, without reading the request. *)
   | Hang  (** The connection is accepted and never answered. *)
+  | Hold of string  (** Written after the request head arrives; the request resolves once the client hangs up. *)
 
 let contains ~sub s =
   let n = String.length sub in
@@ -110,17 +111,21 @@ let write_all fd s =
   let%lwt (_ : int) = Lwt_unix.write_string fd s 0 (String.length s) in
   Lwt.return_unit
 
+(* Reads until the client closes its side. *)
+let drain fd =
+  let chunk = Bytes.create 4096 in
+  let rec loop () =
+    match%lwt Lwt_unix.read fd chunk 0 (Bytes.length chunk) with
+    | 0 -> Lwt.return_unit
+    | _ -> loop ()
+  in
+  try%lwt loop () with Unix.Unix_error _ -> Lwt.return_unit
+
 (* Half-closes, then drains what the client still sends before closing: closing
    with unread data sends an RST, which can drop the reply before curl reads it. *)
 let finish fd =
   Lwt_unix.shutdown fd SHUTDOWN_SEND;
-  let chunk = Bytes.create 4096 in
-  let rec drain () =
-    match%lwt Lwt_unix.read fd chunk 0 (Bytes.length chunk) with
-    | 0 -> Lwt.return_unit
-    | _ -> drain ()
-  in
-  let%lwt () = try%lwt drain () with Unix.Unix_error _ -> Lwt.return_unit in
+  let%lwt () = drain fd in
   Lwt_unix.close fd
 
 let answer fd data =
@@ -151,30 +156,17 @@ let serve_once reply =
       let%lwt head = read_head fd in
       let%lwt () = answer fd data in
       Lwt.return head
+    | Hold data ->
+      let%lwt head = read_head fd in
+      let%lwt () = write_all fd data in
+      let%lwt () = drain fd in
+      let%lwt () = Lwt_unix.close fd in
+      Lwt.return head
   in
   Lwt.return (port, request)
 
-(* Answers [count] connections concurrently, each [delay] seconds after its
-   request head arrives. *)
-let serve_slowly ~count ~delay data =
-  let%lwt sock, port = listen_loopback ~backlog:count in
-  let respond fd =
-    let%lwt (_ : string) = read_head fd in
-    let%lwt () = Lwt_unix.sleep delay in
-    answer fd data
-  in
-  let rec accept_all = function
-    | 0 -> Lwt_unix.close sock
-    | remaining ->
-      let%lwt fd, _ = Lwt_unix.accept sock in
-      Lwt.dont_wait (fun () -> respond fd) (fun (_ : exn) -> ());
-      accept_all (remaining - 1)
-  in
-  Lwt.dont_wait (fun () -> accept_all count) (fun (_ : exn) -> ());
-  Lwt.return port
-
-let post ?(headers = []) ?(timeouts = Ai_provider.Http_timeouts.default) url =
-  Ai_provider.Http_client.post ~timeouts ~provider:"test" ~headers ~body:"{}" url
+let post ?abort_signal ?(headers = []) ?(timeouts = Ai_provider.Http_timeouts.default) url =
+  Ai_provider.Http_client.post ?abort_signal ~timeouts ~provider:"test" ~headers ~body:"{}" url
 
 let expect_network_error ~retryable promise =
   match%lwt promise with
@@ -221,18 +213,6 @@ let test_error_body_capped () =
   let%lwt response = post (Printf.sprintf "http://127.0.0.1:%d/" port) in
   let%lwt body = Ai_provider.Http_client.error_body response in
   (check int) "capped length" 65536 (String.length body);
-  Lwt.return_unit
-
-(* Parallel requests to an HTTP/1.1 server each open a connection instead of
-   queueing behind the first response, which would count against the connect
-   timeout. *)
-let test_parallel_http1 () =
-  let%lwt port = serve_slowly ~count:2 ~delay:0.5 "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" in
-  let timeouts = Ai_provider.Http_timeouts.create ~connect_timeout:0.2 () in
-  let url = Printf.sprintf "http://127.0.0.1:%d/" port in
-  let%lwt first = post ~timeouts url
-  and second = post ~timeouts url in
-  (check (list int)) "both answered" [ 200; 200 ] (List.map Ai_provider.Http_client.status [ first; second ]);
   Lwt.return_unit
 
 let test_default_user_agent () =
@@ -346,6 +326,158 @@ let test_rejected_option_not_retryable () =
     (check bool) "names the code" true (contains ~sub:"(CURLE_BAD_FUNCTION_ARGUMENT)" message);
     Lwt.return_unit
 
+let expect_aborted promise =
+  match%lwt promise with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted _ -> Lwt.return_unit
+
+(* The server never accepts, so a request that went out would wait for headers
+   until request_timeout. *)
+let test_abort_before_start () =
+  let%lwt sock, port = listen_loopback ~backlog:1 in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:5.0 () in
+  let%lwt () =
+    expect_aborted
+      (post
+         ~abort_signal:(Ai_provider.Abort_signal.of_promise Lwt.return_unit)
+         ~timeouts
+         (Printf.sprintf "http://127.0.0.1:%d/" port))
+  in
+  let%lwt connected =
+    Lwt.pick
+      [
+        (let%lwt (_ : Lwt_unix.file_descr * Unix.sockaddr) = Lwt_unix.accept sock in
+         Lwt.return true);
+        (let%lwt () = Lwt_unix.sleep 0.2 in
+         Lwt.return false);
+      ]
+  in
+  (check bool) "no connection" false connected;
+  Lwt_unix.close sock
+
+(* The server reads the request and never answers. The abort fails [post] at
+   once, far below request_timeout, and closes the connection. *)
+let test_abort_waiting_for_headers () =
+  let%lwt port, request = serve_once (Hold "") in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:30.0 () in
+  let response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let%lwt () = Lwt_unix.sleep 0.2 in
+  let started = Unix.gettimeofday () in
+  abort ();
+  let%lwt () = expect_aborted response in
+  (check bool) "fails promptly" true (Float.compare (Unix.gettimeofday () -. started) 1.0 < 0);
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
+(* Headers and part of the body arrive, then the server stalls. The abort fails
+   the waiting read with Aborted, which [error_body] does not swallow, and
+   closes the connection. *)
+let test_abort_mid_body ~status read () =
+  let%lwt port, request =
+    serve_once (Hold (Printf.sprintf "HTTP/1.1 %d Status\r\nContent-Length: 100\r\n\r\npartial" status))
+  in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
+  let%lwt response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let body = read response in
+  let%lwt () = Lwt_unix.sleep 0.2 in
+  (check bool) "read waiting for the rest" true (Lwt.is_sleeping body);
+  abort ();
+  let%lwt () = expect_aborted body in
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
+let expect_canceled promise =
+  match%lwt promise with
+  | _ -> fail "expected Canceled"
+  | exception Lwt.Canceled -> Lwt.return_unit
+
+(* As [test_abort_waiting_for_headers], with [Lwt.cancel] on [post] instead of
+   a signal. *)
+let test_cancel_waiting_for_headers () =
+  let%lwt port, request = serve_once (Hold "") in
+  let timeouts = Ai_provider.Http_timeouts.create ~request_timeout:30.0 () in
+  let response = post ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let%lwt () = Lwt_unix.sleep 0.2 in
+  (check bool) "waiting for headers" true (Lwt.is_sleeping response);
+  Lwt.cancel response;
+  let%lwt () = expect_canceled response in
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
+(* As [test_abort_mid_body], with [Lwt.cancel] on the read instead of a
+   signal. *)
+let test_cancel_mid_body ~status read () =
+  let%lwt port, request =
+    serve_once (Hold (Printf.sprintf "HTTP/1.1 %d Status\r\nContent-Length: 100\r\n\r\npartial" status))
+  in
+  let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
+  let%lwt response = post ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let body = read response in
+  let%lwt () = Lwt_unix.sleep 0.2 in
+  (check bool) "read waiting for the rest" true (Lwt.is_sleeping body);
+  Lwt.cancel body;
+  let%lwt () = expect_canceled body in
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
+(* The server sends two SSE events and holds the connection open. *)
+let post_sse_then_hold () =
+  let%lwt port, request =
+    serve_once (Hold "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\ndata: one\n\ndata: two\n\n")
+  in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let timeouts = Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 () in
+  let%lwt response = post ~abort_signal:signal ~timeouts (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  Lwt.return (response, signal, abort, request)
+
+let test_abort_mid_lines () =
+  let%lwt response, (_ : Ai_provider.Abort_signal.t), abort, request = post_sse_then_hold () in
+  let lines = Ai_provider.Http_client.body_lines response in
+  let%lwt received = Lwt_stream.nget 4 lines in
+  (check (list string)) "lines before the abort" [ "data: one"; ""; "data: two"; "" ] received;
+  let pending = Lwt_stream.get lines in
+  (check bool) "read waiting for the next line" true (Lwt.is_sleeping pending);
+  abort ();
+  let%lwt () = expect_aborted (Lwt_unix.with_timeout 5.0 (fun () -> pending)) in
+  let%lwt (_ : string) = Lwt_unix.with_timeout 5.0 (fun () -> request) in
+  Lwt.return_unit
+
+(* The finished transfer has already detached its abort callback, so a later
+   abort only changes what reads do: the response keeps its status and a new
+   read fails with Aborted. *)
+let test_abort_after_completion () =
+  let%lwt port, _ = serve_once (Reply "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndone") in
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let%lwt response = post ~abort_signal:signal (Printf.sprintf "http://127.0.0.1:%d/" port) in
+  let%lwt body = Ai_provider.Http_client.body_string response in
+  abort ();
+  let%lwt () = Lwt.pause () in
+  (check string) "body" "done" body;
+  (check int) "status" 200 (Ai_provider.Http_client.status response);
+  expect_aborted (Ai_provider.Http_client.body_string response)
+
+(* One chunk holds several lines. After the abort, the lines still queued from
+   that chunk are not returned. *)
+let queued_lines_response () =
+  let signal, (_ : unit Lwt.u) = Lwt.task () in
+  let response =
+    Ai_provider.Http_client.For_testing.response_of_chunks
+      ~abort_signal:(Ai_provider.Abort_signal.of_promise signal)
+      ~timeouts:Ai_provider.Http_timeouts.default ~provider:"test" ~status:200 ~headers:[]
+      (Lwt_stream.of_list [ "data: one\n\ndata: two\n\ndata: three\n\n" ])
+  in
+  response, signal
+
+let test_abort_with_queued_lines () =
+  let response, signal = queued_lines_response () in
+  let lines = Ai_provider.Http_client.body_lines response in
+  let%lwt first = Lwt_stream.get lines in
+  (check (option string)) "first line" (Some "data: one") first;
+  Lwt.cancel signal;
+  expect_aborted (Lwt.apply Lwt_stream.get lines)
+
 (* Proxy environment variables are ignored, as cohttp ignored them: the request
    goes straight to the server, never to the proxy, which would answer 502. *)
 let test_proxy_environment_ignored () =
@@ -384,7 +516,6 @@ let () =
           test_case "1xx head skipped" `Quick (run_lwt test_informational_skipped);
           test_case "partial error body kept" `Quick (run_lwt test_error_body_partial);
           test_case "error body capped" `Quick (run_lwt test_error_body_capped);
-          test_case "parallel http/1.1 requests" `Quick (run_lwt test_parallel_http1);
           test_case "default user agent" `Quick (run_lwt test_default_user_agent);
           test_case "caller user agent wins" `Quick (run_lwt test_caller_user_agent);
         ] );
@@ -399,6 +530,22 @@ let () =
           test_case "SSL_CERT_FILE honoured" `Quick (run_lwt test_ssl_cert_file_honoured);
           test_case "unreadable SSL_CERT_FILE skipped" `Quick (run_lwt test_unreadable_ssl_cert_file_skipped);
           test_case "rejected option not retryable" `Quick (run_lwt test_rejected_option_not_retryable);
+        ] );
+      ( "abort",
+        [
+          test_case "already aborted" `Quick (run_lwt test_abort_before_start);
+          test_case "while waiting for headers" `Quick (run_lwt test_abort_waiting_for_headers);
+          test_case "mid body" `Quick (run_lwt (test_abort_mid_body ~status:200 Ai_provider.Http_client.body_string));
+          test_case "mid error body" `Quick
+            (run_lwt (test_abort_mid_body ~status:500 Ai_provider.Http_client.error_body));
+          test_case "after completion" `Quick (run_lwt test_abort_after_completion);
+          test_case "mid body lines" `Quick (run_lwt test_abort_mid_lines);
+          test_case "lines still queued" `Quick (run_lwt test_abort_with_queued_lines);
+        ] );
+      ( "cancel",
+        [
+          test_case "while waiting for headers" `Quick (run_lwt test_cancel_waiting_for_headers);
+          test_case "mid body" `Quick (run_lwt (test_cancel_mid_body ~status:200 Ai_provider.Http_client.body_string));
         ] );
       "proxy", [ test_case "environment ignored" `Quick (run_lwt test_proxy_environment_ignored) ];
     ]

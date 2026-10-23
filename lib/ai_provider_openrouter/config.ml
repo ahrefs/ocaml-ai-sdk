@@ -2,7 +2,12 @@ type compatibility =
   | Strict
   | Compatible
 
-type fetch_fn = url:string -> headers:(string * string) list -> body:string -> Yojson.Basic.t Lwt.t
+type fetch_fn =
+  abort_signal:Ai_provider.Abort_signal.t option ->
+  url:string ->
+  headers:(string * string) list ->
+  body:string ->
+  Yojson.Basic.t Lwt.t
 
 type t = {
   api_key : string option;

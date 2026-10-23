@@ -1,7 +1,7 @@
 open Alcotest
 
 let make_mock_config response =
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   Ai_provider_openrouter.Config.create ~api_key:"sk-or-test" ~fetch ()
 
 let test_e2e_generate () =

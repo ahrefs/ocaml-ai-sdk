@@ -143,7 +143,7 @@ let process_tool_call_delta ~push ~has_tool_calls ~tool_calls (tc : delta_tool_c
     | None -> ())
   | Some _ | None -> ()
 
-let transform events ~warnings =
+let transform ?abort_signal events ~warnings =
   let tool_calls : (int, tool_call_state) Hashtbl.t = Hashtbl.create 4 in
   let is_first = ref true in
   let finished = ref false in
@@ -192,7 +192,9 @@ let transform events ~warnings =
       finished := true
     end
   in
-  Ai_provider.Stream_pump.pump ~provider:"openrouter" ~push
+  Ai_provider.Stream_pump.pump ?abort_signal
+    ~on_end:(fun () -> Stdlib.Option.iter emit_finish !last_finish_reason)
+    ~provider:"openrouter" ~push
     (fun (evt : Sse.event) ->
       match String.equal evt.data "[DONE]" with
       | true ->
@@ -225,8 +227,12 @@ let transform events ~warnings =
           | Some choice ->
             let delta = choice.delta in
             process_reasoning_deltas ~push ~has_encrypted_reasoning delta;
-            (* Text content *)
-            Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Text { text }))) delta.content;
+            (* Text content. OpenRouter sends [content: ""] alongside each
+               reasoning delta; pushing it would split the reasoning into
+               one-delta parts. *)
+            (match delta.content with
+            | Some "" | None -> ()
+            | Some text -> push (Some (Ai_provider.Stream_part.Text { text })));
             (* Tool calls *)
             List.iter (process_tool_call_delta ~push ~has_tool_calls ~tool_calls) delta.tool_calls;
             (* Annotations (url_citation -> Source parts) *)
@@ -239,13 +245,12 @@ let transform events ~warnings =
                   push (Some (Ai_provider.Stream_part.Source { source_type; id; url; title; provider_options }))
                 | Some _ | None -> ())
               (Option.value ~default:[] delta.annotations);
-            (* Finish reason -- store and emit *)
+            (* Finish reason -- stored, and emitted once the stream ends: the
+               usage comes in a later chunk. *)
             Stdlib.Option.iter
               (fun reason ->
-                let mapped = Convert_response.map_finish_reason (Some reason) in
-                last_finish_reason := Some mapped;
-                finish_open_tool_calls ();
-                emit_finish mapped)
+                last_finish_reason := Some (Convert_response.map_finish_reason (Some reason));
+                finish_open_tool_calls ())
               choice.finish_reason)))
     events;
   stream

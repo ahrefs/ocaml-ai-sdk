@@ -126,7 +126,7 @@ let mock_tool_response =
     }
 
 let make_config response =
-  let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
   Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch ()
 
 let make_opts ?(prompt_text = "Hello") () =
@@ -158,7 +158,7 @@ let test_generate_tool_call () =
 
 let test_generate_with_system () =
   let fetch_called = ref false in
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     fetch_called := true;
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
@@ -183,7 +183,7 @@ let test_generate_with_system () =
 (* Object_json None on a capable model: no native enforcement possible (schema required),
    warning emitted, nothing added to system/output_config/tools. *)
 let test_object_json_no_schema () =
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
     (check (option string)) "no system injected" None (Option.map system_text_of_blocks r.system);
@@ -204,7 +204,7 @@ let test_object_json_with_schema_native () =
     `Assoc [ "type", `String "object"; "properties", `Assoc [ "name", `Assoc [ "type", `String "string" ] ] ]
   in
   let schema : Ai_provider.Mode.json_schema = { name = "person"; schema = schema_json } in
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
     (check (option string)) "no system injected" None (Option.map system_text_of_blocks r.system);
@@ -233,7 +233,7 @@ let test_object_json_with_schema_native () =
 let test_provider_options_request_body () =
   let captured_body = ref None in
   let captured_headers = ref [] in
-  let fetch ~url:_ ~headers ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers ~body =
     captured_headers := headers;
     captured_body := Some (Yojson.Basic.from_string body);
     Lwt.return mock_text_response
@@ -340,7 +340,7 @@ let warning_features warnings =
 
 let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperature ?top_p ?top_k () =
   let captured_body = ref None in
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     captured_body := Some (Yojson.Basic.from_string body);
     Lwt.return mock_text_response
   in
@@ -532,7 +532,7 @@ let assert_fallback_path model_id () =
       schema = `Assoc [ "type", `String "object"; "properties", `Assoc [ "name", `Assoc [ "type", `String "string" ] ] ];
     }
   in
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
     (check (option string)) "no system injected" None (Option.map system_text_of_blocks r.system);
@@ -567,7 +567,7 @@ let test_object_json_with_schema_tool_fallback_custom () = assert_fallback_path 
 (* Object_json None with an existing system prompt: system prompt is passed through unchanged
    (the old code appended a JSON instruction; we no longer do that). *)
 let test_object_json_preserves_existing_system () =
-  let fetch ~url:_ ~headers:_ ~body =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     let json = Yojson.Basic.from_string body in
     let r = request_body_json_of_json json in
     (check (option string)) "system unchanged" (Some "Be helpful") (Option.map system_text_of_blocks r.system);
@@ -605,6 +605,119 @@ let test_model_accessors () =
   (check string) "model_id" "claude-sonnet-5" (Ai_provider.Language_model.model_id model);
   (check string) "spec" "V3" (Ai_provider.Language_model.specification_version model)
 
+(* Nothing listens on port 1, so a request that went out would fail with a
+   retryable Network_error. A settled signal must stop the call first. *)
+let expect_aborted_call call () =
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~base_url:"http://127.0.0.1:1" () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some (Ai_provider.Abort_signal.of_promise Lwt.return_unit);
+    }
+  in
+  match Lwt_main.run (call model opts) with
+  | _ -> fail "expected Aborted"
+  | exception Ai_provider.Abort_signal.Aborted _ -> ()
+
+(* A fetch that gets the call's signal, ignores it and never returns. The
+   call races it against the signal, so it fails with Aborted right after the
+   abort, and the fetch's promise is cancelled. *)
+let expect_fetch_raced call () =
+  let signal, abort = Ai_provider.Abort_signal.create () in
+  let fetched = ref None in
+  let received = ref None in
+  let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
+    received := Some abort_signal;
+    let promise, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
+    fetched := Some promise;
+    promise
+  in
+  let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
+  let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
+  let opts =
+    {
+      (Ai_provider.Call_options.default
+         ~prompt:[ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+      with
+      abort_signal = Some signal;
+    }
+  in
+  let pending = call model opts in
+  abort ();
+  (match !received with
+  | Some (Some s) -> (check bool) "fetch got the call's signal" true (s == signal)
+  | Some None | None -> fail "fetch did not get the signal");
+  (check bool) "aborted at once" true
+    (match Lwt.state pending with
+    | Lwt.Fail (Ai_provider.Abort_signal.Aborted _) -> true
+    | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
+  (check bool) "fetch cancelled" true
+    (match Option.map Lwt.state !fetched with
+    | Some (Lwt.Fail Lwt.Canceled) -> true
+    | Some (Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep) | None -> false)
+
+(* Serves one request with a 200 event-stream head and an SSE comment, then
+   sends nothing more. *)
+let serve_stalled_stream () =
+  let sock = Lwt_unix.socket PF_INET SOCK_STREAM 0 in
+  let%lwt () = Lwt_unix.bind sock (ADDR_INET (Unix.inet_addr_loopback, 0)) in
+  Lwt_unix.listen sock 1;
+  let respond () =
+    let%lwt fd, _ = Lwt_unix.accept sock in
+    let%lwt () = Lwt_unix.close sock in
+    let%lwt (_ : int) = Lwt_unix.read fd (Bytes.create 65536) 0 65536 in
+    let reply = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n: ping\n\n" in
+    let%lwt (_ : int) = Lwt_unix.write_string fd reply 0 (String.length reply) in
+    Lwt.return_unit
+  in
+  Lwt.dont_wait respond (fun (_ : exn) -> ());
+  match Lwt_unix.getsockname sock with
+  | ADDR_INET (_, port) -> Lwt.return port
+  | ADDR_UNIX path -> Printf.ksprintf invalid_arg "serve_stalled_stream: unexpected unix socket %s" path
+
+(* An abort while the stream waits for its next event closes the parts with
+   no Error part. The model passes the call's signal to the converter, so
+   the pump knows the abort was asked for. *)
+let test_abort_mid_stream () =
+  let parts =
+    Lwt_main.run
+      (let%lwt port = serve_stalled_stream () in
+       let config =
+         Ai_provider_anthropic.Config.create ~api_key:"sk-test"
+           ~base_url:(Printf.sprintf "http://127.0.0.1:%d" port)
+           ~timeouts:(Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 ())
+           ()
+       in
+       let model = Ai_provider_anthropic.Anthropic_model.create ~config ~model:"claude-sonnet-5" in
+       let module M = (val model : Ai_provider.Language_model.S) in
+       let signal, abort = Ai_provider.Abort_signal.create () in
+       let opts =
+         {
+           (Ai_provider.Call_options.default
+              ~prompt:
+                [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+           with
+           abort_signal = Some signal;
+         }
+       in
+       let%lwt result = Lwt_unix.with_timeout 5.0 (fun () -> M.stream opts) in
+       let%lwt () = Lwt_unix.sleep 0.1 in
+       abort ();
+       Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list result.Ai_provider.Stream_result.stream))
+  in
+  match
+    List.exists
+      (function
+        | Ai_provider.Stream_part.Error _ -> true
+        | _ -> false)
+      parts
+  with
+  | true -> fail "expected no Error part after the abort"
+  | false -> ()
+
 let () =
   run "Anthropic_model"
     [
@@ -641,4 +754,12 @@ let () =
           test_case "preserves_existing_system" `Quick test_object_json_preserves_existing_system;
         ] );
       "accessors", [ test_case "model_accessors" `Quick test_model_accessors ];
+      ( "abort",
+        [
+          test_case "generate with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.generate);
+          test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
+          test_case "stream with a fetch ignoring the signal" `Quick
+            (expect_fetch_raced Ai_provider.Language_model.stream);
+          test_case "stream aborted mid-stream" `Quick test_abort_mid_stream;
+        ] );
     ]

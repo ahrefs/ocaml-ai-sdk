@@ -181,7 +181,8 @@ let create ~config ~model =
     let generate opts =
       let body, extra_body, warnings = prepare_request ~config ~model ~stream:false opts in
       let%lwt response =
-        Openrouter_api.chat_completions ~config ~body ~extra_body ~extra_headers:opts.headers ~stream:false
+        Openrouter_api.chat_completions ?abort_signal:opts.abort_signal ~config ~body ~extra_body
+          ~extra_headers:opts.headers ~stream:false ()
       in
       match response with
       | `Json json ->
@@ -192,13 +193,14 @@ let create ~config ~model =
     let stream opts =
       let body, extra_body, warnings = prepare_request ~config ~model ~stream:true opts in
       let%lwt response =
-        Openrouter_api.chat_completions ~config ~body ~extra_body ~extra_headers:opts.headers ~stream:true
+        Openrouter_api.chat_completions ?abort_signal:opts.abort_signal ~config ~body ~extra_body
+          ~extra_headers:opts.headers ~stream:true ()
       in
       match response with
       | `Stream line_stream ->
         let sse_events = Sse.parse_events line_stream in
         let%lwt raw_response, sse_events = peek_response_info sse_events in
-        let parts = Convert_stream.transform sse_events ~warnings in
+        let parts = Convert_stream.transform ?abort_signal:opts.abort_signal sse_events ~warnings in
         Lwt.return { Ai_provider.Stream_result.stream = parts; warnings; raw_response }
       | `Json _ -> Lwt.fail_with "unexpected non-streaming response for streaming request"
   end in

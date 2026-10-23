@@ -97,19 +97,22 @@ let make_headers ~(config : Config.t) ~extra_headers =
   in
   base_headers @ auth_headers @ org_headers @ project_headers @ config.default_headers @ extra_headers
 
-let chat_completions ~config ~body ~extra_headers ~stream =
+let chat_completions ?abort_signal ~config ~body ~extra_headers ~stream () =
   let body_json = request_body_to_json body in
   match config.Config.fetch with
   | Some fetch ->
     let headers = make_headers ~config ~extra_headers in
     let body_str = Yojson.Basic.to_string body_json in
-    let%lwt json = fetch ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str in
+    let%lwt json =
+      Ai_provider.Abort_signal.race abort_signal (fun () ->
+        fetch ~abort_signal ~url:(config.base_url ^ "/chat/completions") ~headers ~body:body_str)
+    in
     Lwt.return (`Json json)
   | None ->
     let headers = make_headers ~config ~extra_headers in
     let body = Yojson.Basic.to_string body_json in
     let%lwt response =
-      Http_client.post ~timeouts:config.timeouts ~provider:"openai" ~headers ~body
+      Http_client.post ?abort_signal ~timeouts:config.timeouts ~provider:"openai" ~headers ~body
         (config.base_url ^ "/chat/completions")
     in
     let status = Http_client.status response in
