@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.7 — 2026-10-23
+
 ### Breaking changes
 
 - The package no longer depends on cohttp or `lwt_ssl`. Projects that use
