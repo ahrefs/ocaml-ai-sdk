@@ -44,8 +44,9 @@ let test_usage_after_finish_reason () =
       ]
   in
   match List.rev (collect_stream (Ai_provider_openrouter.Convert_stream.transform events ~warnings:[])) with
-  | Finish { usage; _ } :: _ -> (check (pair int int)) "usage" (10, 2) (usage.input_tokens, usage.output_tokens)
-  | _ -> fail "expected Finish last"
+  | Finish { usage; _ } :: Text { text = "OK" } :: _ ->
+    (check (pair int int)) "usage" (10, 2) (usage.input_tokens, usage.output_tokens)
+  | _ -> fail "expected Text \"OK\" then Finish, with no empty Text"
 
 let test_response_info_skips_fallback_debug_chunks () =
   let events =

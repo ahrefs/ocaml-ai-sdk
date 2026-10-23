@@ -227,8 +227,12 @@ let transform ?abort_signal events ~warnings =
           | Some choice ->
             let delta = choice.delta in
             process_reasoning_deltas ~push ~has_encrypted_reasoning delta;
-            (* Text content *)
-            Stdlib.Option.iter (fun text -> push (Some (Ai_provider.Stream_part.Text { text }))) delta.content;
+            (* Text content. OpenRouter sends [content: ""] alongside each
+               reasoning delta; pushing it would split the reasoning into
+               one-delta parts. *)
+            (match delta.content with
+            | Some "" | None -> ()
+            | Some text -> push (Some (Ai_provider.Stream_part.Text { text })));
             (* Tool calls *)
             List.iter (process_tool_call_delta ~push ~has_tool_calls ~tool_calls) delta.tool_calls;
             (* Annotations (url_citation -> Source parts) *)

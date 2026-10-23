@@ -199,6 +199,9 @@ All notable changes to this project will be documented in this file.
   finish reason with zero usage. On OpenRouter, that late chunk also left an
   unclosed empty text part in the UI stream. `Stream_pump.pump` has a new
   `?on_end` hook that the providers use to push `Finish` when the stream ends.
+- Fix: OpenRouter's reasoning streams as one reasoning part. OpenRouter sends
+  an empty `content` with each reasoning delta, and the provider turned each
+  one into a text part, which split the reasoning into one-delta parts.
 
 ### Core SDK (`ai_core`)
 
