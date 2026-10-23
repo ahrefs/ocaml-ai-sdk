@@ -27,9 +27,6 @@
   lwt.unix
   yojson
   melange-json-native
-  cohttp
-  cohttp-lwt
-  cohttp-lwt-unix
   re2
   uuseg.string
   trace.core)

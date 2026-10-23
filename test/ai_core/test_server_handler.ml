@@ -16,50 +16,173 @@ let count_by_role msgs =
 
 (* === SSE response tests === *)
 
+let header (r : Ai_core.Server_handler.response) name = List.assoc_opt name r.headers
+let body_string (r : Ai_core.Server_handler.response) = String.concat "" (Lwt_main.run (Lwt_stream.to_list r.body))
+
 let test_make_sse_response_basic () =
   let stream, push = Lwt_stream.create () in
   push (Some "data: {\"type\":\"start\"}\n\n");
   push (Some "data: [DONE]\n\n");
   push None;
-  let response, body = Lwt_main.run (Ai_core.Server_handler.make_sse_response stream) in
-  let headers = Cohttp.Response.headers response in
-  (check (option string)) "content-type" (Some "text/event-stream") (Cohttp.Header.get headers "content-type");
-  (check (option string)) "protocol" (Some "v1") (Cohttp.Header.get headers "x-vercel-ai-ui-message-stream");
-  ignore (body : Cohttp_lwt.Body.t)
+  let response = Ai_core.Server_handler.make_sse_response stream in
+  (check int) "status" 200 response.status;
+  (check (option string)) "content-type" (Some "text/event-stream") (header response "content-type");
+  (check (option string)) "protocol" (Some "v1") (header response "x-vercel-ai-ui-message-stream")
 
 let test_make_sse_response_all_headers () =
   let stream, push = Lwt_stream.create () in
   push None;
-  let response, _body = Lwt_main.run (Ai_core.Server_handler.make_sse_response stream) in
-  let headers = Cohttp.Response.headers response in
-  (check (option string)) "cache-control" (Some "no-cache") (Cohttp.Header.get headers "cache-control");
-  (check (option string)) "connection" (Some "keep-alive") (Cohttp.Header.get headers "connection");
-  (check (option string)) "x-accel-buffering" (Some "no") (Cohttp.Header.get headers "x-accel-buffering")
+  let response = Ai_core.Server_handler.make_sse_response stream in
+  (check (option string)) "cache-control" (Some "no-cache") (header response "cache-control");
+  (check (option string)) "connection" (Some "keep-alive") (header response "connection");
+  (check (option string)) "x-accel-buffering" (Some "no") (header response "x-accel-buffering")
 
 let test_make_sse_response_extra_headers () =
   let stream, push = Lwt_stream.create () in
   push None;
-  let response, _body =
-    Lwt_main.run (Ai_core.Server_handler.make_sse_response ~extra_headers:[ "x-custom", "value" ] stream)
-  in
-  let headers = Cohttp.Response.headers response in
-  (check (option string)) "custom header" (Some "value") (Cohttp.Header.get headers "x-custom")
+  let response = Ai_core.Server_handler.make_sse_response ~extra_headers:[ "x-custom", "value" ] stream in
+  (check (option string)) "custom header" (Some "value") (header response "x-custom")
 
 let test_make_sse_response_custom_status () =
   let stream, push = Lwt_stream.create () in
   push None;
-  let response, _body = Lwt_main.run (Ai_core.Server_handler.make_sse_response ~status:`Bad_request stream) in
-  let status = Cohttp.Response.status response in
-  (check int) "status code" 400 (Cohttp.Code.code_of_status status)
+  let response = Ai_core.Server_handler.make_sse_response ~status:400 stream in
+  (check int) "status code" 400 response.status
 
 let test_make_sse_response_body_content () =
   let stream, push = Lwt_stream.create () in
   push (Some "data: hello\n\n");
   push (Some "data: world\n\n");
   push None;
-  let _response, body = Lwt_main.run (Ai_core.Server_handler.make_sse_response stream) in
-  let body_str = Lwt_main.run (Cohttp_lwt.Body.to_string body) in
-  (check string) "body content" "data: hello\n\ndata: world\n\n" body_str
+  let response = Ai_core.Server_handler.make_sse_response stream in
+  (check (list string))
+    "body chunks"
+    [ "data: hello\n\n"; "data: world\n\n" ]
+    (Lwt_main.run (Lwt_stream.to_list response.body))
+
+(* === handle_chat tests === *)
+
+let text_model text =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-model"
+    let generate _opts = Lwt.fail_with "handle_chat streams"
+
+    let stream _opts =
+      let usage = { Ai_provider.Usage.input_tokens = 1; output_tokens = 1; total_tokens = Some 2 } in
+      let stream =
+        Lwt_stream.of_list
+          [
+            Ai_provider.Stream_part.Stream_start { warnings = [] };
+            Text { text };
+            Finish { finish_reason = Stop; usage; provider_metadata = None };
+          ]
+      in
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let chat_body = {|{"messages":[{"id":"1","role":"user","parts":[{"type":"text","text":"Hi"}]}]}|}
+
+let contains ~sub s =
+  let n = String.length sub in
+  let rec go i = i + n <= String.length s && (String.equal (String.sub s i n) sub || go (i + 1)) in
+  go 0
+
+let test_handle_chat_streams_sse () =
+  let response = Ai_core.Server_handler.handle_chat ~model:(text_model "Hello there") chat_body in
+  (check int) "status" 200 response.status;
+  (check (option string)) "content-type" (Some "text/event-stream") (header response "content-type");
+  (check (option string)) "cors" (Some "*") (header response "access-control-allow-origin");
+  let body = body_string response in
+  (check bool) "text delta" true (contains ~sub:{|"delta":"Hello there"|} body);
+  (check bool) "ends with DONE" true (String.ends_with ~suffix:"data: [DONE]\n\n" body)
+
+let test_handle_chat_invalid_json () =
+  let response = Ai_core.Server_handler.handle_chat ~model:(text_model "unused") {|{"messages": "|} in
+  (check int) "status" 400 response.status;
+  (check (option string)) "content-type" (Some "application/json") (header response "content-type");
+  (check (option string)) "cors" (Some "*") (header response "access-control-allow-origin");
+  match Yojson.Basic.from_string (body_string response) with
+  | `Assoc [ ("error", `String msg) ] -> (check bool) "message" true (String.starts_with ~prefix:"Invalid JSON: " msg)
+  | json -> failf "unexpected error body: %s" (Yojson.Basic.to_string json)
+
+let test_handle_chat_no_cors () =
+  let response = Ai_core.Server_handler.handle_chat ~model:(text_model "Hi") ~cors:false chat_body in
+  (check (option string)) "no cors" None (header response "access-control-allow-origin");
+  (check (option string)) "protocol" (Some "v1") (header response "x-vercel-ai-ui-message-stream");
+  ignore (body_string response : string)
+
+let test_handle_chat_invalid_request () =
+  let response = Ai_core.Server_handler.handle_chat ~model:(text_model "unused") {|{"messages":[]}|} in
+  (check int) "status" 400 response.status;
+  (check string) "error body" {|{"error":"Messages array must not be empty"}|} (body_string response)
+
+(* === parse_chat_request tests === *)
+
+let test_parse_chat_request_ok () =
+  let body =
+    {|{"id":"chat-1","trigger":"submit-message","messages":[
+        {"id":"1","role":"user","parts":[{"type":"text","text":"Hi"},{"type":"data-note","data":1}]},
+        {"id":"2","role":"assistant","parts":[]},
+        {"id":"3","role":"assistant","parts":[{"type":"tool-search","toolCallId":"tc1","state":"approval-responded",
+          "input":{"q":"x"},"approval":{"id":"a1","approved":true}}]}]}|}
+  in
+  match Ai_core.Server_handler.parse_chat_request body with
+  | Error msg -> failf "unexpected error: %s" msg
+  | Ok { messages; pending_tool_approvals; body } ->
+    (check (list string))
+      "messages" [ "user"; "assistant" ]
+      (List.map
+         (function
+           | Ai_provider.Prompt.System _ -> "system"
+           | User _ -> "user"
+           | Assistant _ -> "assistant"
+           | Tool _ -> "tool")
+         messages);
+    (check (list (pair string bool)))
+      "approvals"
+      [ "tc1", true ]
+      (List.map
+         (fun (a : Ai_core.Generate_text_result.pending_tool_approval) -> a.tool_call_id, a.approved)
+         pending_tool_approvals);
+    (check string) "custom field" "submit-message" Yojson.Basic.Util.(to_string (member "trigger" body))
+
+let test_parse_chat_request_errors () =
+  let message role parts = Printf.sprintf {|{"id":"1","role":"%s","parts":%s}|} role parts in
+  let text = {|[{"type":"text","text":"Hi"}]|} in
+  List.iter
+    (fun (body, expected) ->
+      match Ai_core.Server_handler.parse_chat_request body with
+      | Ok _ -> failf "accepted %s" body
+      | Error msg -> (check string) body expected msg)
+    [
+      {|[]|}, "Request body must be a JSON object";
+      {|{}|}, "messages parameter must be provided";
+      {|{"messages":null}|}, "messages parameter must be provided";
+      {|{"messages":{}}|}, "messages must be an array";
+      {|{"messages":[]}|}, "Messages array must not be empty";
+      {|{"messages":[1]}|}, "messages[0] must be an object";
+      Printf.sprintf {|{"messages":[%s]}|} (message "tool" text), "messages[0]: Unsupported role: tool";
+      {|{"messages":[{"id":"1","parts":[]}]}|}, "messages[0].role must be a string";
+      ( Printf.sprintf {|{"messages":[%s,{"id":"2","role":"user"}]}|} (message "user" text),
+        "messages[1].parts must be an array" );
+      Printf.sprintf {|{"messages":[%s]}|} (message "user" "[]"), "messages[0]: Message must contain at least one part";
+      ( Printf.sprintf {|{"messages":[%s]}|} (message "system" "[]"),
+        "messages[0]: Message must contain at least one part" );
+      ( Printf.sprintf {|{"messages":[%s]}|} (message "user" {|[{"type":"text","text":5}]|}),
+        "Invalid messages: expected string but got int: 5" );
+    ];
+  match Ai_core.Server_handler.parse_chat_request "{" with
+  | Error msg -> (check bool) "invalid json" true (String.starts_with ~prefix:"Invalid JSON: " msg)
+  | Ok _ -> fail "accepted invalid JSON"
+
+let test_handle_cors_preflight () =
+  let response = Ai_core.Server_handler.handle_cors_preflight () in
+  (check int) "status" 204 response.status;
+  (check (list (pair string string))) "headers" Ai_core.Server_handler.cors_headers response.headers;
+  (check string) "empty body" "" (body_string response)
 
 (* === parse_messages_from_body tests === *)
 
@@ -494,6 +617,21 @@ let test_parse_text_part_missing_text_skipped () =
           ]}]}|}) in
   (check int) "no messages (text without text field)" 0 (List.length msgs)
 
+(* Data parts carry any JSON. One with object data used to fail the whole
+   body, so the conversation parsed as empty. *)
+let test_parse_data_part_with_object_data () =
+  let msgs =
+    parse
+      (json
+         {|{"messages":[
+            {"role":"user","parts":[{"type":"text","text":"Hi"}]},
+            {"role":"assistant","parts":[
+              {"type":"data-status","id":"s","data":{"step":1}},
+              {"type":"text","text":"Hello"}]}]}|})
+  in
+  let _, u, a, _ = count_by_role msgs in
+  (check (pair int int)) "user and assistant" (1, 1) (u, a)
+
 let test_parse_extra_request_fields_ignored () =
   (* v6 sends id, messageId, trigger — these should be ignored *)
   let msgs =
@@ -716,6 +854,16 @@ let () =
           test_case "custom_status" `Quick test_make_sse_response_custom_status;
           test_case "body_content" `Quick test_make_sse_response_body_content;
         ] );
+      ( "handle_chat",
+        [
+          test_case "streams sse" `Quick test_handle_chat_streams_sse;
+          test_case "invalid json" `Quick test_handle_chat_invalid_json;
+          test_case "no cors" `Quick test_handle_chat_no_cors;
+          test_case "invalid request" `Quick test_handle_chat_invalid_request;
+          test_case "cors preflight" `Quick test_handle_cors_preflight;
+        ] );
+      ( "parse_chat_request",
+        [ test_case "ok" `Quick test_parse_chat_request_ok; test_case "errors" `Quick test_parse_chat_request_errors ] );
       ( "parse_messages: basic",
         [
           test_case "user text only" `Quick test_parse_user_text_only;
@@ -769,6 +917,7 @@ let () =
           test_case "no messages field" `Quick test_parse_no_messages_field;
           test_case "text part missing text" `Quick test_parse_text_part_missing_text_skipped;
           test_case "extra request fields" `Quick test_parse_extra_request_fields_ignored;
+          test_case "data part with object data" `Quick test_parse_data_part_with_object_data;
         ] );
       ( "parse_messages: provider metadata",
         [

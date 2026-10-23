@@ -55,7 +55,7 @@ type t = {
 - `Ui_message_stream.t` - Full message stream protocol
 - `Text_stream_part.t` - Text token streaming
 
-**Server_handler** - HTTP server utilities for streaming endpoints
+**Server_handler** - framework-agnostic chat endpoint helpers: `handle_chat` takes the request body and returns a `response` record (status, headers, body stream)
 
 **Partial_json** - Streaming JSON parser for partial tool arguments
 
@@ -116,13 +116,12 @@ type t = {
 (library
  (name ai_provider_anthropic)
  (public_name ocaml-ai-sdk.ai_provider_anthropic)
- (libraries ai_provider lwt lwt.unix cohttp-lwt-unix yojson 
-            melange-json-native base64)
+ (libraries ai_provider lwt lwt.unix yojson melange-json-native base64)
  (preprocess (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
 ```
 
 Key Dependencies:
-- `cohttp-lwt-unix` - HTTP client
+- `ai_provider` - HTTP goes through its libcurl `Http_client`
 - `base64` - Encoding file data
 - `lwt_ppx` - Async syntax
 

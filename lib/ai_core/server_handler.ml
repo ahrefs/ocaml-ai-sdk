@@ -67,7 +67,7 @@ type parsed_part = {
   text : string option; [@json.option]
   media_type : string option; [@json.key "mediaType"] [@json.option]
   url : string option; [@json.option]
-  data : string option; [@json.option]
+  data : Melange_json.t option; [@json.option]
   filename : string option; [@json.option]
   tool_call_id : string option; [@json.key "toolCallId"] [@json.option]
   tool_name : string option; [@json.key "toolName"] [@json.option]
@@ -89,7 +89,7 @@ type chat_message = {
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
-type chat_request = { messages : chat_message list } [@@json.allow_extra_fields] [@@deriving of_json]
+type ui_request = { messages : chat_message list } [@@json.allow_extra_fields] [@@deriving of_json]
 
 (** Extract tool name from [toolName] field, falling back to the type prefix
     (e.g. ["tool-get_weather"] -> ["get_weather"]). *)
@@ -133,8 +133,8 @@ let parse_file_data (p : parsed_part) =
     let data =
       match p.url, p.data with
       | Some url, _ -> Some (Ai_provider.Prompt.Url url)
-      | _, Some d -> Some (Ai_provider.Prompt.Base64 d)
-      | None, None -> None
+      | _, Some (`String d) -> Some (Ai_provider.Prompt.Base64 d)
+      | None, (None | Some _) -> None
     in
     Option.map (fun data -> data, media_type, p.filename) data
   | None -> None
@@ -209,91 +209,138 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
     | _ -> None)
   | _ -> None
 
+let messages_of_request ({ messages } : ui_request) =
+  List.concat_map
+    (fun (msg : chat_message) ->
+      match role_of_string msg.role with
+      | Some System ->
+        let text =
+          msg.parts
+          |> List.filter_map (fun (p : parsed_part) ->
+            match part_type_of_string p.type_ with
+            | Text -> p.text
+            | _ -> None)
+          |> String.concat ""
+        in
+        [ Ai_provider.Prompt.System { content = text; provider_options = Ai_provider.Provider_options.empty } ]
+      | Some User ->
+        let content = List.filter_map parse_user_part msg.parts in
+        (match content with
+        | [] -> []
+        | content -> [ Ai_provider.Prompt.User { content } ])
+      | Some Assistant ->
+        (* Split parts into steps at step-start boundaries *)
+        let steps = ref [] in
+        let current_step = ref [] in
+        List.iter
+          (fun p ->
+            match part_type_of_string p.type_ with
+            | Step_start ->
+              (match !current_step with
+              | [] -> ()
+              | parts -> steps := List.rev parts :: !steps);
+              current_step := []
+            | _ -> current_step := p :: !current_step)
+          msg.parts;
+        (match !current_step with
+        | [] -> ()
+        | parts -> steps := List.rev parts :: !steps);
+        (* For each step, emit Assistant + Tool messages *)
+        List.concat_map
+          (fun step_parts ->
+            let assistant_parts =
+              List.filter_map
+                (fun p ->
+                  match part_type_of_string p.type_ with
+                  | Tool_invocation _ -> parse_tool_call p
+                  | _ -> parse_assistant_part p)
+                step_parts
+            in
+            let tool_results = List.filter_map parse_tool_result step_parts in
+            let msgs =
+              match assistant_parts with
+              | [] -> []
+              | content -> [ Ai_provider.Prompt.Assistant { content } ]
+            in
+            match tool_results with
+            | [] -> msgs
+            | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
+          (List.rev !steps)
+      | None -> [])
+    messages
+
+let approvals_of_request ({ messages } : ui_request) =
+  List.concat_map
+    (fun (msg : chat_message) ->
+      List.filter_map
+        (fun (p : parsed_part) ->
+          match part_type_of_string p.type_, Option.map tool_state_of_string p.state with
+          | Tool_invocation _, Some Approval_responded ->
+            (match p.tool_call_id, resolve_tool_name p, resolve_approved p with
+            | Some tool_call_id, Some tool_name, Some approved ->
+              let args =
+                match p.input with
+                | Some json -> (json : Melange_json.t :> Yojson.Basic.t)
+                | None -> `Null
+              in
+              Some { Generate_text_result.tool_call_id; tool_name; args; approved }
+            | _ -> None)
+          | _ -> None)
+        msg.parts)
+    messages
+
 let parse_messages_from_body body_json =
-  try
-    let { messages } = chat_request_of_json body_json in
-    List.concat_map
-      (fun (msg : chat_message) ->
-        match role_of_string msg.role with
-        | Some System ->
-          let text =
-            msg.parts
-            |> List.filter_map (fun (p : parsed_part) ->
-              match part_type_of_string p.type_ with
-              | Text -> p.text
-              | _ -> None)
-            |> String.concat ""
-          in
-          [ Ai_provider.Prompt.System { content = text; provider_options = Ai_provider.Provider_options.empty } ]
-        | Some User ->
-          let content = List.filter_map parse_user_part msg.parts in
-          (match content with
-          | [] -> []
-          | content -> [ Ai_provider.Prompt.User { content } ])
-        | Some Assistant ->
-          (* Split parts into steps at step-start boundaries *)
-          let steps = ref [] in
-          let current_step = ref [] in
-          List.iter
-            (fun p ->
-              match part_type_of_string p.type_ with
-              | Step_start ->
-                (match !current_step with
-                | [] -> ()
-                | parts -> steps := List.rev parts :: !steps);
-                current_step := []
-              | _ -> current_step := p :: !current_step)
-            msg.parts;
-          (match !current_step with
-          | [] -> ()
-          | parts -> steps := List.rev parts :: !steps);
-          (* For each step, emit Assistant + Tool messages *)
-          List.concat_map
-            (fun step_parts ->
-              let assistant_parts =
-                List.filter_map
-                  (fun p ->
-                    match part_type_of_string p.type_ with
-                    | Tool_invocation _ -> parse_tool_call p
-                    | _ -> parse_assistant_part p)
-                  step_parts
-              in
-              let tool_results = List.filter_map parse_tool_result step_parts in
-              let msgs =
-                match assistant_parts with
-                | [] -> []
-                | content -> [ Ai_provider.Prompt.Assistant { content } ]
-              in
-              match tool_results with
-              | [] -> msgs
-              | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
-            (List.rev !steps)
-        | None -> [])
-      messages
-  with Melange_json.Of_json_error _ -> []
+  try messages_of_request (ui_request_of_json body_json) with Melange_json.Of_json_error _ -> []
 
 let collect_pending_tool_approvals body_json =
-  try
-    let { messages } = chat_request_of_json body_json in
-    List.concat_map
-      (fun (msg : chat_message) ->
-        List.filter_map
-          (fun (p : parsed_part) ->
-            match part_type_of_string p.type_, Option.map tool_state_of_string p.state with
-            | Tool_invocation _, Some Approval_responded ->
-              (match p.tool_call_id, resolve_tool_name p, resolve_approved p with
-              | Some tool_call_id, Some tool_name, Some approved ->
-                let args =
-                  match p.input with
-                  | Some json -> (json : Melange_json.t :> Yojson.Basic.t)
-                  | None -> `Null
-                in
-                Some { Generate_text_result.tool_call_id; tool_name; args; approved }
-              | _ -> None)
-            | _ -> None)
-          msg.parts)
-      messages
-  with Melange_json.Of_json_error _ -> []
+  try approvals_of_request (ui_request_of_json body_json) with Melange_json.Of_json_error _ -> []
+
+type chat_request = {
+  messages : Ai_provider.Prompt.message list;
+  pending_tool_approvals : Generate_text_result.pending_tool_approval list;
+  body : Yojson.Basic.t;
+}
+
+(* The message-level checks of upstream's validateUIMessages (ai v6), with its
+   wording where it has one. It also requires a message [id], which nothing
+   here reads, so that check is left out. Parts stay lenient: unknown part
+   types are skipped. *)
+let validate_message i (message : Yojson.Basic.t) =
+  match message with
+  | `Assoc fields ->
+    (match List.assoc_opt "role" fields, List.assoc_opt "parts" fields with
+    | Some (`String ("system" | "user" | "assistant")), Some (`List (_ :: _)) -> Ok ()
+    | Some (`String "assistant"), Some (`List []) -> Ok ()
+    | Some (`String ("system" | "user")), Some (`List []) ->
+      Error (Printf.sprintf "messages[%d]: Message must contain at least one part" i)
+    | Some (`String ("system" | "user" | "assistant")), (None | Some _) ->
+      Error (Printf.sprintf "messages[%d].parts must be an array" i)
+    | Some (`String role), _ -> Error (Printf.sprintf "messages[%d]: Unsupported role: %s" i role)
+    | (None | Some _), _ -> Error (Printf.sprintf "messages[%d].role must be a string" i))
+  | _ -> Error (Printf.sprintf "messages[%d] must be an object" i)
+
+let validate_request (body : Yojson.Basic.t) =
+  match body with
+  | `Assoc fields ->
+    (match List.assoc_opt "messages" fields with
+    | None | Some `Null -> Error "messages parameter must be provided"
+    | Some (`List []) -> Error "Messages array must not be empty"
+    | Some (`List messages) ->
+      List.fold_left
+        (fun (i, acc) message -> i + 1, Result.bind acc (fun () -> validate_message i message))
+        (0, Ok ()) messages
+      |> snd
+    | Some _ -> Error "messages must be an array")
+  | _ -> Error "Request body must be a JSON object"
+
+let parse_chat_request body =
+  let open Result.Syntax in
+  let* json = try Ok (Yojson.Basic.from_string body) with Yojson.Json_error msg -> Error ("Invalid JSON: " ^ msg) in
+  let* () = validate_request json in
+  match ui_request_of_json json with
+  | request ->
+    Ok { messages = messages_of_request request; pending_tool_approvals = approvals_of_request request; body = json }
+  | exception Melange_json.Of_json_error (Json_error msg | Unexpected_variant msg) -> Error ("Invalid messages: " ^ msg)
 
 let cors_headers =
   [
@@ -303,34 +350,30 @@ let cors_headers =
     "access-control-expose-headers", "x-vercel-ai-ui-message-stream";
   ]
 
-let make_sse_response ?(status = `OK) ?(extra_headers = []) sse_stream =
-  let headers = Ui_message_stream.headers @ extra_headers |> Cohttp.Header.of_list in
-  let body = Cohttp_lwt.Body.of_stream sse_stream in
-  let response = Cohttp.Response.make ~status ~headers () in
-  Lwt.return (response, body)
+type response = {
+  status : int;
+  headers : (string * string) list;
+  body : string Lwt_stream.t;
+}
 
-let handle_cors_preflight _conn _req _body =
-  let headers = Cohttp.Header.of_list cors_headers in
-  let response = Cohttp.Response.make ~status:`No_content ~headers () in
-  Lwt.return (response, Cohttp_lwt.Body.empty)
+let make_sse_response ?(status = 200) ?(extra_headers = []) sse_stream =
+  { status; headers = Ui_message_stream.headers @ extra_headers; body = sse_stream }
+
+let handle_cors_preflight () = { status = 204; headers = cors_headers; body = Lwt_stream.of_list [] }
 
 let handle_chat ~model ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_when ?system ?system_provider_options
-  ?output ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry _conn _req body =
-  let%lwt body_str = Cohttp_lwt.Body.to_string body in
-  let body_json =
-    try Ok (Yojson.Basic.from_string body_str)
-    with Yojson.Json_error msg ->
-      Printf.eprintf "[ai_core] handle_chat: invalid JSON in request body: %s\n%!" msg;
-      Error msg
-  in
-  match body_json with
+  ?output ?send_reasoning ?max_output_tokens ?(cors = true) ?provider_options ?transform ?telemetry body =
+  let extra_headers = if cors then cors_headers else [] in
+  match parse_chat_request body with
   | Error msg ->
-    let status = `Bad_request in
-    let headers = (if cors then cors_headers else []) |> Cohttp.Header.of_list in
-    let body = Cohttp_lwt.Body.of_string (Printf.sprintf {|{"error":"Invalid JSON: %s"}|} msg) in
-    Lwt.return (Cohttp.Response.make ~status ~headers (), body)
-  | Ok body_json ->
-    let messages = parse_messages_from_body body_json in
+    Printf.eprintf "[ai_core] handle_chat: invalid request: %s\n%!" msg;
+    let error = `Assoc [ "error", `String msg ] in
+    {
+      status = 400;
+      headers = ("content-type", "application/json") :: extra_headers;
+      body = Lwt_stream.of_list [ Yojson.Basic.to_string error ];
+    }
+  | Ok { messages; pending_tool_approvals; body = _ } ->
     let messages =
       match system with
       | Some s ->
@@ -338,11 +381,9 @@ let handle_chat ~model ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_
         Ai_provider.Prompt.System { content = s; provider_options } :: messages
       | None -> messages
     in
-    let pending_tool_approvals = collect_pending_tool_approvals body_json in
     let result =
       Stream_text.stream_text ~model ~messages ?tools ?max_steps ?max_retries ?max_retry_delay_ms ?stop_when ?output
         ?provider_options ?transform ?telemetry ~pending_tool_approvals ()
     in
     let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
-    let extra_headers = if cors then cors_headers else [] in
     make_sse_response ~extra_headers sse_stream

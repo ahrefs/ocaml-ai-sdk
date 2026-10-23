@@ -47,12 +47,14 @@ val create_ui_message_stream :
 (** Wrap a chunk stream as an HTTP SSE response.
 
     Pipes chunks through {!Ui_message_stream.stream_to_sse} and returns
-    a cohttp response with UIMessage protocol headers.
+    a response with UIMessage protocol headers. See
+    {!Server_handler.response} for sending it.
 
+    @param status Default [200].
     @param cors Include CORS headers (default: [true]). *)
 val create_ui_message_stream_response :
-  ?status:Cohttp.Code.status_code ->
+  ?status:int ->
   ?headers:(string * string) list ->
   ?cors:bool ->
   Ui_message_chunk.t Lwt_stream.t ->
-  (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+  Server_handler.response

@@ -17,6 +17,7 @@ type error_kind =
       elapsed_s : float;
       limit_s : float;
     }
+  | Unexpected_error of { message : string }
 
 type t = {
   provider : string;
@@ -40,6 +41,7 @@ let to_string { provider; kind; _ } =
   | Timeout { phase; elapsed_s; limit_s } ->
     Printf.sprintf "[%s] HTTP timeout waiting for %s after %.1fs (limit: %.1fs)" provider (phase_to_string phase)
       elapsed_s limit_s
+  | Unexpected_error { message } -> Printf.sprintf "[%s] Unexpected error: %s" provider message
 
 let is_retryable_status status = status = 408 || status = 409 || status = 429 || status >= 500
 

@@ -212,33 +212,33 @@ let test_response_headers () =
   push (Some (Chunk.Start { message_id = None; message_metadata = None }));
   push (Some (Chunk.Finish { finish_reason = None; message_metadata = None }));
   push None;
-  let response, _body = Lwt_main.run (Writer.create_ui_message_stream_response chunks_stream) in
-  let headers = Cohttp.Response.headers response in
-  (check (option string)) "content-type" (Some "text/event-stream") (Cohttp.Header.get headers "content-type");
-  (check (option string)) "cors origin" (Some "*") (Cohttp.Header.get headers "access-control-allow-origin");
-  (check (option string)) "protocol" (Some "v1") (Cohttp.Header.get headers "x-vercel-ai-ui-message-stream")
+  let response = Writer.create_ui_message_stream_response chunks_stream in
+  let header name = List.assoc_opt name response.headers in
+  (check int) "status" 200 response.status;
+  (check (option string)) "content-type" (Some "text/event-stream") (header "content-type");
+  (check (option string)) "cors origin" (Some "*") (header "access-control-allow-origin");
+  (check (option string)) "protocol" (Some "v1") (header "x-vercel-ai-ui-message-stream")
 
 let test_response_no_cors () =
   let chunks_stream, push = Lwt_stream.create () in
   push (Some (Chunk.Start { message_id = None; message_metadata = None }));
   push None;
-  let response, _body = Lwt_main.run (Writer.create_ui_message_stream_response ~cors:false chunks_stream) in
-  let headers = Cohttp.Response.headers response in
-  (check (option string)) "no cors" None (Cohttp.Header.get headers "access-control-allow-origin")
+  let response = Writer.create_ui_message_stream_response ~cors:false chunks_stream in
+  (check (option string)) "no cors" None (List.assoc_opt "access-control-allow-origin" response.headers)
 
 let test_response_custom_status () =
   let chunks_stream, push = Lwt_stream.create () in
   push None;
-  let response, _body = Lwt_main.run (Writer.create_ui_message_stream_response ~status:`Created chunks_stream) in
-  (check int) "status 201" 201 (Cohttp.Code.code_of_status (Cohttp.Response.status response))
+  let response = Writer.create_ui_message_stream_response ~status:201 chunks_stream in
+  (check int) "status 201" 201 response.status
 
 let test_response_body_is_sse () =
   let chunks_stream, push = Lwt_stream.create () in
   push (Some (Chunk.Start { message_id = None; message_metadata = None }));
   push (Some (Chunk.Finish { finish_reason = None; message_metadata = None }));
   push None;
-  let _response, body = Lwt_main.run (Writer.create_ui_message_stream_response chunks_stream) in
-  let body_str = Lwt_main.run (Cohttp_lwt.Body.to_string body) in
+  let response = Writer.create_ui_message_stream_response chunks_stream in
+  let body_str = String.concat "" (Lwt_main.run (Lwt_stream.to_list response.body)) in
   (check bool) "contains data:" true (String.length body_str > 0);
   (check bool) "ends with DONE" true
     (let done_marker = "data: [DONE]\n\n" in

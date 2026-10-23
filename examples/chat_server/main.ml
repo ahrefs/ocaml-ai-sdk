@@ -129,7 +129,12 @@ You can use multiple tools in sequence to build a complete answer.|}
 
 (* --- HTTP handler --- *)
 
-let handler conn req body =
+(* Sends an [Ai_core.Server_handler.response] with cohttp. *)
+let respond (r : Ai_core.Server_handler.response) =
+  Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+    ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+let handler _conn req body =
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
   let meth = Cohttp.Request.meth req in
@@ -141,23 +146,15 @@ let handler conn req body =
     | _ -> "OTHER")
     path;
   match meth, path with
-  | `OPTIONS, "/chat" -> Ai_core.Server_handler.handle_cors_preflight conn req body
+  | `OPTIONS, "/chat" -> respond (Ai_core.Server_handler.handle_cors_preflight ())
   | _, "/chat" ->
-    (try%lwt
-       Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
-         ~transform:(Ai_core.Smooth_stream.create ()) conn req body
-     with exn ->
-       let msg = Printexc.to_string exn in
-       Printf.eprintf "[ERROR] /chat: %s\n%!" msg;
-       let body = Cohttp_lwt.Body.of_string msg in
-       let headers = Cohttp.Header.of_list (("content-type", "text/plain") :: Ai_core.Server_handler.cors_headers) in
-       let response = Cohttp.Response.make ~status:`Internal_server_error ~headers () in
-       Lwt.return (response, body))
+    let%lwt body = Cohttp_lwt.Body.to_string body in
+    respond
+      (Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~tools ~max_steps:5 ~output ~send_reasoning:true
+         ~transform:(Ai_core.Smooth_stream.create ()) body)
   | _ ->
-    let body = Cohttp_lwt.Body.of_string "Not found" in
     let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in
-    let response = Cohttp.Response.make ~status:`Not_found ~headers () in
-    Lwt.return (response, body)
+    Cohttp_lwt_unix.Server.respond_string ~status:`Not_found ~headers ~body:"Not found" ()
 
 let () =
   let port = 28601 in

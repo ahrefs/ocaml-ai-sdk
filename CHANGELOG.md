@@ -4,6 +4,161 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.7 — 2026-10-19
+
+### Breaking changes
+
+- The package no longer depends on cohttp or `lwt_ssl`. Projects that use
+  them must depend on them directly. cohttp client settings, such as a
+  connection cache set with `Cohttp_lwt_unix.Client.set_cache`, no longer
+  apply to provider requests. Code that sets them still compiles.
+- `Ai_core.Server_handler` works with any web server instead of cohttp.
+  `handle_chat` takes the request body as a string, and it, `make_sse_response`,
+  `handle_cors_preflight` (now `unit -> response`) and
+  `Ui_message_stream_writer.create_ui_message_stream_response` return a
+  `Server_handler.response` record. `?status` is an integer code. See Core SDK
+  below for the cohttp version of a chat route.
+- `handle_chat` answers `400` with `{"error": message}` for a body that
+  `parse_chat_request` rejects, such as one whose `messages` is missing or
+  empty, or a message with no `parts` array. Such a body used to reach the
+  model as an empty or partial prompt. See Core SDK below for every check.
+- Building the package now needs a system libcurl and its headers. opam's
+  `curl` package pulls in `conf-libcurl`, which checks for them.
+- `Ai_provider.Http_client` has a new API built on libcurl. See Provider HTTP
+  client below.
+- `Provider_error.error_kind` has a new `Unexpected_error` constructor, so
+  exhaustive matches on it need a new case.
+- `stream_text` reports `Finish_reason.Error` (`"error"` in the UI stream) for
+  a step whose provider stream emitted an error. It used to report `Unknown`
+  (`"other"`), so code that matched `Unknown` to spot such a step no longer
+  sees it.
+- `Openrouter_api.provider_error_of_http_response` takes an
+  `Http_client.response`.
+- Transport failures fail with `Provider_error` `Network_error` instead of
+  the exception cohttp raised, such as `Unix.Unix_error`.
+
+### Provider HTTP client (`ai_provider`)
+
+- Provider requests go through libcurl (`curl` and `curl_lwt`). A system
+  libcurl is required.
+- `Http_client` has a new API. `post` takes a string URL, header pairs and a
+  string body, and returns an abstract `response` read with `status`, `header`
+  (case-insensitive), `body_string`, `error_body` and `body_lines`. `body_lines`
+  replaces `wrap_body_with_idle_timeout`, and `For_testing.response_of_chunks`
+  builds a response from in-memory chunks for tests.
+- Transport failures fail with `Provider_error` `Network_error`, carrying
+  libcurl's message. DNS, connect, send, receive, empty-reply, truncated-body,
+  timeout and HTTP/2 failures are marked retryable. A failed TLS handshake is
+  not.
+- A transfer option that libcurl rejects, such as a URL over its 8 MB string
+  limit, fails with a non-retryable `Network_error`.
+- Only `http` and `https` URLs are accepted, whatever protocols the system
+  libcurl was built with.
+- TLS certificates are verified against the system libcurl's default CA file
+  and directory. `SSL_CERT_FILE` replaces the default file and `SSL_CERT_DIR`
+  the default directory. A file that cannot be read is skipped, and so is
+  `SSL_CERT_DIR` on a TLS backend without CA directory support. A readable
+  `SSL_CERT_FILE` that holds no usable certificate fails every HTTPS request
+  with a non-retryable `Network_error`. 0.6.3 ignored such a file.
+- libcurl built with OpenSSL writes TLS session keys to the file named by
+  `SSLKEYLOGFILE` when that variable is set, as browsers do. 0.6.3 ignored it.
+  Anyone holding that file and a packet capture can read the API keys sent to
+  providers, so leave it unset outside local debugging.
+- New `Http_timeouts.connect_timeout`, default 10 seconds, bounds DNS, TCP
+  connect and TLS handshake. A connection that stalls no longer
+  holds the request until `request_timeout`. It fails with a retryable
+  `Network_error`, and only while it is below `request_timeout`. Otherwise
+  `request_timeout` fires first with its non-retryable `Request_headers`
+  timeout.
+- Requests send `User-Agent: ocaml-ai-sdk/<version>` unless the caller passes
+  its own `User-Agent` header, and enable TCP keepalive. libcurl also sends
+  `Accept: */*`, and over HTTPS uses HTTP/2 when the provider offers it and the
+  system libcurl supports it. A header with an empty value goes out as
+  `Name;`, libcurl's form for an empty header.
+- An error response (status 400 or above) fails with the provider's API
+  error, keeping the status and the `retry-after` headers, even when its body
+  stalls or breaks off. The error body is read for at most 10 seconds and
+  64 KiB. A stalled error body used to hang the call.
+- Requests still never go through a proxy. The client turns off libcurl's use
+  of the `http_proxy`, `https_proxy` and `all_proxy` environment variables.
+- `stream_idle_timeout` now also bounds non-streaming response bodies, which
+  previously could hang on a stalled connection.
+- A stream that fails partway through (idle timeout, dropped or truncated
+  connection) now ends with a `Stream_part.Error` carrying the
+  `Provider_error`. It used to close silently and re-raise to
+  `Lwt.async_exception_hook`, whose default handler exits the process.
+  OpenRouter's `stream` reports a failure before the first completion chunk
+  the same way. `body_lines` and `Sse.parse_events` read on demand, and a
+  failed read fails with the error. The idle timer runs only while a read is
+  waiting, so a stream that nobody reads is not timed out.
+  `wrap_body_with_idle_timeout` timed out a stalled connection whether or not
+  anyone read the stream.
+- New `Stream_pump.pump` runs a provider's per-event converter in the
+  background and always closes the output. An event whose JSON fails to decode
+  (any Yojson or melange-json decode exception) becomes a
+  `Deserialization_error` part with the event's data, and the stream
+  continues. Any other exception, from the event stream or the converter,
+  becomes an `Error` part and ends the stream: a `Provider_error` as it is,
+  anything else as the new `Unexpected_error` kind. The Anthropic, OpenAI and
+  OpenRouter converters use it.
+- `Language_model.generate` and `stream` return a failed promise when the
+  model's function raises before returning one, instead of raising.
+
+### Core SDK (`ai_core`)
+
+- `Server_handler` no longer depends on cohttp and works with any web server.
+  Its responses are a new `Server_handler.response` record (`status`,
+  `headers` and a `body : string Lwt_stream.t` to send chunk by chunk), which
+  the app sends with its own server:
+  - `handle_chat` takes the request body as a string instead of cohttp's
+    connection, request and body, and returns a `response` instead of
+    `(Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t`.
+  - `handle_cors_preflight` takes `()` and returns a `response`.
+  - `make_sse_response` and
+    `Ui_message_stream_writer.create_ui_message_stream_response` return a
+    `response`, and their `?status` is an integer code.
+
+  With cohttp, a callback that called `handle_chat ~model conn req body`
+  becomes:
+
+  ```ocaml
+  let respond (r : Ai_core.Server_handler.response) =
+    Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+      ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+  let callback _conn _req body =
+    let%lwt body = Cohttp_lwt.Body.to_string body in
+    respond (Ai_core.Server_handler.handle_chat ~model body)
+  ```
+- New `Server_handler.parse_chat_request : string -> (chat_request, string)
+  result` parses and checks a `useChat()` request body, as an upstream route
+  does with `validateUIMessages` and `convertToModelMessages`. A
+  `chat_request` holds the prompt messages, the pending tool approvals and the
+  parsed body, for fields such as `id`, `trigger` or custom `body` fields. Use
+  it to inspect or change a request before calling `stream_text`.
+- `handle_chat` now answers `400` with `{"error": message}` for every body
+  that `parse_chat_request` rejects: `messages` missing, empty or not an
+  array, a message whose role is not `system`, `user` or `assistant`, a
+  message with no `parts` array, or a system or user message with no parts,
+  as upstream's `validateUIMessages` checks. Such a body used to reach the
+  model as an empty or partial prompt. Message `id`s are not required, and
+  unknown part types are still skipped. `parse_messages_from_body` and
+  `collect_pending_tool_approvals` do not run these checks.
+- `parse_messages_from_body`, and so `handle_chat`, no longer drop the whole
+  conversation when a message has a data part (`data-*`) whose `data` is not
+  a string, such as an object written with `Ui_message_stream_writer`. Such
+  a body used to parse as no messages at all.
+- `handle_chat`'s `400` response now has `content-type: application/json`,
+  and its error message is escaped, so the body is always valid JSON.
+- `stream_text` reports finish reason `error` for a step whose provider stream
+  emitted an error, matching upstream `streamText`. It used to report `other`.
+  The UI stream's `finish` chunk carries it as `finishReason: "error"`.
+
+### OpenRouter provider (`ai_provider_openrouter`)
+
+- `Openrouter_api.provider_error_of_http_response` takes an
+  `Http_client.response` instead of a `Cohttp.Response.t`.
+
 ## 0.6.3 — 2026-09-08
 
 ### Anthropic provider (`ai_provider_anthropic`)

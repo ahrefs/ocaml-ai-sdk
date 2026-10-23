@@ -43,7 +43,7 @@ val make_request_body :
 val merge_extra_body : Yojson.Basic.t -> (string * Yojson.Basic.t) list -> Yojson.Basic.t
 
 (** Convert a non-successful HTTP response, preserving Retry-After metadata. *)
-val provider_error_of_http_response : body:string -> Cohttp.Response.t -> Ai_provider.Provider_error.t
+val provider_error_of_http_response : body:string -> Ai_provider.Http_client.response -> Ai_provider.Provider_error.t
 
 (** Send a request to the Chat Completions API.
     Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines).

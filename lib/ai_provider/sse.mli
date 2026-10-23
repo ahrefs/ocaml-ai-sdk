@@ -6,5 +6,7 @@ type event = {
 }
 
 (** Parse a stream of SSE text lines into typed events.
-    Handles multi-line data, event type prefixes, comments, and blank lines. *)
+    Handles multi-line data, event type prefixes, comments, and blank lines.
+    Reads [lines] on demand. A failed read of [lines] fails the pending read of
+    the result with the same exception and drops the partial event. *)
 val parse_events : string Lwt_stream.t -> event Lwt_stream.t

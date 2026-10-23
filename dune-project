@@ -6,7 +6,7 @@
 
 (name ocaml-ai-sdk)
 
-(version 0.6.3)
+(version 0.7)
 
 ; There's an issues with the ocamlformat-mlx formatter version priting, so we're using the formatter arguments
 ; directly to avoid reading the .ocamlformat file when formatting mlx files. To replace when the version issue
@@ -76,10 +76,10 @@
    (>= 0.1))
   (melange-json-native
    (>= 2.0))
-  (cohttp-lwt-unix
-   (>= 5.3))
-  (lwt_ssl
-   (>= 1.2))
+  (curl
+   (>= 0.10.0))
+  (curl_lwt
+   (>= 0.10.0))
   (base64
    (>= 1.3))
   (ppx_deriving
@@ -92,7 +92,6 @@
    (>= 17.0))
   (trace
    (>= 0.12))
-  (cohttp-lwt :with-test)
   (alcotest :with-test)))
 
 (package

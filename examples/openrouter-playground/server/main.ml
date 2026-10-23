@@ -186,18 +186,25 @@ let meth_to_string = function
   | `OPTIONS -> "OPTIONS"
   | _ -> "OTHER"
 
-let handler conn req body =
+(* Sends an [Ai_core.Server_handler.response] with cohttp. *)
+let respond (r : Ai_core.Server_handler.response) =
+  Cohttp_lwt_unix.Server.respond ~status:(Cohttp.Code.status_of_code r.status)
+    ~headers:(Cohttp.Header.of_list r.headers) ~body:(Cohttp_lwt.Body.of_stream r.body) ()
+
+let handler _conn req body =
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
   let meth = Cohttp.Request.meth req in
   Printf.printf "[%s] %s\n%!" (meth_to_string meth) path;
   match meth, path with
-  | `OPTIONS, "/api/chat" -> Ai_core.Server_handler.handle_cors_preflight conn req body
+  | `OPTIONS, "/api/chat" -> respond (Ai_core.Server_handler.handle_cors_preflight ())
   | `POST, "/api/chat" ->
     let config = parse_config req in
     let model = Ai_provider_openrouter.language_model ~model:config.model () in
     let provider_options = build_provider_options config in
-    Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~provider_options ~send_reasoning:true conn req body
+    let%lwt body = Cohttp_lwt.Body.to_string body in
+    respond
+      (Ai_core.Server_handler.handle_chat ~model ~system:system_prompt ~provider_options ~send_reasoning:true body)
   | `GET, "/" -> serve_static "index.html"
   | `GET, p when String.length p > 1 -> serve_static (String.sub p 1 (String.length p - 1))
   | _ ->

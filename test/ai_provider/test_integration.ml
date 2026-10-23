@@ -117,6 +117,31 @@ let test_middleware () =
   (* Verify the wrapped model preserves identity *)
   (check string) "wrapped model_id" "mock-v1" (Ai_provider.Language_model.model_id wrapped)
 
+(* A model whose calls raise before returning a promise, as a provider's
+   [match%lwt] does on a request that failed before it started. *)
+module Raising_model : Ai_provider.Language_model.S = struct
+  let specification_version = "V3"
+  let provider = "raising"
+  let model_id = "raising-v1"
+  let generate _opts = failwith "generate failed"
+  let stream _opts = failwith "stream failed"
+end
+
+let test_dispatch_returns_promises () =
+  let model = (module Raising_model : Ai_provider.Language_model.S) in
+  let opts = Ai_provider.Call_options.default ~prompt:[] in
+  let fails name call =
+    match Lwt.state (call ()) with
+    | Lwt.Fail (Failure _) -> ()
+    | Lwt.Fail exn -> failf "%s failed with %s" name (Printexc.to_string exn)
+    | Lwt.Return () | Lwt.Sleep -> failf "%s did not fail" name
+    | exception exn -> failf "%s raised %s instead of returning a promise" name (Printexc.to_string exn)
+  in
+  fails "generate" (fun () ->
+    Lwt.map (fun (_ : Ai_provider.Generate_result.t) -> ()) (Ai_provider.Language_model.generate model opts));
+  fails "stream" (fun () ->
+    Lwt.map (fun (_ : Ai_provider.Stream_result.t) -> ()) (Ai_provider.Language_model.stream model opts))
+
 let () =
   run "Integration"
     [
@@ -125,6 +150,7 @@ let () =
           test_case "generate" `Quick test_generate_through_abstraction;
           test_case "stream" `Quick test_stream_through_abstraction;
           test_case "accessors" `Quick test_model_accessors;
+          test_case "failures as promises" `Quick test_dispatch_returns_promises;
         ] );
       "provider", [ test_case "factory" `Quick test_provider_factory ];
       "middleware", [ test_case "apply" `Quick test_middleware ];
