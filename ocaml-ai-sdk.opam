@@ -20,9 +20,9 @@ depends: [
   "curl" {>= "0.10.0"}
   "curl_lwt" {>= "0.10.0"}
   "base64" {>= "3.1.0"}
-  "ppx_deriving" {>= "5.2"}
-  "lwt_ppx" {>= "5.9"}
-  "re2" {>= "v0.16"}
+  "ppx_deriving" {>= "6.1.1"}
+  "lwt_ppx" {>= "5.9.2"}
+  "re2" {>= "v0.17.0"}
   "uuseg" {>= "17.0"}
   "trace" {>= "0.12"}
   "alcotest" {with-test}

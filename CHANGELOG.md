@@ -9,7 +9,11 @@ All notable changes to this project will be documented in this file.
 ### Breaking changes
 
 - Both packages need OCaml 5.4 or later, up from 4.14. The code uses
-  `Result.Syntax`, which OCaml 5.4 added.
+  `Result.Syntax`, which OCaml 5.4 added. The lower bounds of other
+  dependencies rise to the oldest versions that install with OCaml 5.4:
+  `ppx_deriving` 6.1.1, `lwt_ppx` 5.9.2, `re2` v0.17.0 and, for
+  `ai-sdk-react`, `melange` 6.0.1. `base64` rises to 3.1.0, which added
+  `Base64.encode_string`.
 - The package no longer depends on cohttp or `lwt_ssl`. Projects that use
   them must depend on them directly. cohttp client settings, such as a
   connection cache set with `Cohttp_lwt_unix.Client.set_cache`, no longer

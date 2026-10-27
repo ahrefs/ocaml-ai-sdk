@@ -12,7 +12,7 @@ bug-reports: "https://github.com/ahrefs/ocaml-ai-sdk/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.4"}
-  "melange" {>= "4.0.0"}
+  "melange" {>= "6.0.1"}
   "odoc" {with-doc}
 ]
 build: [

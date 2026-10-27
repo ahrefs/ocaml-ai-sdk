@@ -83,11 +83,11 @@
   (base64
    (>= 3.1.0))
   (ppx_deriving
-   (>= 5.2))
+   (>= 6.1.1))
   (lwt_ppx
-   (>= 5.9))
+   (>= 5.9.2))
   (re2
-   (>= v0.16))
+   (>= v0.17.0))
   (uuseg
    (>= 17.0))
   (trace
@@ -102,6 +102,6 @@
   (ocaml
    (>= 5.4))
   (melange
-   (>= 4.0.0))))
+   (>= 6.0.1))))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
