@@ -12,7 +12,7 @@ doc: "https://github.com/ahrefs/ocaml-ai-sdk"
 bug-reports: "https://github.com/ahrefs/ocaml-ai-sdk/issues"
 depends: [
   "dune" {>= "3.21"}
-  "ocaml" {>= "4.14"}
+  "ocaml" {>= "5.4"}
   "lwt" {>= "5.9"}
   "yojson" {>= "2.2"}
   "jsonschema" {>= "0.1"}

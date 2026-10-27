@@ -67,7 +67,7 @@
   "Type-safe, provider-agnostic AI model abstraction inspired by Vercel AI SDK")
  (depends
   (ocaml
-   (>= 4.14))
+   (>= 5.4))
   (lwt
    (>= 5.9))
   (yojson
@@ -100,7 +100,7 @@
  (description "Type-safe OCaml/Melange bindings for Vercel AI SDK)")
  (depends
   (ocaml
-   (>= 4.14))
+   (>= 5.4))
   (melange
    (>= 4.0.0))))
 
