@@ -81,7 +81,7 @@
   (curl_lwt
    (>= 0.10.0))
   (base64
-   (>= 1.3))
+   (>= 3.1.0))
   (ppx_deriving
    (>= 5.2))
   (lwt_ppx

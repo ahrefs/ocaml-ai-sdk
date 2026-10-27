@@ -72,6 +72,31 @@ let response_info events =
   in
   find ()
 
+(* Yields the events left in [events], then fails with [exn]. *)
+let fail_after_events exn events =
+  let failed = ref false in
+  Lwt_stream.from (fun () ->
+    match !failed with
+    | true -> Lwt.return_none
+    | false ->
+    match%lwt Lwt_stream.get events with
+    | Some _ as event -> Lwt.return event
+    | None ->
+      failed := true;
+      Lwt.fail exn)
+
+(* The response info is read from a clone of [events]. When that read fails,
+   [events] keeps the events read so far but would then end silently, so the
+   failure is replayed after them for the converter to report as an [Error]
+   part, as Anthropic and OpenAI do. *)
+let peek_response_info events =
+  try%lwt
+    let%lwt info = response_info events in
+    Lwt.return (info, events)
+  with
+  | Lwt.Canceled as exn -> Lwt.fail exn
+  | exn -> Lwt.return (None, fail_after_events exn events)
+
 (** Extract an error message from a streaming error chunk and emit error + finish. *)
 let process_error_chunk ~push ~emit_finish fields =
   let error_json = Option.value (List.assoc_opt "error" fields) ~default:(`Assoc fields) in

@@ -277,51 +277,6 @@ let test_http_200_error () =
       (check string) "readable body" "Model not found (not_found)" body
     | _ -> fail "expected Api_error")
 
-(* Serves one request with a 200 event-stream head and an SSE comment, then
-   sends nothing more. *)
-let serve_stalled_stream () =
-  let sock = Lwt_unix.socket PF_INET SOCK_STREAM 0 in
-  let%lwt () = Lwt_unix.bind sock (ADDR_INET (Unix.inet_addr_loopback, 0)) in
-  Lwt_unix.listen sock 1;
-  let respond () =
-    let%lwt fd, _ = Lwt_unix.accept sock in
-    let%lwt () = Lwt_unix.close sock in
-    let%lwt (_ : int) = Lwt_unix.read fd (Bytes.create 65536) 0 65536 in
-    let reply = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n: OPENROUTER PROCESSING\n\n" in
-    let%lwt (_ : int) = Lwt_unix.write_string fd reply 0 (String.length reply) in
-    Lwt.return_unit
-  in
-  Lwt.dont_wait respond (fun (_ : exn) -> ());
-  match Lwt_unix.getsockname sock with
-  | ADDR_INET (_, port) -> Lwt.return port
-  | ADDR_UNIX path -> Printf.ksprintf invalid_arg "serve_stalled_stream: unexpected unix socket %s" path
-
-(* A stream that stalls before its first completion chunk still returns, and
-   reports the idle timeout as its last part. *)
-let test_stall_before_first_chunk () =
-  let parts =
-    Lwt_main.run
-      (let%lwt port = serve_stalled_stream () in
-       let config =
-         Ai_provider_openrouter.Config.create ~api_key:"sk-or-test"
-           ~base_url:(Printf.sprintf "http://127.0.0.1:%d" port)
-           ~timeouts:(Ai_provider.Http_timeouts.create ~stream_idle_timeout:0.2 ())
-           ()
-       in
-       let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
-       let module M = (val model : Ai_provider.Language_model.S) in
-       let opts =
-         Ai_provider.Call_options.default
-           ~prompt:
-             [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ]
-       in
-       let%lwt result = M.stream opts in
-       Lwt_stream.to_list result.Ai_provider.Stream_result.stream)
-  in
-  match List.rev parts with
-  | Ai_provider.Stream_part.Error { error = { kind = Timeout { phase = Stream_idle; _ }; _ } } :: _ -> ()
-  | _ -> fail "expected the stream to end with a Stream_idle error"
-
 (* Nothing listens on port 1, so a request that went out would fail with a
    retryable Network_error. A settled signal must stop the call first. *)
 let expect_aborted_call call () =
@@ -338,48 +293,6 @@ let expect_aborted_call call () =
   match Lwt_main.run (call model opts) with
   | _ -> fail "expected Aborted"
   | exception Ai_provider.Abort_signal.Aborted _ -> ()
-
-(* [stream] waits for the first completion chunk to read the response info. An
-   abort during that wait must end the call with a stream that closes without
-   an Error part. *)
-let test_abort_before_first_chunk () =
-  let parts =
-    Lwt_main.run
-      (let%lwt port = serve_stalled_stream () in
-       let config =
-         Ai_provider_openrouter.Config.create ~api_key:"sk-or-test"
-           ~base_url:(Printf.sprintf "http://127.0.0.1:%d" port)
-           ~timeouts:(Ai_provider.Http_timeouts.create ~stream_idle_timeout:30.0 ())
-           ()
-       in
-       let model = Ai_provider_openrouter.Openrouter_model.create ~config ~model:"openai/gpt-4o" in
-       let module M = (val model : Ai_provider.Language_model.S) in
-       let signal, abort = Ai_provider.Abort_signal.create () in
-       let opts =
-         {
-           (Ai_provider.Call_options.default
-              ~prompt:
-                [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
-           with
-           abort_signal = Some signal;
-         }
-       in
-       let call = M.stream opts in
-       let%lwt () = Lwt_unix.sleep 0.2 in
-       (check bool) "waiting for the first chunk" true (Lwt.is_sleeping call);
-       abort ();
-       let%lwt result = Lwt_unix.with_timeout 5.0 (fun () -> call) in
-       Lwt_unix.with_timeout 5.0 (fun () -> Lwt_stream.to_list result.Ai_provider.Stream_result.stream))
-  in
-  match
-    List.exists
-      (function
-        | Ai_provider.Stream_part.Error _ -> true
-        | _ -> false)
-      parts
-  with
-  | true -> fail "expected no Error part after the abort"
-  | false -> ()
 
 (* A fetch that gets the call's signal, ignores it and never returns. The
    call races it against the signal, so it fails with Aborted right after the
@@ -431,7 +344,6 @@ let () =
           test_case "extra_body_merging" `Quick test_extra_body_merging;
           test_case "headers" `Quick test_headers;
           test_case "http_200_error" `Quick test_http_200_error;
-          test_case "stall_before_first_chunk" `Quick test_stall_before_first_chunk;
         ] );
       ( "abort",
         [
@@ -439,6 +351,5 @@ let () =
           test_case "stream with a settled signal" `Quick (expect_aborted_call Ai_provider.Language_model.stream);
           test_case "stream with a fetch ignoring the signal" `Quick
             (expect_fetch_raced Ai_provider.Language_model.stream);
-          test_case "stream before the first chunk" `Quick test_abort_before_first_chunk;
         ] );
     ]

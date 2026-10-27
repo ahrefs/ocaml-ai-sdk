@@ -368,6 +368,30 @@ let test_null_annotations_do_not_advance_source_index () =
   in
   (check (list string)) "consecutive source ids" [ "source-0"; "source-1" ] ids
 
+(* The body fails before the first completion chunk, as a stalled one does,
+   then ends like [Http_client.body_lines] after a failed read. *)
+let peeked_parts exn =
+  let failed = ref false in
+  let events =
+    Lwt_stream.from (fun () ->
+      match !failed with
+      | true -> Lwt.return_none
+      | false ->
+        failed := true;
+        Lwt.fail exn)
+  in
+  let info, events = Lwt_main.run (Ai_provider_openrouter.Convert_stream.peek_response_info events) in
+  (check bool) "no response info" true (Option.is_none info);
+  collect_stream (Ai_provider_openrouter.Convert_stream.transform events ~warnings:[])
+
+let test_peek_failure_reported () =
+  let error =
+    Ai_provider.Provider_error.make_timeout ~provider:"openrouter" ~phase:Stream_idle ~elapsed_s:0.2 ~limit_s:0.2
+  in
+  match List.rev (peeked_parts (Ai_provider.Provider_error.Provider_error error)) with
+  | Error { error = { kind = Timeout { phase = Stream_idle; _ }; _ } } :: _ -> ()
+  | _ -> fail "expected the parts to end with a Stream_idle error"
+
 let () =
   run "Convert_stream"
     [
@@ -376,6 +400,7 @@ let () =
           test_case "basic_text" `Quick test_basic_text_stream;
           test_case "usage_after_finish_reason" `Quick test_usage_after_finish_reason;
           test_case "response_info" `Quick test_response_info_skips_fallback_debug_chunks;
+          test_case "peek_failure_reported" `Quick test_peek_failure_reported;
           test_case "reasoning" `Quick test_reasoning_stream;
           test_case "tool_calls" `Quick test_tool_call_stream;
           test_case "done_signal" `Quick test_done_signal;

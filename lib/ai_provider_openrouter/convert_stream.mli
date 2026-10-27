@@ -4,6 +4,13 @@
     the stream. Empty debug chunks from failed fallback attempts are skipped. *)
 val response_info : Sse.event Lwt_stream.t -> Ai_provider.Generate_result.response_info option Lwt.t
 
+(** [response_info], returned with the stream to convert. When reading the
+    response info fails, the info is [None] and the returned stream yields the
+    events read so far, then fails with the same exception, so {!transform}
+    reports it. *)
+val peek_response_info :
+  Sse.event Lwt_stream.t -> (Ai_provider.Generate_result.response_info option * Sse.event Lwt_stream.t) Lwt.t
+
 (** Transform SSE events into SDK stream parts.
     Handles reasoning deltas and extended usage metrics.
 

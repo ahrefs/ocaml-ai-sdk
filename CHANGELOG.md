@@ -107,9 +107,7 @@ All notable changes to this project will be documented in this file.
 - TLS certificates are verified against the system libcurl's default CA file
   and directory. `SSL_CERT_FILE` replaces the default file and `SSL_CERT_DIR`
   the default directory. A file that cannot be read is skipped, and so is
-  `SSL_CERT_DIR` on a TLS backend without CA directory support. A readable
-  `SSL_CERT_FILE` that holds no usable certificate fails every HTTPS request
-  with a non-retryable `Network_error`. 0.6.3 ignored such a file.
+  `SSL_CERT_DIR` on a TLS backend without CA directory support.
 - libcurl built with OpenSSL writes TLS session keys to the file named by
   `SSLKEYLOGFILE` when that variable is set, as browsers do. 0.6.3 ignored it.
   Anyone holding that file and a packet capture can read the API keys sent to
@@ -198,6 +196,9 @@ All notable changes to this project will be documented in this file.
   `Aborted` without calling it. One whose signal settles during `fetch` fails
   with `Aborted` at once and cancels `fetch`'s promise, even when `fetch`
   ignores the signal.
+- OpenRouter's `Convert_stream.peek_response_info` reads the response info
+  as `stream` does. When the read fails, the stream it returns delivers that
+  failure after the events read so far.
 - Fix: streams from OpenAI and OpenRouter report their usage. Both send it in
   a chunk after the finish reason, and the stream used to end its step on the
   finish reason with zero usage. On OpenRouter, that late chunk also left an

@@ -4,11 +4,9 @@
     against libcurl's default CA file and directory. The [SSL_CERT_FILE] and
     [SSL_CERT_DIR] environment variables, when set, replace the default file and
     directory respectively. A file that cannot be read is skipped, and so is
-    [SSL_CERT_DIR] on a TLS backend without CA directory support. A readable
-    file that holds no usable certificate fails every HTTPS request with a
-    non-retryable [Network_error]. Requests never go through a proxy: the
-    [http_proxy], [https_proxy] and [all_proxy] environment variables are
-    ignored. libcurl built with OpenSSL writes TLS session keys to the file
+    [SSL_CERT_DIR] on a TLS backend without CA directory support. Requests
+    never go through a proxy: the [http_proxy], [https_proxy] and [all_proxy]
+    environment variables are ignored. libcurl built with OpenSSL writes TLS session keys to the file
     named by [SSLKEYLOGFILE] when that variable is set. Requests send
     [User-Agent: ocaml-ai-sdk/<version>] unless the caller passes its own
     [User-Agent] header, and enable TCP keepalive.

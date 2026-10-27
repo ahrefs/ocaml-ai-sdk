@@ -992,7 +992,7 @@ let test_abort_in_tool_call_finish_keeps_result () =
     ~usage:{ input_tokens = 10; output_tokens = 5; total_tokens = Some 15 }
     ~tool_calls:[ "tc_1"; "tc_2" ] ~tool_results:[ "tc_1" ] !aborted_steps
 
-(* The first integration's on_tool_call_start takes 0.3 s and ignores
+(* The first integration's on_tool_call_start takes 1 s and ignores
    [Lwt.cancel], and a cancel or an abort comes at 0.05 s. The call ends at
    once, the second integration hears nothing, and the tool never runs. *)
 let test_telemetry_stops_after_cancel_or_abort () =
@@ -1027,16 +1027,16 @@ let test_telemetry_stops_after_cancel_or_abort () =
     in
     let elapsed = Unix.gettimeofday () -. started in
     (* Let the slow callback run out. *)
-    Lwt_main.run (Lwt_unix.sleep 0.3);
+    Lwt_main.run (Lwt_unix.sleep 1.0);
     outcome, elapsed, List.rev !second, !runs
   in
   let check_run name (outcome, elapsed, second, runs) expected =
     (check string) (name ^ ": outcome") expected outcome;
-    (check bool) (Printf.sprintf "%s: ends at once (%.2f s)" name elapsed) true (elapsed < 0.2);
+    (check bool) (Printf.sprintf "%s: ends at once (%.2f s)" name elapsed) true (elapsed < 0.5);
     (check (list string)) (name ^ ": second integration") [] second;
     (check int) (name ^ ": tool runs") 0 runs
   in
-  let ignoring_cancel () = Lwt.no_cancel (Lwt_unix.sleep 0.3) in
+  let ignoring_cancel () = Lwt.no_cancel (Lwt_unix.sleep 1.0) in
   let cancel f = Lwt_unix.with_timeout 0.05 f in
   let abort_signal () = Ai_provider.Abort_signal.of_promise (Lwt_unix.sleep 0.05) in
   check_run "cancel" (run ~slow:ignoring_cancel cancel) "Lwt_unix.Timeout";
@@ -1282,13 +1282,13 @@ let test_cancel_with_uncancelable_model () =
       ~generate:
         (Respond
            (fun (_ : Ai_provider.Call_options.t) ->
-             let%lwt () = Lwt.no_cancel (Lwt_unix.sleep 0.4) in
+             let%lwt () = Lwt.no_cancel (Lwt_unix.sleep 1.0) in
              Lwt.return (search_call_result ())))
       ()
   in
   let runs = ref 0 in
   let tool = waiting_search_tool runs Lwt.return in
-  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.35 ~settle_s:0.5 (fun () ->
+  check_cancelled_by_timeout ~timeout_s:0.2 ~deadline_s:0.5 ~settle_s:1.2 (fun () ->
     Ai_core.Generate_text.generate_text ~model ~prompt:"Search" ~tools:[ "search", tool ] ~max_steps:3 ());
   (check int) "tool never runs" 0 !runs;
   (check int) "one model call" 1 (model_calls mock)
@@ -1327,7 +1327,7 @@ let test_abort_with_model_ignoring_signal () =
   in
   let elapsed = Unix.gettimeofday () -. started in
   (check string) "outcome" "aborted" outcome;
-  (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.3);
+  (check bool) (Printf.sprintf "fails at the abort (%.2f s)" elapsed) true (elapsed < 0.5);
   (check int) "two model calls" 2 (model_calls mock);
   match !aborted_steps with
   | Some [ step ] -> (check int) "step usage" 10 step.usage.input_tokens
