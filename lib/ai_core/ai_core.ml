@@ -1,4 +1,5 @@
 module Core_tool = Core_tool
+module Tool = Tool
 module Retry = Retry
 module Stop_condition = Stop_condition
 module Smooth_stream = Smooth_stream

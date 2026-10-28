@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Core SDK (`ai_core`)
+
+- New `Tool`: typed tools whose call and response go through JSON codecs.
+  `Tool.to_core_tool` turns one into a `Core_tool.t`.
+
 ## 0.8 — 2026-10-30
 
 ### Breaking changes

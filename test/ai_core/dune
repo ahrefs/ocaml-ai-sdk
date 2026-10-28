@@ -2,6 +2,7 @@
  (names
   test_core_types
   test_core_tool
+  test_tool
   test_ui_message_chunk
   test_ui_message_stream
   test_prompt_builder
