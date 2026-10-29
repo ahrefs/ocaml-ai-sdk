@@ -26,11 +26,7 @@ type known_model =
   | Gpt_5_4
   | Gpt_5_4_mini
   | Gpt_5_4_nano
-  | Gpt_5_4_pro
-  | Gpt_5_3_chat_latest
   | Gpt_5_2
-  | Gpt_5_2_chat_latest
-  | Gpt_5_2_pro
   | Gpt_5_1
   | Gpt_5_1_chat_latest
   | Gpt_5
@@ -66,11 +62,7 @@ let to_model_id = function
   | Gpt_5_4 -> "gpt-5.4"
   | Gpt_5_4_mini -> "gpt-5.4-mini"
   | Gpt_5_4_nano -> "gpt-5.4-nano"
-  | Gpt_5_4_pro -> "gpt-5.4-pro"
-  | Gpt_5_3_chat_latest -> "gpt-5.3-chat-latest"
   | Gpt_5_2 -> "gpt-5.2"
-  | Gpt_5_2_chat_latest -> "gpt-5.2-chat-latest"
-  | Gpt_5_2_pro -> "gpt-5.2-pro"
   | Gpt_5_1 -> "gpt-5.1"
   | Gpt_5_1_chat_latest -> "gpt-5.1-chat-latest"
   | Gpt_5 -> "gpt-5"
@@ -107,11 +99,7 @@ let of_model_id s =
   | "gpt-5.4" -> Gpt_5_4
   | "gpt-5.4-mini" -> Gpt_5_4_mini
   | "gpt-5.4-nano" -> Gpt_5_4_nano
-  | "gpt-5.4-pro" -> Gpt_5_4_pro
-  | "gpt-5.3-chat-latest" -> Gpt_5_3_chat_latest
   | "gpt-5.2" -> Gpt_5_2
-  | "gpt-5.2-chat-latest" -> Gpt_5_2_chat_latest
-  | "gpt-5.2-pro" -> Gpt_5_2_pro
   | "gpt-5.1" -> Gpt_5_1
   | "gpt-5.1-chat-latest" -> Gpt_5_1_chat_latest
   | "gpt-5" -> Gpt_5
@@ -228,9 +216,8 @@ let capabilities model_id =
   | Gpt_4 -> { standard_capabilities with supports_vision = false }
   | Gpt_3_5_turbo -> { standard_capabilities with supports_vision = false; supports_structured_output = false }
   | Gpt_6_1_sol | Gpt_6_1_terra | Gpt_6_astra | Gpt_6_luna | Gpt_6_sol | Gpt_5_6 | Gpt_5_6_luna | Gpt_5_6_sol
-  | Gpt_5_6_terra | Gpt_5_5 | Gpt_5_4 | Gpt_5_4_mini | Gpt_5_4_nano | Gpt_5_4_pro | Gpt_5_3_chat_latest | Gpt_5_2
-  | Gpt_5_2_chat_latest | Gpt_5_2_pro | Gpt_5_1 | Gpt_5_1_chat_latest | Gpt_5 | Gpt_5_mini | Gpt_5_nano
-  | Gpt_5_chat_latest | Custom _ ->
+  | Gpt_5_6_terra | Gpt_5_5 | Gpt_5_4 | Gpt_5_4_mini | Gpt_5_4_nano | Gpt_5_2 | Gpt_5_1 | Gpt_5_1_chat_latest | Gpt_5
+  | Gpt_5_mini | Gpt_5_nano | Gpt_5_chat_latest | Custom _ ->
     inferred_capabilities model_id
 
 let is_reasoning_model model_id = (capabilities model_id).is_reasoning_model

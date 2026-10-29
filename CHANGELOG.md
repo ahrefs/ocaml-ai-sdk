@@ -21,7 +21,10 @@ All notable changes to this project will be documented in this file.
 ### OpenAI provider (`ai_provider_openai`)
 
 - The catalog adds the GPT-5 to GPT-6.1 models that upstream's
-  `@ai-sdk/openai` lists, from `Gpt_5` to `Gpt_6_1_terra`.
+  `@ai-sdk/openai` lists, from `Gpt_5` to `Gpt_6_1_terra`. It leaves out
+  `gpt-5.2-pro` and `gpt-5.4-pro`, which OpenAI serves only through the
+  Responses API, and `gpt-5.2-chat-latest` and `gpt-5.3-chat-latest`, which
+  OpenAI has deprecated.
 - Fix: GPT-5 and later model ids are reasoning models, as upstream detects
   them, dated or not. `capabilities` used to treat them as chat models, so
   requests sent the `system` role, the sampling parameters and a default

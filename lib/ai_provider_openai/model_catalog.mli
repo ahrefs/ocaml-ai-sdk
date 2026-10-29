@@ -28,11 +28,7 @@ type known_model =
   | Gpt_5_4
   | Gpt_5_4_mini
   | Gpt_5_4_nano
-  | Gpt_5_4_pro
-  | Gpt_5_3_chat_latest
   | Gpt_5_2
-  | Gpt_5_2_chat_latest
-  | Gpt_5_2_pro
   | Gpt_5_1
   | Gpt_5_1_chat_latest
   | Gpt_5
