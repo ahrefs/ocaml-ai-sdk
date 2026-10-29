@@ -12,6 +12,7 @@ type thinking_capabilities = {
   disabled : disabled_thinking_support;
   effort_levels : Effort.t list;
   display_default : Thinking.display option;
+  between_tools : bool;
 }
 
 type model_capabilities = {
@@ -23,6 +24,7 @@ type model_capabilities = {
   min_cache_tokens : int;
   supports_vision : bool;
   supports_pdf : bool;
+  rejects_forced_tool_choice : bool;
 }
 
 type known_model =

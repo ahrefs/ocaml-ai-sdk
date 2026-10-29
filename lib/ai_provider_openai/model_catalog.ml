@@ -10,6 +10,7 @@ type model_capabilities = {
   supports_structured_output : bool;
   supports_vision : bool;
   supports_tool_calling : bool;
+  supports_non_reasoning_parameters : bool;
 }
 
 type known_model =
@@ -129,6 +130,7 @@ let standard_capabilities =
     supports_structured_output = true;
     supports_vision = true;
     supports_tool_calling = true;
+    supports_non_reasoning_parameters = false;
   }
 
 let reasoning_capabilities =
@@ -139,6 +141,7 @@ let reasoning_capabilities =
     supports_structured_output = true;
     supports_vision = true;
     supports_tool_calling = true;
+    supports_non_reasoning_parameters = false;
   }
 
 (* Length of the run of ASCII digits in [s] starting at [i]. *)
@@ -199,7 +202,13 @@ let inferred_capabilities s =
   | false, Some { major; minor = None; variant = Some variant }
     when major >= 5 && String.starts_with ~prefix:"chat" variant ->
     { standard_capabilities with default_max_tokens = 16_384 }
-  | false, Some { major; _ } when major >= 5 -> reasoning_capabilities
+  | false, Some { major; minor; _ } when major >= 5 ->
+    (* GPT-5.1 and later 5.x models accept sampling parameters when the
+       reasoning effort is none; GPT-6 does not. *)
+    {
+      reasoning_capabilities with
+      supports_non_reasoning_parameters = Int.equal major 5 && Option.value minor ~default:0 >= 1;
+    }
   | false, (Some _ | None) ->
   match String.starts_with ~prefix:"gpt-4.1" s, String.starts_with ~prefix:"gpt-4o" s with
   | true, _ -> { standard_capabilities with default_max_tokens = 32_768 }

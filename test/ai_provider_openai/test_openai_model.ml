@@ -94,6 +94,46 @@ let test_generate_tool_call () =
   | Tool_call { tool_name; _ } :: _ -> (check string) "name" "get_weather" tool_name
   | _ -> fail "expected Tool_call"
 
+(* GPT-5.1 takes temperature when its reasoning effort is none, and drops it
+   otherwise, as a reasoning model. *)
+let test_reasoning_effort_none_keeps_temperature () =
+  let sent_temperature reasoning_effort =
+    let captured = ref `Null in
+    let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
+      captured := Yojson.Basic.from_string body;
+      Lwt.return
+        (`Assoc
+           [
+             ( "choices",
+               `List
+                 [
+                   `Assoc
+                     [
+                       "index", `Int 0;
+                       "message", `Assoc [ "role", `String "assistant"; "content", `String "ok" ];
+                       "finish_reason", `String "stop";
+                     ];
+                 ] );
+           ])
+    in
+    let config = Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch () in
+    let model = Ai_provider_openai.Openai_model.create ~config ~model:"gpt-5.1" in
+    let opts =
+      {
+        (Ai_provider.Call_options.default
+           ~prompt:
+             [ User { content = [ Text { text = "Hi"; provider_options = Ai_provider.Provider_options.empty } ] } ])
+        with
+        temperature = Some 0.3;
+        provider_options = Ai_provider_openai.Openai_options.(to_provider_options { default with reasoning_effort });
+      }
+    in
+    let (_ : Ai_provider.Generate_result.t) = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
+    Yojson.Basic.Util.member "temperature" !captured
+  in
+  (check bool) "kept at none" true (Yojson.Basic.equal (`Float 0.3) (sent_temperature (Some Re_none)));
+  (check bool) "dropped otherwise" true (Yojson.Basic.equal `Null (sent_temperature (Some Medium)))
+
 let test_warns_top_k () =
   let response =
     `Assoc
@@ -202,6 +242,7 @@ let () =
           test_case "text" `Quick test_generate_text;
           test_case "tool_call" `Quick test_generate_tool_call;
           test_case "warns_top_k" `Quick test_warns_top_k;
+          test_case "reasoning_effort_none_keeps_temperature" `Quick test_reasoning_effort_none_keeps_temperature;
         ] );
       "accessors", [ test_case "model_accessors" `Quick test_model_accessors ];
       ( "abort",

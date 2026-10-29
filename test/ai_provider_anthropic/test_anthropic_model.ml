@@ -338,7 +338,8 @@ let warning_features warnings =
       | Ai_provider.Warning.Other _ -> None)
     warnings
 
-let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperature ?top_p ?top_k () =
+let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperature ?top_p ?top_k ?(tools = [])
+  ?tool_choice () =
   let captured_body = ref None in
   let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
     captured_body := Some (Yojson.Basic.from_string body);
@@ -353,6 +354,8 @@ let capture_generate ?(model_id = "claude-opus-5") ?provider_options ?temperatur
       temperature;
       top_p;
       top_k;
+      tools;
+      tool_choice;
     }
   in
   let result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
@@ -488,6 +491,40 @@ let test_policy_lowers_disabled_effort () =
   | _ -> fail "expected lowered effort");
   (check bool) "normalization warning" true
     (List.mem "providerOptions.anthropic.effort" (warning_features result.warnings))
+
+(* Claude Opus 5.5 rejects a forced tool choice: the request asks for auto
+   and sends only the named tool. *)
+let test_forced_tool_choice_downgraded () =
+  let tool name =
+    {
+      Ai_provider.Tool.name;
+      description = None;
+      parameters = `Assoc [];
+      provider_options = Ai_provider.Provider_options.empty;
+    }
+  in
+  let body, result =
+    capture_generate ~model_id:"claude-opus-5-5"
+      ~tools:[ tool "search"; tool "fetch" ]
+      ~tool_choice:(Ai_provider.Tool_choice.Specific { tool_name = "fetch" })
+      ()
+  in
+  (check (option string))
+    "tool_choice" (Some "auto")
+    (Option.map (fun (tc : tool_choice_json) -> tc.type_) body.tool_choice);
+  (check (list string))
+    "named tool only" [ "fetch" ]
+    (List.map (fun (t : tool_json) -> t.name) (Option.value body.tools ~default:[]));
+  (check bool) "warning" true (List.mem "tool_choice" (warning_features result.warnings))
+
+(* Claude Sonnet 5.5 rejects disabled thinking; its lowest setting is between_tools. *)
+let test_sonnet_5_5_disabled_thinking_between_tools () =
+  let provider_options = anthropic_provider_options ~thinking:Ai_provider_anthropic.Thinking.Disabled () in
+  let body, result = capture_generate ~model_id:"claude-sonnet-5-5" ~provider_options () in
+  (match body.thinking with
+  | Some thinking -> (check string) "thinking" "between_tools" thinking.type_
+  | None -> fail "expected between_tools thinking");
+  (check bool) "warning" true (List.mem "providerOptions.anthropic.thinking" (warning_features result.warnings))
 
 let test_policy_preserves_custom_model_manual_thinking () =
   (* A custom model id has unknown capabilities, so manual budgets pass through
@@ -689,6 +726,8 @@ let () =
           test_case "policy_normalizes_sampling" `Quick test_policy_normalizes_sampling_parameters;
           test_case "policy_preserves_supported_top_p" `Quick test_policy_preserves_supported_top_p_with_thinking;
           test_case "policy_lowers_disabled_effort" `Quick test_policy_lowers_disabled_effort;
+          test_case "forced_tool_choice_downgraded" `Quick test_forced_tool_choice_downgraded;
+          test_case "sonnet_5_5_disabled_thinking_between_tools" `Quick test_sonnet_5_5_disabled_thinking_between_tools;
           test_case "policy_custom_passthrough" `Quick test_policy_preserves_custom_model_options;
           test_case "policy_custom_manual_thinking" `Quick test_policy_preserves_custom_model_manual_thinking;
           test_case "with_schema_tool_fallback (custom model)" `Quick test_object_json_with_schema_tool_fallback_custom;

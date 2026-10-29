@@ -18,13 +18,15 @@ type json_schema_format = {
 [@@deriving to_json]
 
 (** Check for unsupported features and emit warnings. *)
-let check_unsupported ~is_reasoning (opts : Ai_provider.Call_options.t) =
+let check_unsupported ~is_reasoning ~keeps_sampling (opts : Ai_provider.Call_options.t) =
   let warnings = ref [] in
   let warn feature details = warnings := Ai_provider.Warning.Unsupported_feature { feature; details } :: !warnings in
   Stdlib.Option.iter (fun _ -> warn "top_k" (Some "OpenAI does not support top_k")) opts.top_k;
-  if is_reasoning then begin
+  if is_reasoning && not keeps_sampling then begin
     Stdlib.Option.iter (fun _ -> warn "temperature" (Some "Not supported for reasoning models")) opts.temperature;
-    Stdlib.Option.iter (fun _ -> warn "top_p" (Some "Not supported for reasoning models")) opts.top_p;
+    Stdlib.Option.iter (fun _ -> warn "top_p" (Some "Not supported for reasoning models")) opts.top_p
+  end;
+  if is_reasoning then begin
     Stdlib.Option.iter
       (fun _ -> warn "frequency_penalty" (Some "Not supported for reasoning models"))
       opts.frequency_penalty;
@@ -71,7 +73,15 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let openai_opts =
     Openai_options.of_provider_options opts.provider_options |> Stdlib.Option.value ~default:Openai_options.default
   in
-  let warnings = check_unsupported ~is_reasoning:model_caps.is_reasoning_model opts in
+  (* GPT-5.1 and later 5.x models take sampling parameters when they don't reason. *)
+  let keeps_sampling =
+    model_caps.supports_non_reasoning_parameters
+    &&
+    match openai_opts.reasoning_effort with
+    | Some Openai_options.Re_none -> true
+    | None | Some (Minimal | Low | Medium | High | Xhigh | Max) -> false
+  in
+  let warnings = check_unsupported ~is_reasoning:model_caps.is_reasoning_model ~keeps_sampling opts in
   let system_message_mode =
     match openai_opts.system_message_mode with
     | Some mode -> mode
@@ -117,9 +127,10 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     | false, _, None -> Some model_caps.default_max_tokens, None
   in
   let temperature, top_p, frequency_penalty, presence_penalty =
-    match model_caps.is_reasoning_model with
-    | true -> None, None, None, None
-    | false -> opts.temperature, opts.top_p, opts.frequency_penalty, opts.presence_penalty
+    match model_caps.is_reasoning_model, keeps_sampling with
+    | true, true -> opts.temperature, opts.top_p, None, None
+    | true, false -> None, None, None, None
+    | false, _ -> opts.temperature, opts.top_p, opts.frequency_penalty, opts.presence_penalty
   in
   let reasoning_effort = Stdlib.Option.map Openai_options.reasoning_effort_to_string openai_opts.reasoning_effort in
   let service_tier = Stdlib.Option.map Openai_options.service_tier_to_string openai_opts.service_tier in

@@ -6,7 +6,7 @@ let is_known_model = function
 
 let effective_thinking_active ~capabilities ~thinking =
   match thinking with
-  | Some (Thinking.Enabled _ | Thinking.Adaptive _) -> true
+  | Some (Thinking.Enabled _ | Thinking.Adaptive _ | Thinking.Between_tools) -> true
   | Some Thinking.Disabled -> false
   | None ->
   match capabilities.Model_catalog.thinking with
@@ -40,7 +40,12 @@ let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_t
       "%s cannot turn thinking off (Thinking.Disabled). This model always thinks; control how much it thinks with \
        Anthropic_options.effort instead."
       model
-  | None, _ | _, None | Some _, Some Thinking.Disabled -> ()
+  | Some thinking, Some Thinking.Between_tools when not thinking.between_tools ->
+    Printf.ksprintf invalid_arg
+      "%s does not accept Thinking.Between_tools; only Claude Sonnet 5.5 does. Lower Anthropic_options.effort to think \
+       less."
+      model
+  | None, _ | _, None | Some _, Some (Thinking.Disabled | Thinking.Between_tools) -> ()
   | Some _, Some (Thinking.Enabled _ | Thinking.Adaptive _) -> ());
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.effort with
   | Some thinking, Some effort when not (List.exists (Effort.equal effort) thinking.effort_levels) ->
@@ -105,15 +110,46 @@ let normalize_sampling ~model ~known_model ~capabilities ~thinking_active (opts 
   in
   temperature, top_p, top_k, base_warnings @ temperature_warnings @ top_p_warnings @ top_k_warnings @ top_p_warning
 
+(* Claude Sonnet 5.5 rejects disabled thinking but accepts between_tools, its
+   lowest setting. *)
+let normalize_disabled_thinking ~model ~capabilities ~anthropic_opts =
+  match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking with
+  | Some { between_tools = true; _ }, Some Thinking.Disabled ->
+    ( Some Thinking.Between_tools,
+      [
+        warning "providerOptions.anthropic.thinking"
+          (Some
+             (Printf.sprintf "thinking cannot be disabled for %s; using between_tools, the lowest thinking setting"
+                model));
+      ] )
+  | _, thinking -> thinking, []
+
 let normalize_disabled_effort ~model ~capabilities ~anthropic_opts =
   match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking, anthropic_opts.effort with
-  | Some { disabled = Model_catalog.Up_to_high; _ }, Some Thinking.Disabled, Some (Effort.Xhigh | Effort.Max) ->
+  | Some { disabled = Model_catalog.Up_to_high; _ }, Some Thinking.Disabled, Some (Effort.Xhigh | Effort.Max)
+  | _, Some Thinking.Between_tools, Some (Effort.Xhigh | Effort.Max) ->
     ( Some Effort.High,
       [
         warning "providerOptions.anthropic.effort"
-          (Some (Printf.sprintf "effort is not supported by %s when thinking is disabled; lowered to 'high'" model));
+          (Some (Printf.sprintf "effort is not supported by %s with this thinking setting; lowered to 'high'" model));
       ] )
   | _, _, effort -> effort, []
+
+(* Some models reject a forced tool choice with a 400. Ask for [Auto] instead;
+   for [Specific], send only that tool, as upstream does. *)
+let normalize_forced_tool_choice ~model ~capabilities (opts : Ai_provider.Call_options.t) =
+  let downgraded details =
+    [ warning "tool_choice" (Some (Printf.sprintf "%s rejects a forced tool choice; using auto. %s" model details)) ]
+  in
+  match capabilities.Model_catalog.rejects_forced_tool_choice, opts.tool_choice with
+  | true, Some Ai_provider.Tool_choice.Required ->
+    opts.tools, Some Ai_provider.Tool_choice.Auto, downgraded "Instruct the model to use a tool and check that it did."
+  | true, Some (Ai_provider.Tool_choice.Specific { tool_name }) ->
+    ( List.filter (fun (tool : Ai_provider.Tool.t) -> String.equal tool.name tool_name) opts.tools,
+      Some Ai_provider.Tool_choice.Auto,
+      downgraded (Printf.sprintf "Only %s is sent; instruct the model to use it and check that it did." tool_name) )
+  | true, (None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_)) | false, _ ->
+    opts.tools, opts.tool_choice, []
 
 (** Prepare the request body and warnings — shared by generate and stream. *)
 let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
@@ -128,9 +164,12 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let temperature, top_p, top_k, warnings =
     normalize_sampling ~model ~known_model ~capabilities ~thinking_active opts
   in
+  let thinking, thinking_warnings = normalize_disabled_thinking ~model ~capabilities ~anthropic_opts in
+  let anthropic_opts = { anthropic_opts with thinking } in
   let effort, effort_warnings = normalize_disabled_effort ~model ~capabilities ~anthropic_opts in
   let anthropic_opts = { anthropic_opts with effort } in
-  let warnings = warnings @ effort_warnings in
+  let tools, tool_choice, tool_choice_warnings = normalize_forced_tool_choice ~model ~capabilities opts in
+  let warnings = warnings @ thinking_warnings @ effort_warnings @ tool_choice_warnings in
   (* One validator per request — shared across system, tools, and messages
      so the 4-breakpoint limit covers them all. Upstream order matches
      this: system blocks, then tools, then messages. *)
@@ -160,16 +199,14 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
             };
         ] )
   in
-  validate_options ~model ~capabilities ~anthropic_opts ~tool_choice:opts.tool_choice ~forced_tool_choice;
+  validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice;
   let output_config =
     match output_format, anthropic_opts.effort with
     | None, None -> None
     | format, effort -> Some Anthropic_api.{ format; effort = Option.map Effort.to_string effort }
   in
   let warnings = warnings @ extra_warnings in
-  let base_tools, base_tool_choice =
-    Convert_tools.convert_tools ~validator ~tools:opts.tools ~tool_choice:opts.tool_choice ()
-  in
+  let base_tools, base_tool_choice = Convert_tools.convert_tools ~validator ~tools ~tool_choice () in
   let messages = Convert_prompt.convert_messages ~validator remaining in
   let tools = Option.fold ~none:base_tools ~some:(fun t -> base_tools @ [ t ]) fallback_tool in
   (* When structured-output fallback is active, override the caller's tool_choice. *)

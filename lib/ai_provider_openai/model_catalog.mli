@@ -12,6 +12,7 @@ type model_capabilities = {
   supports_structured_output : bool;
   supports_vision : bool;
   supports_tool_calling : bool;
+  supports_non_reasoning_parameters : bool;
 }
 
 type known_model =
@@ -60,7 +61,10 @@ val of_model_id : string -> known_model
     "o3-mini", ...) and GPT-5 or later ("gpt-5", "gpt-5.4-mini", "gpt-6-sol",
     ...) are reasoning models, as in upstream's [@ai-sdk/openai], except a GPT
     chat variant without a minor version ("gpt-5-chat-latest"). Dated variants
-    get the capabilities of their base model. *)
+    get the capabilities of their base model.
+    [supports_non_reasoning_parameters] holds for GPT-5.1 and later GPT-5
+    models, which accept [temperature], [top_p] and [logprobs] when the
+    reasoning effort is [Re_none]. *)
 val capabilities : string -> model_capabilities
 
 (** Convenience: check if a model ID is a reasoning model. *)

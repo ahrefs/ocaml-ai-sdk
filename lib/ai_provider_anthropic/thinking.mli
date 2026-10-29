@@ -47,6 +47,13 @@ type t =
           the SDK guessing one. Pre-adaptive models reject [Adaptive]. *)
   | Disabled
     (** Turn thinking off. Not universally accepted: some models always
-          think and reject it outright. On Claude Opus 5 it is accepted at any
-          effort, but pairing it with [Xhigh] or [Max] lowers the effort to
-          [High] and emits a warning rather than raising. *)
+          think and reject it outright. On Claude Opus 5 and Claude Haiku 5.5
+          it is accepted at any effort, but pairing it with [Xhigh] or [Max]
+          lowers the effort to [High] and emits a warning rather than raising.
+          On Claude Sonnet 5.5 it is sent as [Between_tools], with a warning. *)
+  | Between_tools
+    (** No up-front thinking: the model only writes short notes between tool
+          calls. Claude Sonnet 5.5's lowest thinking setting, which it accepts
+          in place of [Disabled]. Pairing it with [Xhigh] or [Max] lowers the
+          effort to [High] and emits a warning. Other catalog models reject
+          it. *)

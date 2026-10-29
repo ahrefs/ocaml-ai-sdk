@@ -7,6 +7,7 @@ type reasoning_effort =
   | Medium
   | High
   | Xhigh
+  | Max
 
 type service_tier =
   | St_auto

@@ -20,3 +20,4 @@ type t =
     }
   | Adaptive of { display : display option }
   | Disabled
+  | Between_tools
