@@ -26,11 +26,16 @@ type model_capabilities = {
 }
 
 type known_model =
+  | Claude_fable_5_1
   | Claude_fable_5
+  | Claude_mythos_5_1
   | Claude_mythos_5
+  | Claude_opus_5_5
   | Claude_opus_5
   | Claude_opus_4_8
+  | Claude_sonnet_5_5
   | Claude_sonnet_5
+  | Claude_haiku_5_5
   | Claude_haiku_4_5
   | Custom of string
 

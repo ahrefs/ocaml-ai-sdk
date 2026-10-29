@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Breaking changes
+
+- `Model_catalog.known_model` has new constructors in the Anthropic and OpenAI
+  providers, listed below. Exhaustive matches over it need the new arms.
+
+### Anthropic provider (`ai_provider_anthropic`)
+
+- The catalog adds `Claude_fable_5_1`, `Claude_mythos_5_1`, `Claude_opus_5_5`,
+  `Claude_sonnet_5_5` and `Claude_haiku_5_5`. All five run adaptive thinking by
+  default, accept every effort level, reject sampling parameters, allow 128k
+  output tokens, cache from 512 tokens and omit thinking text by default.
+  Thinking cannot be disabled on Fable 5.1, Mythos 5.1, Opus 5.5 or Sonnet 5.5;
+  Haiku 5.5 accepts disabled thinking up to `high` effort.
+
+### OpenAI provider (`ai_provider_openai`)
+
+- The catalog adds the GPT-5 to GPT-6.1 models that upstream's
+  `@ai-sdk/openai` lists, from `Gpt_5` to `Gpt_6_1_terra`.
+- Fix: GPT-5 and later model ids are reasoning models, as upstream detects
+  them, dated or not. `capabilities` used to treat them as chat models, so
+  requests sent the `system` role, the sampling parameters and a default
+  `max_tokens` of 4096, which reasoning models reject. A chat variant without a
+  minor version, such as `gpt-5-chat-latest`, stays a chat model.
+
 ## 0.7 — 2026-10-23
 
 ### Breaking changes

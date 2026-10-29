@@ -15,6 +15,30 @@ type model_capabilities = {
 }
 
 type known_model =
+  | Gpt_6_1_sol
+  | Gpt_6_1_terra
+  | Gpt_6_astra
+  | Gpt_6_luna
+  | Gpt_6_sol
+  | Gpt_5_6
+  | Gpt_5_6_luna
+  | Gpt_5_6_sol
+  | Gpt_5_6_terra
+  | Gpt_5_5
+  | Gpt_5_4
+  | Gpt_5_4_mini
+  | Gpt_5_4_nano
+  | Gpt_5_4_pro
+  | Gpt_5_3_chat_latest
+  | Gpt_5_2
+  | Gpt_5_2_chat_latest
+  | Gpt_5_2_pro
+  | Gpt_5_1
+  | Gpt_5_1_chat_latest
+  | Gpt_5
+  | Gpt_5_mini
+  | Gpt_5_nano
+  | Gpt_5_chat_latest
   | Gpt_4_1
   | Gpt_4_1_mini
   | Gpt_4_1_nano
@@ -36,8 +60,11 @@ val to_model_id : known_model -> string
     return [Custom]. Use [capabilities] for prefix-based detection. *)
 val of_model_id : string -> known_model
 
-(** Get capabilities from a raw model ID string.
-    Routes through [of_model_id] first, with prefix-based fallback for [Custom] variants. *)
+(** Get capabilities from a raw model ID string. o-series models ("o1",
+    "o3-mini", ...) and GPT-5 or later ("gpt-5", "gpt-5.4-mini", "gpt-6-sol",
+    ...) are reasoning models, as in upstream's [@ai-sdk/openai], except a GPT
+    chat variant without a minor version ("gpt-5-chat-latest"). Dated variants
+    get the capabilities of their base model. *)
 val capabilities : string -> model_capabilities
 
 (** Convenience: check if a model ID is a reasoning model. *)

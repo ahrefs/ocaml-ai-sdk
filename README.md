@@ -7,8 +7,8 @@ Type-safe, provider-agnostic AI model abstraction for OCaml, inspired by the [Ve
 | Library | opam lib | Description |
 |---------|----------|-------------|
 | `ai_provider` | `ocaml-ai-sdk.ai_provider` | Provider abstraction — language model module types, tool definitions, prompt types, GADT-based provider options |
-| `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, Claude 4.6+ model catalog |
-| `ai_provider_openai` | `ocaml-ai-sdk.ai_provider_openai` | OpenAI Chat Completions API — streaming SSE, tool calling with strict mode, GPT-4o/o1/o3/o4-mini catalog |
+| `ai_provider_anthropic` | `ocaml-ai-sdk.ai_provider_anthropic` | Anthropic Messages API — streaming SSE, thinking, cache control, Claude model catalog |
+| `ai_provider_openai` | `ocaml-ai-sdk.ai_provider_openai` | OpenAI Chat Completions API — streaming SSE, tool calling with strict mode, GPT-4o to GPT-6.1 and o-series catalog |
 | `ai_provider_openrouter` | `ocaml-ai-sdk.ai_provider_openrouter` | OpenRouter Chat Completions API — model routing, provider preferences, reasoning, web search, usage accounting, prompt caching |
 | `ai_core` | `ocaml-ai-sdk.ai_core` | Core SDK — `generate_text`, `stream_text` (with tool loops), UIMessage stream protocol, server handler, structured output |
 | `ai_mock` | `ocaml-ai-sdk.ai_mock` | Mock language model for tests, including models that hang until aborted |
@@ -25,7 +25,7 @@ opam install ocaml-ai-sdk
 ```ocaml
 let () =
   Lwt_main.run @@
-  let model = Ai_provider_anthropic.model "claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.model "claude-sonnet-5-5" in
   let%lwt result = Ai_core.Generate_text.generate_text ~model ~prompt:"Say hello" () in
   Lwt_io.printl result.text
 ```
@@ -35,7 +35,7 @@ let () =
 ```ocaml
 let () =
   Lwt_main.run @@
-  let model = Ai_provider_anthropic.model "claude-sonnet-4-6" in
+  let model = Ai_provider_anthropic.model "claude-sonnet-5-5" in
   let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Tell me a joke" () in
   Lwt_stream.iter_s Lwt_io.print result.text_stream
 ```

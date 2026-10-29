@@ -91,6 +91,26 @@ let test_is_reasoning_model () =
   (check bool) "gpt-4o" false (Ai_provider_openai.Model_catalog.is_reasoning_model "gpt-4o");
   (check bool) "gpt-4.1" false (Ai_provider_openai.Model_catalog.is_reasoning_model "gpt-4.1")
 
+(* GPT-5 and later are reasoning models, dated or not, except a chat variant
+   without a minor version; upstream counts "gpt-5.1-chat-latest" as reasoning. *)
+let test_gpt_5_and_later () =
+  List.iter
+    (fun (id, reasoning) ->
+      let caps = Ai_provider_openai.Model_catalog.capabilities id in
+      (check bool) (id ^ " reasoning") reasoning caps.is_reasoning_model;
+      (check bool) (id ^ " developer role") reasoning
+        (match caps.system_message_mode with
+        | Developer -> true
+        | System | Remove -> false))
+    [
+      "gpt-5", true;
+      "gpt-5-mini-2025-08-07", true;
+      "gpt-5.4-pro", true;
+      "gpt-6.1-sol", true;
+      "gpt-5-chat-latest", false;
+      "gpt-5.1-chat-latest", true;
+    ]
+
 let test_system_message_mode () =
   let caps = Ai_provider_openai.Model_catalog.capabilities "o3-mini" in
   (match caps.system_message_mode with
@@ -128,6 +148,7 @@ let () =
           test_case "capabilities_gpt41_dated" `Quick test_capabilities_gpt41_dated;
           test_case "capabilities_gpt4o_dated" `Quick test_capabilities_gpt4o_dated;
           test_case "is_reasoning_model" `Quick test_is_reasoning_model;
+          test_case "gpt_5_and_later" `Quick test_gpt_5_and_later;
           test_case "system_message_mode" `Quick test_system_message_mode;
         ] );
     ]
