@@ -71,6 +71,25 @@ fn run_script(code: &str) -> Vec<Value> {
     runner.until_end()
 }
 
+/// `exit()` throws to unwind the script and the script can catch that: the run is over anyway, so
+/// the runner has to stop it, report nothing more, and exit by itself.
+#[test]
+fn a_script_that_keeps_going_after_done_is_stopped() {
+    for code in [
+        "try { exit() } catch {} for (;;) {}",
+        "try { exit() } catch {} while (true) await null",
+        "try { exit() } catch {} tools.t(); text('late'); await null; return 1",
+    ] {
+        let mut runner = Runner::spawn("none");
+        runner.start(code, &["t"]);
+        let messages = runner.until_end();
+        assert_eq!(messages.len(), 1, "{code}: {messages:?}");
+        assert_eq!(messages[0]["type"], "done", "{code}");
+        assert_eq!(runner.recv(), None, "{code}: nothing after done");
+        assert!(runner.child.wait().unwrap().success(), "{code}");
+    }
+}
+
 #[test]
 fn returns_the_value_as_json_text() {
     let messages = run_script("return { a: [1, 'x'] }");
