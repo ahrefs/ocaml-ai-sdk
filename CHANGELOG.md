@@ -51,6 +51,11 @@ All notable changes to this project will be documented in this file.
   a warning, at any other effort and on GPT-6.
 - `Openai_options.reasoning_effort` adds `Max`, which GPT-5.6 and GPT-6 accept.
 
+### Core SDK (`ai_core`)
+
+- Add `Stop_condition.is_loop_finished`, upstream's `isLoopFinished()`. Unlike
+  upstream, it does not lift `max_steps`, which defaults to 1.
+
 ## 0.7 — 2026-10-23
 
 ### Breaking changes

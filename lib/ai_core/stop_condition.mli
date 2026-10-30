@@ -18,6 +18,11 @@ val step_count_is : int -> t
     Equivalent to the upstream [hasToolCall(toolName)]. *)
 val has_tool_call : string -> t
 
+(** [is_loop_finished] never stops the loop, the same as passing no
+    condition. Unlike the upstream [isLoopFinished()], it does not lift the
+    step limit, so pass a larger [~max_steps] with it. *)
+val is_loop_finished : t
+
 (** [is_met conditions ~steps] returns [true] when any condition in
     [conditions] is satisfied (OR semantics). Returns [false] for
     an empty condition list. *)
