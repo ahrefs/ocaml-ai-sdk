@@ -1,0 +1,3 @@
+; The crate is built with cargo (`make build-codemode-binary`), never by dune.
+
+(dirs :standard \ src tests vendor conformance target)

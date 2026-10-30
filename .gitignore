@@ -8,3 +8,5 @@ dist/
 .playwright/
 .playwright-cli/
 ai-trace.json
+lib/codemode-sandbox/target/
+lib/codemode-sandbox/vendor/
