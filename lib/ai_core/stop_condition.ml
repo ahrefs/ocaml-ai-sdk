@@ -14,4 +14,6 @@ let has_tool_call tool_name ~(steps : Generate_text_result.step list) =
     Lwt.return
       (List.exists (fun (tc : Generate_text_result.tool_call) -> String.equal tc.tool_name tool_name) last.tool_calls)
 
+let is_loop_finished ~steps:(_ : Generate_text_result.step list) = Lwt.return false
+
 let is_met conditions ~steps = Lwt_list.exists_s (fun cond -> cond ~steps) conditions

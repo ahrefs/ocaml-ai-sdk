@@ -533,6 +533,20 @@ let test_stream_stop_when_max_steps_limits () =
   (* max_steps=2 is the hard limit *)
   (check int) "2 steps" 2 (List.length steps)
 
+let test_stream_stop_when_is_loop_finished () =
+  let model = make_multi_step_stream_model () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Go"
+      ~tools:[ "search", search_tool ]
+      ~max_steps:4
+      ~stop_when:[ Ai_core.Stop_condition.is_loop_finished ]
+      ()
+  in
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  let steps = Lwt_main.run result.steps in
+  (* Never stops on its own, so the tool loop runs until max_steps *)
+  (check int) "4 steps" 4 (List.length steps)
+
 let run_lwt f () = Lwt_main.run (f ())
 
 (* Mock model that fails N times on stream with retryable error, then succeeds *)
@@ -1745,6 +1759,7 @@ let () =
           test_case "has_tool_call" `Quick test_stream_stop_when_has_tool_call;
           test_case "on_finish_fires" `Quick test_stream_stop_when_on_finish_fires;
           test_case "max_steps_limits" `Quick test_stream_stop_when_max_steps_limits;
+          test_case "is_loop_finished" `Quick test_stream_stop_when_is_loop_finished;
         ] );
       ( "transform",
         [

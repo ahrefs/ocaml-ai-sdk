@@ -431,6 +431,19 @@ let test_stop_when_or_semantics () =
   (* OR semantics: step_count_is 2 should fire first *)
   (check int) "2 steps" 2 (List.length result.steps)
 
+let test_stop_when_is_loop_finished () =
+  let model = make_multi_step_tool_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Go"
+         ~tools:[ "search", search_tool ]
+         ~max_steps:4
+         ~stop_when:[ Ai_core.Stop_condition.is_loop_finished ]
+         ())
+  in
+  (* Never stops on its own, so the tool loop runs until max_steps *)
+  (check int) "4 steps" 4 (List.length result.steps)
+
 let test_stop_when_empty_conditions () =
   (* Empty stop_when list should never stop — behaves like no stop_when *)
   let model = make_tool_model () in
@@ -1440,6 +1453,7 @@ let () =
           test_case "has_tool_call" `Quick test_stop_when_has_tool_call;
           test_case "max_steps_still_limits" `Quick test_stop_when_max_steps_still_limits;
           test_case "or_semantics" `Quick test_stop_when_or_semantics;
+          test_case "is_loop_finished" `Quick test_stop_when_is_loop_finished;
           test_case "empty_conditions" `Quick test_stop_when_empty_conditions;
           test_case "custom_predicate" `Quick test_stop_when_custom_predicate;
           test_case "not_set_continues" `Quick test_stop_when_not_set;
