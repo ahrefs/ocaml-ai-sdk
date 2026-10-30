@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.8 — 2026-10-30
+
 ### Breaking changes
 
 - `Model_catalog.known_model` has new constructors in the Anthropic and OpenAI
