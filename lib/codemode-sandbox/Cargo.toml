@@ -1,0 +1,30 @@
+[package]
+name = "ai-sdk-quickjs-runner"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+description = "Sandboxed QuickJS VM that runs one codemode script, speaking JSONL over stdio"
+license = "MIT"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ai-sdk-quickjs-runner"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", default-features = false, features = ["std"] }
+landlock = "0.4"
+libc = "0.2"
+rquickjs = "0.14"
+seccompiler = "0.5"
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

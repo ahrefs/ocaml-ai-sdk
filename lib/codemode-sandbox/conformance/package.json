@@ -1,0 +1,17 @@
+{
+  "name": "ai-sdk-quickjs-runner-conformance",
+  "private": true,
+  "type": "module",
+  "description": "Runs pi-codemode's sandbox scenarios against the ai-sdk-quickjs-runner binary",
+  "dependencies": {
+    "@earendil-works/pi-codemode": "1.4.0"
+  },
+  "devDependencies": {
+    "vitest": "3.2.4"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "gen-prelude": "node gen-prelude.mjs",
+    "check-prelude": "node gen-prelude.mjs --check"
+  }
+}
