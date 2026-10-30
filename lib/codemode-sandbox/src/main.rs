@@ -48,6 +48,7 @@ fn run(cli: &cli::Cli) -> Result<(), Failure> {
     let runtime = Runtime::new().map_err(cannot_create)?;
     set_memory_limit(&runtime, cli.memory_limit_bytes);
     runtime.set_max_stack_size(MAX_STACK_SIZE);
+    runtime.set_interrupt_handler(Some(Box::new(vm::finished)));
     let context = Context::full(&runtime).map_err(cannot_create)?;
 
     sandbox::enter(cli.sandbox).map_err(Failure::Setup)?;

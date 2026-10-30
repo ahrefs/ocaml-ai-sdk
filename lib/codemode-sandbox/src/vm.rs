@@ -7,9 +7,22 @@
 use crate::protocol::{self, parse_result};
 use rquickjs::{context::EvalOptions, function::Rest, Ctx, Error, Function, Object, Value};
 use serde_json::{json, Value as Json};
-use std::{cell::Cell, io::BufRead, rc::Rc};
+use std::{
+    io::BufRead,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 const PRELUDE: &str = include_str!("prelude.js");
+
+/// Set once the script's `done` message is sent. From then on the VM is interrupted and nothing
+/// more is sent: `exit()` and the output limit throw into the script, which may catch that and
+/// carry on, but the run is over.
+static FINISHED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the run is over; the runtime's interrupt handler returns it.
+pub fn finished() -> bool {
+    FINISHED.load(Ordering::Relaxed)
+}
 
 /// What the host sends first: pi's `VmStartData`, minus what only a worker needs.
 pub struct Start {
@@ -67,7 +80,10 @@ fn string_arg(value: Option<&Value<'_>>) -> Option<String> {
 
 /// Handles one `bridge(kind, a, b, c)` call from the prelude: the messages of
 /// `WorkerToHostMessage`, with `undefined` fields left out.
-fn handle_bridge(args: &[Value<'_>], finished: &Cell<bool>) -> Result<(), String> {
+fn handle_bridge(args: &[Value<'_>]) -> Result<(), String> {
+    if finished() {
+        return Ok(());
+    }
     let arg = |i: usize| string_arg(args.get(i));
     let text = |i: usize| arg(i).unwrap_or_default();
     let kind = arg(0).ok_or("bridge called without a kind")?;
@@ -105,7 +121,7 @@ fn handle_bridge(args: &[Value<'_>], finished: &Cell<bool>) -> Result<(), String
             } else {
                 json!({ "type": "done", "ok": false, "error": text(2) })
             };
-            finished.set(true);
+            FINISHED.store(true, Ordering::Relaxed);
             message
         }
         other => return Err(format!("unknown bridge kind {other:?}")),
@@ -144,19 +160,23 @@ fn js_error(ctx: &Ctx<'_>, error: Error) -> String {
 }
 
 /// Runs the script to its `done` message. Returns an error for failures of the VM itself, which
-/// the caller reports as `crash`.
+/// the caller reports as `crash`. Whatever happens after `done` (the interrupt that stops a
+/// script which kept going, for one) is not a failure.
 pub fn run(ctx: &Ctx<'_>, start: &Start, input: &mut impl BufRead) -> Result<(), String> {
-    let finished = Rc::new(Cell::new(false));
-    let bridge = {
-        let finished = Rc::clone(&finished);
-        Function::new(ctx.clone(), move |args: Rest<Value<'_>>| {
-            if let Err(message) = handle_bridge(&args.0, &finished) {
-                protocol::send_crash(&message);
-                std::process::exit(1);
-            }
-        })
-        .map_err(|e| js_error(ctx, e))?
-    };
+    match run_script(ctx, start, input) {
+        Err(_) if finished() => Ok(()),
+        result => result,
+    }
+}
+
+fn run_script(ctx: &Ctx<'_>, start: &Start, input: &mut impl BufRead) -> Result<(), String> {
+    let bridge = Function::new(ctx.clone(), move |args: Rest<Value<'_>>| {
+        if let Err(message) = handle_bridge(&args.0) {
+            protocol::send_crash(&message);
+            std::process::exit(1);
+        }
+    })
+    .map_err(|e| js_error(ctx, e))?;
 
     let prelude: Function = ctx
         .eval_with_options(PRELUDE, eval_options("codemode-prelude.js"))
@@ -185,13 +205,16 @@ pub fn run(ctx: &Ctx<'_>, start: &Start, input: &mut impl BufRead) -> Result<(),
 
     // Run queued jobs, then fail a script that waits on nothing that can ever resume it.
     let drain = || -> Result<(), String> {
-        while ctx.execute_pending_job() {}
+        while !finished() && ctx.execute_pending_job() {}
+        if finished() {
+            return Ok(());
+        }
         stalled.call::<_, bool>(()).map(|_| ()).map_err(|e| js_error(ctx, e))
     };
 
     run.call::<_, ()>((script,)).map_err(|e| js_error(ctx, e))?;
     drain()?;
-    while !finished.get() {
+    while !finished() {
         let line = protocol::read_line(input)
             .map_err(|e| format!("cannot read from stdin: {e}"))?
             .ok_or("host closed stdin before the script finished")?;

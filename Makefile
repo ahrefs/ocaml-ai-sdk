@@ -58,7 +58,7 @@ test-codemode-binary: $(CODEMODE_DIR)/vendor/config.toml
 # Runs pi-codemode's sandbox tests against the binary (needs node and pnpm).
 .PHONY: conformance-codemode-binary
 conformance-codemode-binary: build-codemode-binary
-	cd $(CODEMODE_DIR)/conformance && pnpm install --frozen-lockfile && \
+	cd $(CODEMODE_DIR)/conformance && pnpm install --frozen-lockfile && pnpm check-prelude && \
 	  RUNNER=$(CODEMODE_TARGET_DIR)/release/$(CODEMODE_BINARY) pnpm test
 
 .PHONY: install-codemode-binary
