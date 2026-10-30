@@ -12,6 +12,7 @@ type thinking_capabilities = {
   disabled : disabled_thinking_support;
   effort_levels : Effort.t list;
   display_default : Thinking.display option;
+  between_tools : bool;
 }
 
 type model_capabilities = {
@@ -23,14 +24,20 @@ type model_capabilities = {
   min_cache_tokens : int;
   supports_vision : bool;
   supports_pdf : bool;
+  rejects_forced_tool_choice : bool;
 }
 
 type known_model =
+  | Claude_fable_5_1
   | Claude_fable_5
+  | Claude_mythos_5_1
   | Claude_mythos_5
+  | Claude_opus_5_5
   | Claude_opus_5
   | Claude_opus_4_8
+  | Claude_sonnet_5_5
   | Claude_sonnet_5
+  | Claude_haiku_5_5
   | Claude_haiku_4_5
   | Custom of string
 

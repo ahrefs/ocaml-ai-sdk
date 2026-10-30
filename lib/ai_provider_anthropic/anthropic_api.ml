@@ -60,6 +60,7 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
     match thinking with
     | None -> None
     | Some Thinking.Disabled -> Some { type_ = "disabled"; budget_tokens = None; display = None }
+    | Some Thinking.Between_tools -> Some { type_ = "between_tools"; budget_tokens = None; display = None }
     | Some (Thinking.Adaptive { display }) ->
       Some { type_ = "adaptive"; budget_tokens = None; display = Option.map display_to_string display }
     | Some (Thinking.Enabled { budget_tokens; display }) ->

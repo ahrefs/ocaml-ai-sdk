@@ -5,6 +5,7 @@ type reasoning_effort =
   | Medium
   | High
   | Xhigh
+  | Max
 
 type service_tier =
   | St_auto
@@ -61,6 +62,7 @@ let reasoning_effort_to_string = function
   | Medium -> "medium"
   | High -> "high"
   | Xhigh -> "xhigh"
+  | Max -> "max"
 
 let service_tier_to_string = function
   | St_auto -> "auto"
