@@ -18,13 +18,9 @@ val step_count_is : int -> t
     Equivalent to the upstream [hasToolCall(toolName)]. *)
 val has_tool_call : string -> t
 
-(** [is_loop_finished] never stops the loop, so passing it is the same as
-    passing no condition. The loop still ends when the model answers
-    without tool calls, a tool needs approval, the call is aborted, or
-    [max_steps] is reached. Named after the upstream [isLoopFinished()],
-    which replaces the default [stepCountIs(1)] and so lifts the step
-    limit. Here [max_steps] still defaults to 1, so pass a larger
-    [~max_steps] with it. *)
+(** [is_loop_finished] never stops the loop, the same as passing no
+    condition. Unlike the upstream [isLoopFinished()], it does not lift the
+    step limit, so pass a larger [~max_steps] with it. *)
 val is_loop_finished : t
 
 (** [is_met conditions ~steps] returns [true] when any condition in

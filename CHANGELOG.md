@@ -53,9 +53,8 @@ All notable changes to this project will be documented in this file.
 
 ### Core SDK (`ai_core`)
 
-- `Stop_condition.is_loop_finished` never stops the tool loop, like upstream's
-  `isLoopFinished()`. Unlike upstream, it does not lift the step limit. The
-  loop still ends at `max_steps`, which defaults to 1.
+- Add `Stop_condition.is_loop_finished`, upstream's `isLoopFinished()`. Unlike
+  upstream, it does not lift `max_steps`, which defaults to 1.
 
 ## 0.7 — 2026-10-23
 
