@@ -1,6 +1,6 @@
 // Adapted from packages/codemode/test/sandbox.test.ts of https://github.com/earendil-works/pi
-// (MIT, Copyright (c) 2025 Mario Zechner), at the commit that has @earendil-works/pi-codemode 1.4.0
-// in packages/codemode/package.json (e7a0df27c09d11bf4161d3605246cbf57a129cb2).
+// (MIT, Copyright (c) 2025 Mario Zechner), at tag v1.4.0 (4a080252f06caf63a525d7873c5d94d3c23887e0),
+// the release of @earendil-works/pi-codemode 1.4.0.
 //
 // Changes: the backends are replaced by RunnerSandbox, which runs the ai-sdk-quickjs-runner binary;
 // the imports use the published package; the "worker host" section, which tests the worker

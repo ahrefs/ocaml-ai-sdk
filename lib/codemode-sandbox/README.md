@@ -92,8 +92,8 @@ the lockfile within the MSRV), then `make rust-vendor`. Build and test with
   (generate it with `pnpm gen-prelude` in `conformance/`). It builds the script's environment: `tools`, `ALL_TOOLS`,
   `console`, `text`, `image`, `exit`, `store`, `load`, the freezing of built-ins and the error and output handling.
   The runner only supplies its native `bridge`. MIT, Copyright (c) 2025 Mario Zechner.
-- `conformance/test/sandbox.test.ts` is adapted from pi's `packages/codemode/test/sandbox.test.ts` (same
-  licence). The header of the file lists the changes.
+- `conformance/test/sandbox.test.ts` is adapted from pi's `packages/codemode/test/sandbox.test.ts` at tag `v1.4.0`
+  (4a08025, same licence). The header of the file lists the changes.
 - Known differences: the engine is QuickJS-ng (`rquickjs`), pi's is `quickjs-wasi`. A call costs about 1.6 KiB of
   QuickJS stack here, so the stack guard is 2 MiB (pi's tests expect more than 1000 levels of recursion, which
   512 KiB did not give). `Intl` is not available in this runner. All 48 scenarios of pi's `sandbox.test.ts` pass.
