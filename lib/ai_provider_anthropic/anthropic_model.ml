@@ -21,7 +21,7 @@ let unsupported_effort_message ~model ~effort ~accepted =
     | [] -> "this model accepts no effort levels"
     | levels -> Printf.sprintf "this model accepts %s" (String.concat ", " (List.map Effort.to_string levels)))
 
-let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice =
+let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~fallback_tool_choice =
   (match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking with
   | Some thinking, Some (Thinking.Enabled _) when not thinking.manual ->
     Printf.ksprintf invalid_arg
@@ -56,7 +56,10 @@ let validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_t
     when (match tool_choice with
            | Some (Ai_provider.Tool_choice.Required | Ai_provider.Tool_choice.Specific _) -> true
            | None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_) -> false)
-         || Option.is_some forced_tool_choice ->
+         ||
+         match fallback_tool_choice with
+         | Some (Convert_tools.Tc_any | Convert_tools.Tc_tool _) -> true
+         | None | Some Convert_tools.Tc_auto -> false ->
     invalid_arg
       "manual thinking (Thinking.Enabled) cannot be combined with a forced tool choice (Tool_choice.Required or \
        Tool_choice.Specific). Use Tool_choice.Auto, or drop the manual thinking budget."
@@ -122,7 +125,9 @@ let normalize_disabled_thinking ~model ~capabilities ~anthropic_opts =
              (Printf.sprintf "thinking cannot be disabled for %s; using between_tools, the lowest thinking setting"
                 model));
       ] )
-  | _, thinking -> thinking, []
+  | (None | Some { between_tools = false; _ }), Some Thinking.Disabled
+  | _, (None | Some (Thinking.Enabled _ | Thinking.Adaptive _ | Thinking.Between_tools)) ->
+    anthropic_opts.thinking, []
 
 let normalize_disabled_effort ~model ~capabilities ~anthropic_opts =
   match capabilities.Model_catalog.thinking, anthropic_opts.Anthropic_options.thinking, anthropic_opts.effort with
@@ -133,23 +138,60 @@ let normalize_disabled_effort ~model ~capabilities ~anthropic_opts =
         warning "providerOptions.anthropic.effort"
           (Some (Printf.sprintf "effort is not supported by %s with this thinking setting; lowered to 'high'" model));
       ] )
-  | _, _, effort -> effort, []
+  | ( (None | Some { disabled = Model_catalog.Allowed | Model_catalog.Unsupported; _ }),
+      Some Thinking.Disabled,
+      Some (Effort.Xhigh | Effort.Max) )
+  | _, (None | Some (Thinking.Enabled _ | Thinking.Adaptive _)), Some (Effort.Xhigh | Effort.Max)
+  | _, _, (None | Some (Effort.Low | Effort.Medium | Effort.High)) ->
+    anthropic_opts.effort, []
+
+let forced_tool_choice_downgraded ~model details =
+  [ warning "tool_choice" (Some (Printf.sprintf "%s rejects a forced tool choice; using auto. %s" model details)) ]
+
+let required_tool_choice_downgraded ~model =
+  forced_tool_choice_downgraded ~model "Instruct the model to use a tool and check that it did."
 
 (* Some models reject a forced tool choice with a 400. Ask for [Auto] instead;
    for [Specific], send only that tool, as upstream does. *)
 let normalize_forced_tool_choice ~model ~capabilities (opts : Ai_provider.Call_options.t) =
-  let downgraded details =
-    [ warning "tool_choice" (Some (Printf.sprintf "%s rejects a forced tool choice; using auto. %s" model details)) ]
-  in
   match capabilities.Model_catalog.rejects_forced_tool_choice, opts.tool_choice with
   | true, Some Ai_provider.Tool_choice.Required ->
-    opts.tools, Some Ai_provider.Tool_choice.Auto, downgraded "Instruct the model to use a tool and check that it did."
+    opts.tools, Some Ai_provider.Tool_choice.Auto, required_tool_choice_downgraded ~model
   | true, Some (Ai_provider.Tool_choice.Specific { tool_name }) ->
     ( List.filter (fun (tool : Ai_provider.Tool.t) -> String.equal tool.name tool_name) opts.tools,
       Some Ai_provider.Tool_choice.Auto,
-      downgraded (Printf.sprintf "Only %s is sent; instruct the model to use it and check that it did." tool_name) )
+      forced_tool_choice_downgraded ~model
+        (Printf.sprintf "Only %s is sent; instruct the model to use it and check that it did." tool_name) )
   | true, (None | Some (Ai_provider.Tool_choice.Auto | Ai_provider.Tool_choice.None_)) | false, _ ->
     opts.tools, opts.tool_choice, []
+
+(* Route Object_json per-model: native output_config where supported, synthetic [json]
+   tool with forced tool_choice otherwise — matches upstream @ai-sdk/anthropic. Upstream
+   forces the fallback as a required tool choice, so a model that rejects forced tool
+   choice gets [Auto] and the same warning. *)
+let route_structured_output ~model ~capabilities (mode : Ai_provider.Mode.t) =
+  match mode with
+  | Regular | Object_tool _ -> None, None, None, []
+  | Object_json (Some { name = _; schema }) when capabilities.Model_catalog.supports_structured_output ->
+    Some Anthropic_api.{ type_ = "json_schema"; schema }, None, None, []
+  | Object_json (Some { name = _; schema }) ->
+    let tool_choice, warnings =
+      match capabilities.rejects_forced_tool_choice with
+      | true -> Convert_tools.Tc_auto, required_tool_choice_downgraded ~model
+      | false -> Convert_tools.forced_json_tool_choice, []
+    in
+    None, Some (Convert_tools.json_response_tool ~schema), Some tool_choice, warnings
+  | Object_json None ->
+    ( None,
+      None,
+      None,
+      [
+        Ai_provider.Warning.Unsupported_feature
+          {
+            feature = "response_format without schema";
+            details = Some "Anthropic structured outputs require a JSON schema; sending request without enforcement";
+          };
+      ] )
 
 (** Prepare the request body and warnings — shared by generate and stream. *)
 let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
@@ -160,14 +202,15 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     Anthropic_options.of_provider_options opts.provider_options
     |> Stdlib.Option.value ~default:Anthropic_options.default
   in
-  let thinking_active = effective_thinking_active ~capabilities ~thinking:anthropic_opts.thinking in
-  let temperature, top_p, top_k, warnings =
-    normalize_sampling ~model ~known_model ~capabilities ~thinking_active opts
-  in
   let thinking, thinking_warnings = normalize_disabled_thinking ~model ~capabilities ~anthropic_opts in
   let anthropic_opts = { anthropic_opts with thinking } in
   let effort, effort_warnings = normalize_disabled_effort ~model ~capabilities ~anthropic_opts in
   let anthropic_opts = { anthropic_opts with effort } in
+  (* After the rewrites above, as upstream: [Disabled] sent as [Between_tools] still thinks. *)
+  let thinking_active = effective_thinking_active ~capabilities ~thinking:anthropic_opts.thinking in
+  let temperature, top_p, top_k, warnings =
+    normalize_sampling ~model ~known_model ~capabilities ~thinking_active opts
+  in
   let tools, tool_choice, tool_choice_warnings = normalize_forced_tool_choice ~model ~capabilities opts in
   let warnings = warnings @ thinking_warnings @ effort_warnings @ tool_choice_warnings in
   (* One validator per request — shared across system, tools, and messages
@@ -176,43 +219,23 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let validator = Cache_control_validator.create () in
   let system_parts, remaining = Convert_prompt.extract_system opts.prompt in
   let system = Convert_prompt.system_to_json ~validator system_parts in
-  (* Route Object_json per-model: native output_config where supported, synthetic [json]
-     tool with forced tool_choice otherwise — matches upstream @ai-sdk/anthropic. *)
-  let supports_native_structured_output = capabilities.supports_structured_output in
-  let output_format, fallback_tool, forced_tool_choice, extra_warnings =
-    match opts.mode with
-    | Regular | Object_tool _ -> None, None, None, []
-    | Object_json (Some { name = _; schema }) when supports_native_structured_output ->
-      Some Anthropic_api.{ type_ = "json_schema"; schema }, None, None, []
-    | Object_json (Some { name = _; schema }) ->
-      let tool = Convert_tools.json_response_tool ~schema in
-      None, Some tool, Some Convert_tools.forced_json_tool_choice, []
-    | Object_json None ->
-      ( None,
-        None,
-        None,
-        [
-          Ai_provider.Warning.Unsupported_feature
-            {
-              feature = "response_format without schema";
-              details = Some "Anthropic structured outputs require a JSON schema; sending request without enforcement";
-            };
-        ] )
+  let output_format, fallback_tool, fallback_tool_choice, structured_output_warnings =
+    route_structured_output ~model ~capabilities opts.mode
   in
-  validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~forced_tool_choice;
+  validate_options ~model ~capabilities ~anthropic_opts ~tool_choice ~fallback_tool_choice;
   let output_config =
     match output_format, anthropic_opts.effort with
     | None, None -> None
     | format, effort -> Some Anthropic_api.{ format; effort = Option.map Effort.to_string effort }
   in
-  let warnings = warnings @ extra_warnings in
+  let warnings = warnings @ structured_output_warnings in
   let base_tools, base_tool_choice = Convert_tools.convert_tools ~validator ~tools ~tool_choice () in
   let messages = Convert_prompt.convert_messages ~validator remaining in
   let tools = Option.fold ~none:base_tools ~some:(fun t -> base_tools @ [ t ]) fallback_tool in
   (* When structured-output fallback is active, override the caller's tool_choice. *)
   let tool_choice =
-    match forced_tool_choice with
-    | Some _ -> forced_tool_choice
+    match fallback_tool_choice with
+    | Some _ -> fallback_tool_choice
     | None -> base_tool_choice
   in
   (* Use model-aware default for max_tokens *)
@@ -220,7 +243,7 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     Some
       (match opts.max_output_tokens with
       | Some n -> n
-      | None -> Model_catalog.default_max_tokens (Model_catalog.of_model_id model))
+      | None -> capabilities.max_output_tokens)
   in
   let body =
     Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens ?temperature ?top_p ?top_k

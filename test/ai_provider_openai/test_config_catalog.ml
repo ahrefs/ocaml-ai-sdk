@@ -111,6 +111,22 @@ let test_gpt_5_and_later () =
       "gpt-5.1-chat-latest", true;
     ]
 
+(* GPT-5.1 and later 5.x models accept sampling parameters at reasoning effort
+   none; GPT-5, its chat variant and GPT-6 do not. *)
+let test_supports_non_reasoning_parameters () =
+  List.iter
+    (fun (id, expected) ->
+      let caps = Ai_provider_openai.Model_catalog.capabilities id in
+      (check bool) id expected caps.supports_non_reasoning_parameters)
+    [
+      "gpt-5", false;
+      "gpt-5.1", true;
+      "gpt-5.4-mini", true;
+      "gpt-6-sol", false;
+      "gpt-6.1-terra", false;
+      "gpt-5-chat-latest", false;
+    ]
+
 let test_system_message_mode () =
   let caps = Ai_provider_openai.Model_catalog.capabilities "o3-mini" in
   (match caps.system_message_mode with
@@ -149,6 +165,7 @@ let () =
           test_case "capabilities_gpt4o_dated" `Quick test_capabilities_gpt4o_dated;
           test_case "is_reasoning_model" `Quick test_is_reasoning_model;
           test_case "gpt_5_and_later" `Quick test_gpt_5_and_later;
+          test_case "supports_non_reasoning_parameters" `Quick test_supports_non_reasoning_parameters;
           test_case "system_message_mode" `Quick test_system_message_mode;
         ] );
     ]

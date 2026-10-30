@@ -26,7 +26,8 @@ let test_reasoning_effort_strings () =
   (check string) "low" "low" (reasoning_effort_to_string Low);
   (check string) "medium" "medium" (reasoning_effort_to_string Medium);
   (check string) "high" "high" (reasoning_effort_to_string High);
-  (check string) "xhigh" "xhigh" (reasoning_effort_to_string Xhigh)
+  (check string) "xhigh" "xhigh" (reasoning_effort_to_string Xhigh);
+  (check string) "max" "max" (reasoning_effort_to_string Max)
 
 let test_service_tier_strings () =
   let open Ai_provider_openai.Openai_options in

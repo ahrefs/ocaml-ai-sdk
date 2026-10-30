@@ -1,8 +1,27 @@
 open Alcotest
 
-let make_mock_config response =
-  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body:_ = Lwt.return response in
+let make_mock_config ?(on_body = fun (_ : string) -> ()) response =
+  let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
+    on_body body;
+    Lwt.return response
+  in
   Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch ()
+
+let ok_response =
+  `Assoc
+    [
+      ( "choices",
+        `List
+          [
+            `Assoc
+              [
+                "index", `Int 0;
+                "message", `Assoc [ "role", `String "assistant"; "content", `String "ok" ];
+                "finish_reason", `String "stop";
+              ];
+          ] );
+      "usage", `Assoc [ "prompt_tokens", `Int 1; "completion_tokens", `Int 1 ];
+    ]
 
 let test_generate_text () =
   let response =
@@ -99,24 +118,7 @@ let test_generate_tool_call () =
 let test_reasoning_effort_none_keeps_temperature () =
   let sent_temperature reasoning_effort =
     let captured = ref `Null in
-    let fetch ~abort_signal:_ ~url:_ ~headers:_ ~body =
-      captured := Yojson.Basic.from_string body;
-      Lwt.return
-        (`Assoc
-           [
-             ( "choices",
-               `List
-                 [
-                   `Assoc
-                     [
-                       "index", `Int 0;
-                       "message", `Assoc [ "role", `String "assistant"; "content", `String "ok" ];
-                       "finish_reason", `String "stop";
-                     ];
-                 ] );
-           ])
-    in
-    let config = Ai_provider_openai.Config.create ~api_key:"sk-test" ~fetch () in
+    let config = make_mock_config ~on_body:(fun body -> captured := Yojson.Basic.from_string body) ok_response in
     let model = Ai_provider_openai.Openai_model.create ~config ~model:"gpt-5.1" in
     let opts =
       {
@@ -135,23 +137,7 @@ let test_reasoning_effort_none_keeps_temperature () =
   (check bool) "dropped otherwise" true (Yojson.Basic.equal `Null (sent_temperature (Some Medium)))
 
 let test_warns_top_k () =
-  let response =
-    `Assoc
-      [
-        ( "choices",
-          `List
-            [
-              `Assoc
-                [
-                  "index", `Int 0;
-                  "message", `Assoc [ "role", `String "assistant"; "content", `String "ok" ];
-                  "finish_reason", `String "stop";
-                ];
-            ] );
-        "usage", `Assoc [ "prompt_tokens", `Int 1; "completion_tokens", `Int 1 ];
-      ]
-  in
-  let config = make_mock_config response in
+  let config = make_mock_config ok_response in
   let model = Ai_provider_openai.Openai_model.create ~config ~model:"gpt-4o" in
   let module M = (val model : Ai_provider.Language_model.S) in
   let opts =

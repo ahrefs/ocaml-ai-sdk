@@ -86,145 +86,93 @@ let test_capabilities_custom () =
   (check bool) "thinking" true (Option.is_none caps.thinking);
   (check int) "max_tokens" 4096 caps.max_output_tokens
 
+type expected_capabilities = {
+  id : string;
+  max_tokens : int;
+  min_cache_tokens : int;
+  manual : bool;
+  adaptive : bool;
+  defaults_to_adaptive : bool;
+  disabled : Ai_provider_anthropic.Model_catalog.disabled_thinking_support;
+  efforts : string list;
+  display_default : string option;
+  between_tools : bool;
+  rejects_sampling : bool;
+  structured : bool;
+  prompt_caching : bool;
+  vision : bool;
+  pdf : bool;
+  rejects_forced_tool_choice : bool;
+}
+
 let test_capability_matrix () =
-  let all_effort = [ "low"; "medium"; "high"; "xhigh"; "max" ] in
+  (* The adaptive generation's common values; each row states how it differs. *)
+  let adaptive =
+    {
+      id = "";
+      max_tokens = 128_000;
+      min_cache_tokens = 512;
+      manual = false;
+      adaptive = true;
+      defaults_to_adaptive = true;
+      disabled = Ai_provider_anthropic.Model_catalog.Unsupported;
+      efforts = [ "low"; "medium"; "high"; "xhigh"; "max" ];
+      display_default = Some "omitted";
+      between_tools = false;
+      rejects_sampling = true;
+      structured = true;
+      prompt_caching = true;
+      vision = true;
+      pdf = true;
+      rejects_forced_tool_choice = false;
+    }
+  in
   let matrix =
     [
-      ( "claude-fable-5-1",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-fable-5",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-mythos-5-1",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-mythos-5",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-opus-5-5",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-opus-5",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Up_to_high,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-opus-4-8",
-        128_000,
-        1024,
-        false,
-        true,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-sonnet-5-5",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Unsupported,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-sonnet-5",
-        128_000,
-        1024,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-haiku-5-5",
-        128_000,
-        512,
-        false,
-        true,
-        true,
-        Ai_provider_anthropic.Model_catalog.Up_to_high,
-        all_effort,
-        true,
-        true,
-        Some "omitted" );
-      ( "claude-haiku-4-5",
-        64_000,
-        4096,
-        true,
-        false,
-        false,
-        Ai_provider_anthropic.Model_catalog.Allowed,
-        [],
-        false,
-        true,
-        Some "summarized" );
+      { adaptive with id = "claude-fable-5-1"; rejects_forced_tool_choice = true };
+      { adaptive with id = "claude-fable-5" };
+      { adaptive with id = "claude-mythos-5-1"; rejects_forced_tool_choice = true };
+      { adaptive with id = "claude-mythos-5" };
+      { adaptive with id = "claude-opus-5-5"; rejects_forced_tool_choice = true };
+      { adaptive with id = "claude-opus-5"; disabled = Ai_provider_anthropic.Model_catalog.Up_to_high };
+      {
+        adaptive with
+        id = "claude-opus-4-8";
+        min_cache_tokens = 1024;
+        defaults_to_adaptive = false;
+        disabled = Ai_provider_anthropic.Model_catalog.Allowed;
+      };
+      { adaptive with id = "claude-sonnet-5-5"; between_tools = true; rejects_forced_tool_choice = true };
+      {
+        adaptive with
+        id = "claude-sonnet-5";
+        min_cache_tokens = 1024;
+        disabled = Ai_provider_anthropic.Model_catalog.Allowed;
+      };
+      { adaptive with id = "claude-haiku-5-5"; disabled = Ai_provider_anthropic.Model_catalog.Up_to_high };
+      {
+        id = "claude-haiku-4-5";
+        max_tokens = 64_000;
+        min_cache_tokens = 4096;
+        manual = true;
+        adaptive = false;
+        defaults_to_adaptive = false;
+        disabled = Ai_provider_anthropic.Model_catalog.Allowed;
+        efforts = [];
+        display_default = Some "summarized";
+        between_tools = false;
+        rejects_sampling = false;
+        structured = true;
+        prompt_caching = true;
+        vision = true;
+        pdf = true;
+        rejects_forced_tool_choice = false;
+      };
     ]
   in
   List.iter
-    (fun ( id,
-           max_tokens,
-           min_cache_tokens,
-           manual,
-           adaptive,
-           defaults_to_adaptive,
-           disabled,
-           efforts,
-           rejects_sampling,
-           structured,
-           display_default ) ->
+    (fun expected ->
+      let id = expected.id in
       let caps =
         Ai_provider_anthropic.Model_catalog.capabilities (Ai_provider_anthropic.Model_catalog.of_model_id id)
       in
@@ -233,25 +181,31 @@ let test_capability_matrix () =
         | Some thinking -> thinking
         | None -> fail ("missing thinking for " ^ id)
       in
-      (check int) (id ^ " max_tokens") max_tokens caps.max_output_tokens;
-      (check int) (id ^ " min_cache_tokens") min_cache_tokens caps.min_cache_tokens;
-      (check bool) (id ^ " manual") manual thinking.manual;
-      (check bool) (id ^ " adaptive") adaptive thinking.adaptive;
-      (check bool) (id ^ " defaults_to_adaptive") defaults_to_adaptive thinking.defaults_to_adaptive;
-      (check bool) (id ^ " rejects_sampling") rejects_sampling caps.rejects_sampling_parameters;
-      (check bool) (id ^ " structured_output") structured caps.supports_structured_output;
+      (check int) (id ^ " max_tokens") expected.max_tokens caps.max_output_tokens;
+      (check int) (id ^ " min_cache_tokens") expected.min_cache_tokens caps.min_cache_tokens;
+      (check bool) (id ^ " manual") expected.manual thinking.manual;
+      (check bool) (id ^ " adaptive") expected.adaptive thinking.adaptive;
+      (check bool) (id ^ " defaults_to_adaptive") expected.defaults_to_adaptive thinking.defaults_to_adaptive;
+      (check bool) (id ^ " between_tools") expected.between_tools thinking.between_tools;
+      (check bool) (id ^ " rejects_sampling") expected.rejects_sampling caps.rejects_sampling_parameters;
+      (check bool) (id ^ " structured_output") expected.structured caps.supports_structured_output;
+      (check bool) (id ^ " prompt_caching") expected.prompt_caching caps.supports_prompt_caching;
+      (check bool) (id ^ " vision") expected.vision caps.supports_vision;
+      (check bool) (id ^ " pdf") expected.pdf caps.supports_pdf;
+      (check bool) (id ^ " rejects_forced_tool_choice") expected.rejects_forced_tool_choice
+        caps.rejects_forced_tool_choice;
       (check (list string))
-        (id ^ " effort") efforts
+        (id ^ " effort") expected.efforts
         (List.map Ai_provider_anthropic.Effort.to_string thinking.effort_levels);
       (check (option string))
-        (id ^ " display_default") display_default
+        (id ^ " display_default") expected.display_default
         (Option.map
            (function
              | Ai_provider_anthropic.Thinking.Summarized -> "summarized"
              | Ai_provider_anthropic.Thinking.Omitted -> "omitted")
            thinking.display_default);
       (check bool) (id ^ " disabled") true
-        (match disabled, thinking.disabled with
+        (match expected.disabled, thinking.disabled with
         | Ai_provider_anthropic.Model_catalog.Allowed, Ai_provider_anthropic.Model_catalog.Allowed
         | Ai_provider_anthropic.Model_catalog.Up_to_high, Ai_provider_anthropic.Model_catalog.Up_to_high
         | Ai_provider_anthropic.Model_catalog.Unsupported, Ai_provider_anthropic.Model_catalog.Unsupported ->

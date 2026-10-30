@@ -60,8 +60,11 @@ val of_model_id : string -> known_model
 (** Get capabilities from a raw model ID string. o-series models ("o1",
     "o3-mini", ...) and GPT-5 or later ("gpt-5", "gpt-5.4-mini", "gpt-6-sol",
     ...) are reasoning models, as in upstream's [@ai-sdk/openai], except a GPT
-    chat variant without a minor version ("gpt-5-chat-latest"). Dated variants
-    get the capabilities of their base model.
+    chat variant without a minor version ("gpt-5-chat-latest"). Any other ID
+    outside the catalog, dated ones included, matches by prefix: "gpt-4.1..."
+    gets 32_768 default max tokens, "gpt-4o..." 16_384, and the rest the
+    standard defaults. A dated variant can therefore differ from its base model
+    ("gpt-4.1-nano-2025-04-14", "gpt-4-0613").
     [supports_non_reasoning_parameters] holds for GPT-5.1 and later GPT-5
     models, which accept [temperature], [top_p] and [logprobs] when the
     reasoning effort is [Re_none]. *)

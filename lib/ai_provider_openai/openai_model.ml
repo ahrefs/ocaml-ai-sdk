@@ -17,24 +17,30 @@ type json_schema_format = {
 }
 [@@deriving to_json]
 
-(** Check for unsupported features and emit warnings. *)
-let check_unsupported ~is_reasoning ~keeps_sampling (opts : Ai_provider.Call_options.t) =
-  let warnings = ref [] in
-  let warn feature details = warnings := Ai_provider.Warning.Unsupported_feature { feature; details } :: !warnings in
-  Stdlib.Option.iter (fun _ -> warn "top_k" (Some "OpenAI does not support top_k")) opts.top_k;
-  if is_reasoning && not keeps_sampling then begin
-    Stdlib.Option.iter (fun _ -> warn "temperature" (Some "Not supported for reasoning models")) opts.temperature;
-    Stdlib.Option.iter (fun _ -> warn "top_p" (Some "Not supported for reasoning models")) opts.top_p
-  end;
-  if is_reasoning then begin
-    Stdlib.Option.iter
-      (fun _ -> warn "frequency_penalty" (Some "Not supported for reasoning models"))
-      opts.frequency_penalty;
-    Stdlib.Option.iter
-      (fun _ -> warn "presence_penalty" (Some "Not supported for reasoning models"))
-      opts.presence_penalty
-  end;
-  List.rev !warnings
+(** Drop the sampling parameters the model rejects, warning for each one the
+    caller set. [top_k] is never sent. *)
+let normalize_sampling ~is_reasoning ~keeps_sampling (opts : Ai_provider.Call_options.t) =
+  let unsupported feature details = [ Ai_provider.Warning.Unsupported_feature { feature; details = Some details } ] in
+  let drop ~dropped feature value =
+    match dropped, value with
+    | true, Some _ -> None, unsupported feature "Not supported for reasoning models"
+    | true, None | false, _ -> value, []
+  in
+  let drops_sampling = is_reasoning && not keeps_sampling in
+  let temperature, temperature_warnings = drop ~dropped:drops_sampling "temperature" opts.temperature in
+  let top_p, top_p_warnings = drop ~dropped:drops_sampling "top_p" opts.top_p in
+  let frequency_penalty, frequency_penalty_warnings =
+    drop ~dropped:is_reasoning "frequency_penalty" opts.frequency_penalty
+  in
+  let presence_penalty, presence_penalty_warnings =
+    drop ~dropped:is_reasoning "presence_penalty" opts.presence_penalty
+  in
+  let top_k_warnings =
+    Stdlib.Option.fold ~none:[] ~some:(fun _ -> unsupported "top_k" "OpenAI does not support top_k") opts.top_k
+  in
+  ( (temperature, top_p, frequency_penalty, presence_penalty),
+    List.concat
+      [ top_k_warnings; temperature_warnings; top_p_warnings; frequency_penalty_warnings; presence_penalty_warnings ] )
 
 (** Build response_format JSON from the mode. *)
 let build_response_format ~strict_json_schema (mode : Ai_provider.Mode.t) =
@@ -81,7 +87,9 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     | Some Openai_options.Re_none -> true
     | None | Some (Minimal | Low | Medium | High | Xhigh | Max) -> false
   in
-  let warnings = check_unsupported ~is_reasoning:model_caps.is_reasoning_model ~keeps_sampling opts in
+  let (temperature, top_p, frequency_penalty, presence_penalty), warnings =
+    normalize_sampling ~is_reasoning:model_caps.is_reasoning_model ~keeps_sampling opts
+  in
   let system_message_mode =
     match openai_opts.system_message_mode with
     | Some mode -> mode
@@ -125,12 +133,6 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     | true, None, max_out -> None, max_out
     | false, _, Some n -> Some n, None
     | false, _, None -> Some model_caps.default_max_tokens, None
-  in
-  let temperature, top_p, frequency_penalty, presence_penalty =
-    match model_caps.is_reasoning_model, keeps_sampling with
-    | true, true -> opts.temperature, opts.top_p, None, None
-    | true, false -> None, None, None, None
-    | false, _ -> opts.temperature, opts.top_p, opts.frequency_penalty, opts.presence_penalty
   in
   let reasoning_effort = Stdlib.Option.map Openai_options.reasoning_effort_to_string openai_opts.reasoning_effort in
   let service_tier = Stdlib.Option.map Openai_options.service_tier_to_string openai_opts.service_tier in

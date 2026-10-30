@@ -144,19 +144,19 @@ let reasoning_capabilities =
     supports_non_reasoning_parameters = false;
   }
 
-(* Length of the run of ASCII digits in [s] starting at [i]. *)
-let digits_from s i =
-  let rec go j =
-    match j < String.length s && Char.code s.[j] >= Char.code '0' && Char.code s.[j] <= Char.code '9' with
-    | true -> go (j + 1)
-    | false -> j - i
-  in
-  go i
+(* A non-empty run of ASCII digits, as the regex [\d+]. *)
+let is_digits s = (not (String.equal s "")) && String.for_all Char.Ascii.is_digit s
+
+(* [s] up to its first "-", and the rest after it if there is a "-". *)
+let split_at_dash s =
+  match String.index_opt s '-' with
+  | None -> s, None
+  | Some i -> String.sub s 0 i, Some (String.sub s (i + 1) (String.length s - i - 1))
 
 (* "o<digits>", alone or followed by "-": the o-series reasoning models. *)
 let is_o_series s =
-  let n = digits_from s 1 in
-  String.length s > 1 && Char.equal s.[0] 'o' && n > 0 && (1 + n = String.length s || Char.equal s.[1 + n] '-')
+  let head, _ = split_at_dash s in
+  String.starts_with ~prefix:"o" head && is_digits (String.sub head 1 (String.length head - 1))
 
 type gpt_version = {
   major : int;
@@ -166,31 +166,22 @@ type gpt_version = {
 
 (* Parses "gpt-<major>[.<minor>][-<variant>]", as upstream's getGptVersion. *)
 let gpt_version s =
-  let len = String.length s in
-  (* The number starting at [i], and the index after it. *)
-  let number_at i =
-    match digits_from s i with
-    | 0 -> None
-    | n -> Option.map (fun v -> v, i + n) (int_of_string_opt (String.sub s i n))
-  in
-  (* The variant after "-" at [i], or no variant at the end of [s]. *)
-  let variant_at i =
-    match () with
-    | () when i = len -> Some None
-    | () when Char.equal s.[i] '-' && i + 1 < len -> Some (Some (String.sub s (i + 1) (len - i - 1)))
-    | () -> None
+  let number s =
+    match is_digits s with
+    | true -> int_of_string_opt s
+    | false -> None
   in
   match String.starts_with ~prefix:"gpt-" s with
   | false -> None
   | true ->
-    Option.bind (number_at 4) (fun (major, after_major) ->
-      let minor =
-        match after_major < len && Char.equal s.[after_major] '.' with
-        | true -> Option.map (fun (minor, after) -> Some minor, after) (number_at (after_major + 1))
-        | false -> Some (None, after_major)
-      in
-      Option.bind minor (fun (minor, after_minor) ->
-        Option.map (fun variant -> { major; minor; variant }) (variant_at after_minor)))
+    let version, variant = split_at_dash (String.sub s 4 (String.length s - 4)) in
+    (match String.split_on_char '.' version, variant with
+    | _, Some "" -> None
+    | [ major ], _ -> Option.map (fun major -> { major; minor = None; variant }) (number major)
+    | [ major; minor ], _ ->
+      Option.bind (number major) (fun major ->
+        Option.map (fun minor -> { major; minor = Some minor; variant }) (number minor))
+    | ([] | _ :: _ :: _ :: _), _ -> None)
 
 (* Matches upstream's getOpenAILanguageModelCapabilities: o-series models and
    GPT-5 or later are reasoning models, except a GPT chat variant without a
