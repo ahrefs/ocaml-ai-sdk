@@ -2,7 +2,7 @@
 // (MIT, Copyright (c) 2025 Mario Zechner), at tag v1.4.0 (4a080252f06caf63a525d7873c5d94d3c23887e0),
 // the release of @earendil-works/pi-codemode 1.4.0.
 //
-// Changes: the backends are replaced by RunnerSandbox, which runs the ai-sdk-quickjs-runner binary;
+// Changes: the backends are replaced by RunnerSandbox, which runs the tiny-js-sandbox binary;
 // the imports use the published package; the "worker host" section, which tests the worker
 // transport, is removed.
 import vm from "node:vm";
