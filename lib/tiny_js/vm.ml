@@ -41,12 +41,6 @@ type incoming =
     }
   | Runner_error of string
 
-let exact_keys ~frame fields expected =
-  let sort = List.sort String.compare in
-  match List.equal String.equal (sort (List.map fst fields)) (sort expected) with
-  | true -> Ok ()
-  | false -> Error (Printf.sprintf "%s frame has unexpected keys [%s]" frame (String.concat "," (List.map fst fields)))
-
 let payload_field ~frame key fields =
   match List.assoc_opt key fields with
   | Some (Cbor.Text s) -> Ok (Text s)
@@ -54,31 +48,13 @@ let payload_field ~frame key fields =
   | Some (Cbor.Null | Cbor.Bool _ | Cbor.Int _ | Cbor.Array _ | Cbor.Map _) | None ->
     Error (Printf.sprintf "%s frame: %S must be text or bytes" frame key)
 
-let text_field ~frame key fields =
-  match List.assoc_opt key fields with
-  | Some (Cbor.Text s) -> Ok s
-  | Some (Cbor.Null | Cbor.Bool _ | Cbor.Int _ | Cbor.Bytes _ | Cbor.Array _ | Cbor.Map _) | None ->
-    Error (Printf.sprintf "%s frame: %S must be text" frame key)
-
-let int_field ~frame key fields =
-  match List.assoc_opt key fields with
-  | Some (Cbor.Int n) -> Ok n
-  | Some (Cbor.Null | Cbor.Bool _ | Cbor.Text _ | Cbor.Bytes _ | Cbor.Array _ | Cbor.Map _) | None ->
-    Error (Printf.sprintf "%s frame: %S must be an integer" frame key)
-
-let bool_field ~frame key fields =
-  match List.assoc_opt key fields with
-  | Some (Cbor.Bool b) -> Ok b
-  | Some (Cbor.Null | Cbor.Int _ | Cbor.Text _ | Cbor.Bytes _ | Cbor.Array _ | Cbor.Map _) | None ->
-    Error (Printf.sprintf "%s frame: %S must be a boolean" frame key)
-
 let parse_eval_result fields =
   let frame = "eval_result" in
-  let* id = int_field ~frame "id" fields in
-  let* ok = bool_field ~frame "ok" fields in
+  let* id = Cbor.Parse.int_field ~frame "id" fields in
+  let* ok = Cbor.Parse.bool_field ~frame "ok" fields in
   match ok with
   | true ->
-    let* () = exact_keys ~frame fields [ "t"; "id"; "ok"; "value" ] in
+    let* () = Cbor.Parse.exact_keys ~frame fields [ "t"; "id"; "ok"; "value" ] in
     (match List.assoc_opt "value" fields with
     | Some Cbor.Null -> Ok (Eval_result { id; result = Ok None })
     | Some (Cbor.Text s) -> Ok (Eval_result { id; result = Ok (Some (Text s)) })
@@ -86,30 +62,30 @@ let parse_eval_result fields =
     | Some (Cbor.Bool _ | Cbor.Int _ | Cbor.Array _ | Cbor.Map _) | None ->
       Error "eval_result frame: \"value\" must be text, bytes or null")
   | false ->
-    let* () = exact_keys ~frame fields [ "t"; "id"; "ok"; "error" ] in
-    let* error = text_field ~frame "error" fields in
+    let* () = Cbor.Parse.exact_keys ~frame fields [ "t"; "id"; "ok"; "error" ] in
+    let* error = Cbor.Parse.text_field ~frame "error" fields in
     Ok (Eval_result { id; result = Error error })
 
 let parse_incoming = function
   | Cbor.Map fields ->
     (match List.assoc_opt "t" fields with
     | Some (Cbor.Text "hello") ->
-      let* () = exact_keys ~frame:"hello" fields [ "t"; "proto" ] in
-      let* proto = int_field ~frame:"hello" "proto" fields in
+      let* () = Cbor.Parse.exact_keys ~frame:"hello" fields [ "t"; "proto" ] in
+      let* proto = Cbor.Parse.int_field ~frame:"hello" "proto" fields in
       Ok (Hello proto)
     | Some (Cbor.Text "eval_result") -> parse_eval_result fields
     | Some (Cbor.Text "message") ->
-      let* () = exact_keys ~frame:"message" fields [ "t"; "data" ] in
+      let* () = Cbor.Parse.exact_keys ~frame:"message" fields [ "t"; "data" ] in
       let* data = payload_field ~frame:"message" "data" fields in
       Ok (Message data)
     | Some (Cbor.Text "log") ->
-      let* () = exact_keys ~frame:"log" fields [ "t"; "level"; "text" ] in
-      let* level = text_field ~frame:"log" "level" fields in
-      let* text = text_field ~frame:"log" "text" fields in
+      let* () = Cbor.Parse.exact_keys ~frame:"log" fields [ "t"; "level"; "text" ] in
+      let* level = Cbor.Parse.text_field ~frame:"log" "level" fields in
+      let* text = Cbor.Parse.text_field ~frame:"log" "text" fields in
       Ok (Log { level; text })
     | Some (Cbor.Text "error") ->
-      let* () = exact_keys ~frame:"error" fields [ "t"; "message" ] in
-      let* message = text_field ~frame:"error" "message" fields in
+      let* () = Cbor.Parse.exact_keys ~frame:"error" fields [ "t"; "message" ] in
+      let* message = Cbor.Parse.text_field ~frame:"error" "message" fields in
       Ok (Runner_error message)
     | Some (Cbor.Text other) -> Error (Printf.sprintf "unknown frame type %S" other)
     | Some (Cbor.Null | Cbor.Bool _ | Cbor.Int _ | Cbor.Bytes _ | Cbor.Array _ | Cbor.Map _) | None ->

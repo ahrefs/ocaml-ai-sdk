@@ -187,3 +187,31 @@ let decode_exn ~max_depth s =
   v
 
 let decode ?(max_depth = default_max_depth) s = try Ok (decode_exn ~max_depth s) with Fail msg -> Error msg
+
+(* Field access over decoded maps, used to validate frames. *)
+module Parse = struct
+  let exact_keys ~frame fields expected =
+    let sort = List.sort String.compare in
+    match List.equal String.equal (sort (List.map fst fields)) (sort expected) with
+    | true -> Ok ()
+    | false ->
+      Error (Printf.sprintf "%s frame has unexpected keys [%s]" frame (String.concat "," (List.map fst fields)))
+
+  let text_field ~frame key fields =
+    match List.assoc_opt key fields with
+    | Some (Text s) -> Ok s
+    | Some (Null | Bool _ | Int _ | Bytes _ | Array _ | Map _) | None ->
+      Error (Printf.sprintf "%s frame: %S must be text" frame key)
+
+  let int_field ~frame key fields =
+    match List.assoc_opt key fields with
+    | Some (Int n) -> Ok n
+    | Some (Null | Bool _ | Text _ | Bytes _ | Array _ | Map _) | None ->
+      Error (Printf.sprintf "%s frame: %S must be an integer" frame key)
+
+  let bool_field ~frame key fields =
+    match List.assoc_opt key fields with
+    | Some (Bool b) -> Ok b
+    | Some (Null | Int _ | Text _ | Bytes _ | Array _ | Map _) | None ->
+      Error (Printf.sprintf "%s frame: %S must be a boolean" frame key)
+end

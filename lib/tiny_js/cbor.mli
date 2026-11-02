@@ -32,3 +32,13 @@ val equal : t -> t -> bool
 
 (** Diagnostic printer. *)
 val pp : Format.formatter -> t -> unit
+
+(** Strict accessors over the fields of a decoded {!Map}; errors are prefixed with the [frame] name. *)
+module Parse : sig
+  (** The map has exactly these keys, in any order. *)
+  val exact_keys : frame:string -> (string * t) list -> string list -> (unit, string) result
+
+  val text_field : frame:string -> string -> (string * t) list -> (string, string) result
+  val int_field : frame:string -> string -> (string * t) list -> (int, string) result
+  val bool_field : frame:string -> string -> (string * t) list -> (bool, string) result
+end
