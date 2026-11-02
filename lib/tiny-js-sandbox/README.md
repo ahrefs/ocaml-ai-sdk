@@ -1,99 +1,163 @@
-# ai-sdk-quickjs-runner
+# tiny-js-sandbox
 
-A small Rust program that runs **one** codemode script in a QuickJS VM and talks to its host in
-JSON lines over stdio. It is a sandbox for model-written JavaScript: the script can compute and call
-the tools the host declared, and nothing else. It exists for `ocaml-ai-sdk`'s codemode library.
+A small Rust program that hosts **one** sandboxed QuickJS VM (QuickJS-ng via `rquickjs`, unpatched) and
+talks to its parent in length-prefixed CBOR frames over stdio. **One process per VM**: creating a VM is
+spawning the process, destroying it is closing stdin or killing it. There is no multiplexing and there are
+no VM ids.
 
-The script environment and the wire protocol are those of
-[pi-codemode](https://github.com/earendil-works/pi/tree/main/packages/codemode) (`@earendil-works/pi-codemode`
-1.4.0), so a pi host can drive this binary and pi's prompts and tests apply. Only the transport
-differs: pi passes the same messages between a worker thread and its host; here each message is one
-JSON object on one line.
+The runner is generic and knows nothing about what runs inside. Anything application specific (for example
+codemode's tool protocol, `js/codemode-wrapper.js`) is JavaScript the embedder loads with an `eval` frame.
+`lib/tiny_js` is the OCaml client.
 
 ## Protocol
 
-One process per script run. stdin and stdout carry one JSON object per line.
-
-1. **Host → runner, first line:** the start data (pi's `VmStartData`):
-   `{"code": "...", "tools": [{"name", "jsName", "description"}], "globals": [{"name", "spread"}], "store": {"key": "<json text>"}, "memoryLimitBytes": 1234}`.
-   `memoryLimitBytes` is optional and can only lower the `--memory-limit-mb` limit.
-   `deterministic` is not supported and ends the run with `crash`.
-2. **Runner → host:** pi's `WorkerToHostMessage`:
-   - `{"type":"call","id":1,"target":"tool"|"global","name":"x","args":"<json text>"}`; `args` is absent when the script passed no argument.
-   - `{"type":"output","item":{"type":"text","text":"...","console"?:true}}` or `{"type":"image","data","mimeType"}`.
-   - `{"type":"done","ok":true,"value"?:"<json text>","writes":"<json text>"}` or `{"type":"done","ok":false,"error":"<json {name,message,stack}>"}`.
-   - `{"type":"crash","message":"..."}` for a failure of the VM itself.
-3. **Host → runner, afterwards:** `{"type":"result","id":1,"ok":true,"payload":"<json text>"}`; with `ok: false`, `payload` is the error message. `payload` is absent for `undefined`.
-
-Values that came from the script travel as JSON *text* inside the string fields. The runner exits
-after `done` (status 0), or after `crash` (status 1). Calls are asynchronous: `Promise.all` over `n`
-tool calls sends `n` `call` lines before the runner waits for the first `result`, and results may
-come back in any order.
-
-There is no `ready` message and no cancel message. If the sandbox cannot be applied, the runner
-prints a line on stderr, sends nothing on stdout and exits with status 70, so a host that sees EOF
-before any message knows to look at stderr. To cancel or time out, kill the process: the host owns the
-clock. A script that computes without calling a tool cannot be interrupted any other way; `--cpu-seconds`
-is the backstop.
+[`PROTOCOL.md`](PROTOCOL.md) is the specification: framing (`u32` little-endian length, checked against
+`--max-frame-bytes` before allocating), the strict CBOR subset (definite lengths only; unsigned integers,
+text, bytes, booleans, null; flat maps with text keys; no tags, floats or containers in envelopes), the
+frames (`hello`, `eval`, `eval_result`, `message`, `log`, `error`), the JavaScript surface
+(`host.post`, `host.onmessage`, `console`) and the execution model (frames in order, promise jobs drained
+after each, no timers). Any framing or CBOR violation is fatal: one best-effort `error` frame, then exit 1.
 
 ## Command line
 
 ```
-ai-sdk-quickjs-runner --sandbox=full|seccomp|none --memory-limit-mb=N [--cpu-seconds=N]
+tiny-js-sandbox --memory-limit-mb=N [--sandbox=none|landlock|seccomp|full] [--cpu-seconds=N]
+                [--max-frame-bytes=N] [--allow-clock] [--allow-random]
 ```
 
-- `--sandbox=full`: landlock **and** seccomp. Landlock handles every filesystem right (ABI 1 is required,
-  or the run fails) and, when the kernel has them, network and scope rights (TCP connect and bind,
-  abstract unix sockets, signals to other processes), allowing none. Seccomp then restricts the
-  process to a short allowlist of syscalls (stdio, memory management, futex, exit; no
-  clock or random syscalls, `Date.now` uses the vDSO and the time zone is loaded before entering) and kills it on anything else, including `mmap` and `mprotect` with `PROT_EXEC`. The
-  process also sets `no_new_privs`, `dumpable=0` and `pdeathsig`, and limits its descriptors to
-  stdin, stdout and stderr. If any step fails, the runner exits instead of running unsandboxed.
-- `--sandbox=seccomp`: the allowlist only, for kernels or containers without landlock. (Container runtimes' default
-  seccomp profiles may block the landlock syscalls, in which case `full` fails and this mode is the one to use.)
-- `--sandbox=none`: no restriction beyond the resource limits. For development.
-- Always: inherited descriptors are closed, core dumps are disabled, and `RLIMIT_AS` is the heap limit
-  plus 256 MiB as a backstop for the VM's own limit, which throws a catchable `InternalError: out of memory`.
-  `--cpu-seconds` adds `RLIMIT_CPU`.
+| Flag | Meaning |
+|------|---------|
+| `--sandbox` | `full` (default): landlock **and** seccomp, failing hard if either cannot be applied. `landlock`: no filesystem or TCP access plus `no_new_privs`; refused on kernels without Landlock ABI 4 (Linux 6.7), since nothing else would restrict TCP. `full` accepts older kernels for the network part (seccomp is behind it). `seccomp`: the syscall allowlist only (for containers whose profile blocks landlock). `none`: resource limits only (development). |
+| `--memory-limit-mb` | Required. QuickJS heap limit; `RLIMIT_AS` is heap + 256 MiB as a backstop. Exceeding the heap throws a catchable `InternalError: out of memory` in the VM. |
+| `--cpu-seconds` | Optional `RLIMIT_CPU`; the kernel kills the process when it is used up. |
+| `--max-frame-bytes` | Frame cap in both directions, default 16777216, range 1..1073741824. |
+| `--allow-clock` | Provide `Date` and `Performance`; preload the time zone; add `clock_gettime`, `gettimeofday`, `clock_nanosleep` to the seccomp allowlist. |
+| `--allow-random` | Leave `Math.random` as QuickJS ships it. Does **not** allow `getrandom`. |
 
-The runner is single-threaded on purpose: landlock and seccomp apply to the calling thread.
+By default the context has every intrinsic except `Date` and `Performance`, and `Math.random` throws
+`Error("Math.random is disabled in this sandbox")` with `Math` frozen. The two flags are independent.
+
+Startup order: close inherited descriptors, set rlimits, create the runtime and context, install `host`
+and `console`, the `Math.random` shim unless `--allow-random`, `tzset()` if `--allow-clock`, **then** enter
+the sandbox, then write `hello` and read frames. The process is single-threaded on purpose: landlock and
+seccomp apply to the calling thread.
+
+## Sandbox levels and threat model
+
+Landlock handles every filesystem right (ABI 1 required) and, when the kernel has them, network and scope
+rights, allowing none. Seccomp restricts the process to stdio, memory management, futex and exit (plus
+the clock syscalls with `--allow-clock`), kills it on anything else and on `PROT_EXEC` mappings. The
+process also sets `no_new_privs`, `dumpable=0` and `pdeathsig`, and limits its descriptors to stdio.
+
+The hard boundaries are the process sandbox, the memory and CPU limits, and the frame cap. Removing the
+clock and randomness is defense in depth against timing attacks, not a boundary: a script can still
+measure time indirectly, so the parent must not leak time to it either (see PROTOCOL.md section 6).
+Embedders running untrusted code should capture `host` in a closure and `delete globalThis.host` first, so the code cannot forge frames.
+
+## Quickstart (OCaml client)
+
+The `ocaml-ai-sdk.tiny_js` library (`lib/tiny_js`) spawns one runner per VM. Build the binary first
+(`make build-tiny-js-binary`); `make test-tiny-js` runs the client tests against it.
+
+```ocaml
+let run ~binary =
+  let open Lwt.Syntax in
+  let* vm =
+    Tiny_js.Vm.spawn ~binary ~sandbox:Tiny_js.Vm.Full ~memory_limit_mb:64 ~cpu_seconds:10
+      ~on_log:(fun ~level text -> Printf.eprintf "[js %s] %s\n" level text)
+      ()
+  in
+  match vm with
+  | Error e -> Lwt.return (prerr_endline e)
+  | Ok vm ->
+      (* eval: a global script; the result is text, bytes or null (None) *)
+      let* r = Tiny_js.Vm.eval vm "1 + 1; JSON.stringify({ a: 1 + 1 })" in
+      (match r with
+       | Ok (Some (Tiny_js.Vm.Text s)) -> print_endline s
+       | Ok (Some (Tiny_js.Vm.Bytes _) | None) | Error _ -> ());
+      (* messages: what JS passes to host.post *)
+      let msgs = Tiny_js.Vm.messages vm in
+      let* _ =
+        Tiny_js.Vm.eval vm "host.onmessage = (m) => host.post('echo:' + m)"
+      in
+      (* send: delivered to host.onmessage (text frames arrive as strings) *)
+      let* () = Tiny_js.Vm.send vm (Tiny_js.Vm.Text "hi") in
+      let* first = Lwt_stream.get msgs in
+      (match first with
+       | Some (Tiny_js.Vm.Text s) -> print_endline s
+       | Some (Tiny_js.Vm.Bytes _) | None -> ());
+      let* status = Tiny_js.Vm.close vm in
+      ignore (status : Unix.process_status);
+      Lwt.return_unit
+```
+
+Clock and randomness are off by default: pass `~allow_clock:true` for `Date`, `~allow_random:true` for
+`Math.random`. If the process dies (limits, protocol violation, `Vm.kill`) every pending `eval` fails with
+an error and the `messages` stream ends.
+
+## Quickstart (codemode wrapper)
+
+`js/codemode-wrapper.js` speaks pi-codemode's frames as JSON text over `host.post`/`host.onmessage`:
+
+1. `Vm.eval vm wrapper_source` (the file's contents; it evaluates to undefined and removes `host` from
+   the global object before any user code runs).
+2. `Vm.send vm (Text start_json)` with pi's start data `{code, tools, globals, store}`, then
+   `Vm.send vm (Text {|{"type":"check"}|})`.
+3. Read `call`/`output`/`done`/`crash` messages from `Vm.messages vm`; answer a `call` with
+   `{"type":"result","id":...,"ok":...,"payload":...}` followed by another `{"type":"check"}`.
+4. On `done` or `crash`, call `Vm.kill vm`: the wrapper ignores later frames but cannot interrupt a script
+   that keeps running.
+
+The node shim `conformance/src/process-sandbox.ts` is a complete worked example.
+
+## Layout
+
+- `src/cli.rs` flags; `src/frame.rs` framing; `src/envelope.rs` the frames over `minicbor`'s token reader
+  (non-recursive, no serde); `src/sandbox.rs` limits, landlock, seccomp; `src/vm.rs` the context, the
+  `host` surface and the frame loop; `src/main.rs` is the startup sequence.
+- `js/bootstrap.js` installs `host` and `console` (embedded in the binary).
+- `js/prelude.js` is `PRELUDE_SOURCE` from `@earendil-works/pi-codemode` 1.4.0 (tag `v1.4.0`), evaluated,
+  unmodified (`pnpm gen-prelude` in `conformance/`). Not used by the runner: the codemode wrapper
+  embeds it. MIT, Copyright (c) 2025 Mario Zechner.
+- `js/codemode-wrapper.js` is GENERATED (`pnpm gen-wrapper`, checked by `pnpm check-prelude`) from
+  `js/codemode-wrapper.in.js` (our glue: pi's start/result/call/output/done frames as JSON over
+  `host.post`/`host.onmessage`, `host` captured and deleted before user code) plus `js/prelude.js`. An
+  embedder sends it as one `eval` frame, then the start data as a message, then `{"type":"check"}` after
+  every start/result message (see the header of the template), and kills the process on `done`.
+- `conformance/src/process-sandbox.ts` and `cbor.ts`: the shim (spawn, eval the wrapper, translate pi's
+  JSON frames to CBOR `message` frames).
+- `conformance/`: pi's `sandbox.test.ts` (adapted from pi's `packages/codemode/test/sandbox.test.ts` at
+  tag `v1.4.0`, same licence) run against the binary.
 
 ## Building
 
-Needs Rust 1.87 or later (the floor is `rquickjs`'s). Dependencies are pinned by `Cargo.lock`; the sources are
-not in git. `make rust-vendor` runs `cargo vendor --locked` into `vendor/` (git-ignored) and writes
-`vendor/config.toml`, the source replacement that the build targets pass to cargo, which then builds with
-`--frozen`. The build targets run it on their own when `vendor/` is missing or `Cargo.lock` is newer.
-The result is deterministic: cargo checks every downloaded crate against the checksums in the lockfile.
+Needs Rust 1.87 or later. Dependencies are pinned by `Cargo.lock`; the sources are not in git.
+`make rust-vendor` runs `cargo vendor --locked` into `vendor/` (git-ignored) and writes `vendor/config.toml`,
+the source replacement the build targets pass to cargo, which builds with `--frozen` (offline). The build
+targets run it when `vendor/` is missing or `Cargo.lock` is newer. After changing dependencies run `cargo fetch`
+(updates `Cargo.lock`, needs the network), then `make rust-vendor`.
 
 ```
-make rust-vendor                # from the repository root: needs the network, once per Cargo.lock
-make build-codemode-binary      # cargo build --release --frozen, offline
-make test-codemode-binary
-make install-codemode-binary    # PREFIX=... DESTDIR=...
+make rust-vendor                 # from the repository root, once per Cargo.lock
+make build-tiny-js-binary        # release build; binary in _build/tiny-js-sandbox/release/,
+                                 # symlinked at lib/tiny-js-sandbox/target/release/tiny-js-sandbox
+make test-tiny-js-binary
+make install-tiny-js-binary      # PREFIX=... DESTDIR=...
+make conformance-tiny-js-binary  # needs node and pnpm
 ```
-
-To update dependencies, run `cargo update` (the `resolver.incompatible-rust-versions = "fallback"` setting keeps
-the lockfile within the MSRV), then `make rust-vendor`. Build and test with
-`rustup toolchain install 1.87` and `cargo +1.87 test --frozen --release` before committing.
 
 ## Tests
 
-- `cargo test` (all in `tests/`, `src/` has none): `sandbox.rs` has probes that enter the sandbox and check what is
-  denied, `runner.rs` runs the binary like a host, `cli.rs` and `protocol.rs` cover the parsers.
-- `make conformance-codemode-binary`: runs pi-codemode's own `sandbox.test.ts` against the binary, with a
-  `VmLauncher` (`conformance/src/process-sandbox.ts`) that plugs it into pi's host code in place of its
-  worker, in the `--sandbox=full` mode (set `RUNNER_SANDBOX=none` or `seccomp` to change it). Needs
-  Node and pnpm; `pnpm check-prelude` checks that `src/prelude.js` still matches the pinned package.
+`cargo test` (everything is in `tests/`, `src/` has none; use `ulimit -v` generously for rustc):
 
-## Provenance
-
-- `src/prelude.js` is `PRELUDE_SOURCE` from `@earendil-works/pi-codemode` 1.4.0, evaluated, unmodified
-  (generate it with `pnpm gen-prelude` in `conformance/`). It builds the script's environment: `tools`, `ALL_TOOLS`,
-  `console`, `text`, `image`, `exit`, `store`, `load`, the freezing of built-ins and the error and output handling.
-  The runner only supplies its native `bridge`. MIT, Copyright (c) 2025 Mario Zechner.
-- `conformance/test/sandbox.test.ts` is adapted from pi's `packages/codemode/test/sandbox.test.ts` at tag `v1.4.0`
-  (4a08025, same licence). The header of the file lists the changes.
-- Known differences: the engine is QuickJS-ng (`rquickjs`), pi's is `quickjs-wasi`. A call costs about 1.6 KiB of
-  QuickJS stack here, so the stack guard is 2 MiB (pi's tests expect more than 1000 levels of recursion, which
-  512 KiB did not give). `Intl` is not available in this runner. All 48 scenarios of pi's `sandbox.test.ts` pass.
+- `cli.rs`: flags, defaults, ranges.
+- `frame.rs`: framing, cap before allocation, truncation, EOF.
+- `envelope.rs`: round trips, the documented hex examples and every rejection (indefinite lengths, tags,
+  floats, bad UTF-8, unknown keys and types, deep nesting, trailing bytes, lying lengths).
+- `fuzz.rs`: deterministic random and mutated inputs through the decoders with a counting allocator: no
+  panic, no allocation beyond the input size.
+- `sandbox.rs`: probes that re-run the test binary, enter landlock or seccomp, and check what is denied
+  (exit codes DENIED=42, ALLOWED=43), including the clock syscalls denied by default and allowed with the flag.
+- `runner.rs`: the real binary driven by a minicbor harness (`tests/common`): handshake, eval conversions,
+  `host.post`/`onmessage`, job draining, frame caps, memory and CPU limits, the four clock/random flag
+  combinations at the full sandbox level, all sandbox levels.

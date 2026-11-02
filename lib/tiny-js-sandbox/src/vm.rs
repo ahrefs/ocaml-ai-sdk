@@ -1,228 +1,293 @@
-//! Drives one QuickJS VM through one script, the way pi-codemode's `runtime/vm.ts` does: the
-//! prelude (see `prelude.js`) builds the script's environment and keeps the promises of pending
-//! host calls; this module only supplies its native `bridge`, runs the script and feeds it the
-//! host's results. QuickJS has no event loop, so the VM runs only while the promise job queue is
-//! non-empty and otherwise waits in a blocking read for the next result.
+//! The VM: a QuickJS context with a `host` global, driven by the frame loop. Eval and message
+//! frames are handled strictly in order; after each one the promise job queue is drained.
 
-use crate::protocol::{self, parse_result};
-use rquickjs::{context::EvalOptions, function::Rest, Ctx, Error, Function, Object, Value};
-use serde_json::{json, Value as Json};
+use crate::{
+    envelope::{decode_incoming, encode_outgoing, Incoming, Outgoing, Payload},
+    frame::{read_frame, write_frame, FrameError},
+};
+use rquickjs::{
+    context::{
+        intrinsic::{
+            DOMException, Date, Eval, Json, MapSet, Performance, Promise, Proxy, RegExp, RegExpCompiler, TypedArrays,
+            WeakRef,
+        },
+        EvalOptions,
+    },
+    function::Func,
+    ArrayBuffer, Coerced, Context, Ctx, Error, Function, Object, Runtime, Value,
+};
 use std::{
-    io::BufRead,
-    sync::atomic::{AtomicBool, Ordering},
+    cell::RefCell,
+    io::{Read, Write},
+    rc::Rc,
 };
 
-const PRELUDE: &str = include_str!("prelude.js");
+const BOOTSTRAP: &str = include_str!("../js/bootstrap.js");
 
-/// Set once the script's `done` message is sent. From then on the VM is interrupted and nothing
-/// more is sent: `exit()` and the output limit throw into the script, which may catch that and
-/// carry on, but the run is over.
-static FINISHED: AtomicBool = AtomicBool::new(false);
+/// Replaces `Math.random` unless `--allow-random`.
+const DISABLE_RANDOM: &str =
+    r#"Math.random=function random(){throw new Error("Math.random is disabled in this sandbox")};Object.freeze(Math);"#;
 
-/// Whether the run is over; the runtime's interrupt handler returns it.
-pub fn finished() -> bool {
-    FINISHED.load(Ordering::Relaxed)
-}
+const TOO_LARGE_RESULT: &str = "result exceeds the maximum frame size";
 
-/// What the host sends first: pi's `VmStartData`, minus what only a worker needs.
-pub struct Start {
-    pub code: String,
-    pub tools_json: String,
-    pub globals_json: String,
-    pub store_json: String,
-    /// Can only lower the `--memory-limit-mb` limit.
-    pub memory_limit_bytes: Option<u64>,
-}
+/// Longest `log` text, further limited by the frame cap.
+const MAX_LOG_BYTES: usize = 64 * 1024;
 
-impl Start {
-    pub fn parse(line: &str) -> Result<Self, String> {
-        let data: Json = serde_json::from_str(line).map_err(|e| format!("invalid start data: {e}"))?;
-        if data.get("deterministic").is_some_and(|d| !d.is_null()) {
-            return Err("deterministic mode is not supported".to_string());
-        }
-        let code = data
-            .get("code")
-            .and_then(Json::as_str)
-            .ok_or("start data without a string `code`")?;
-        let field = |name: &str, default: &str| match data.get(name) {
-            Some(value) if !value.is_null() => value.to_string(),
-            _ => default.to_string(),
-        };
-        Ok(Self {
-            code: code.to_string(),
-            tools_json: field("tools", "[]"),
-            globals_json: field("globals", "[]"),
-            store_json: field("store", "{}"),
-            memory_limit_bytes: data.get("memoryLimitBytes").and_then(Json::as_u64),
-        })
+/// Every intrinsic except `Date` and `Performance`.
+type Base = (
+    Eval,
+    RegExpCompiler,
+    RegExp,
+    Json,
+    Proxy,
+    MapSet,
+    TypedArrays,
+    Promise,
+    WeakRef,
+    DOMException,
+);
+type WithClock = (Base, (Date, Performance));
+
+/// Creates the context. Without `allow_clock` there is no `Date` and no `Performance`.
+pub fn create_context(runtime: &Runtime, allow_clock: bool) -> Result<Context, Error> {
+    match allow_clock {
+        true => Context::custom::<WithClock>(runtime),
+        false => Context::custom::<Base>(runtime),
     }
 }
 
-/// Global, sloppy-mode code, like quickjs-wasi's `evalCode`: scripts may rely on it, for example
-/// assigning to a frozen built-in silently fails instead of throwing.
+/// The frames the runner writes to stdout; one place for the cap and the failure policy.
+pub struct Out {
+    sink: RefCell<Box<dyn Write>>,
+    max: u32,
+}
+
+impl Out {
+    pub fn new(sink: impl Write + 'static, max: u32) -> Rc<Self> {
+        Rc::new(Self {
+            sink: RefCell::new(Box::new(sink)),
+            max,
+        })
+    }
+
+    /// Writes `frame` unless it exceeds the cap (then nothing is written). An i/o failure ends
+    /// the process: nobody is listening.
+    pub fn send(&self, frame: &Outgoing) -> Result<(), FrameError> {
+        self.write(frame, self.max)
+    }
+
+    /// For small control frames (`hello`, `error`, error results) that must go out whatever the cap.
+    pub fn send_uncapped(&self, frame: &Outgoing) {
+        let _ = self.write(frame, u32::MAX);
+    }
+
+    fn write(&self, frame: &Outgoing, max: u32) -> Result<(), FrameError> {
+        match write_frame(&mut *self.sink.borrow_mut(), &encode_outgoing(frame), max) {
+            Err(FrameError::Io(_)) => std::process::exit(1),
+            result => result,
+        }
+    }
+
+    /// A `log` frame, truncated to fit; dropped when it cannot be written.
+    pub fn log(&self, level: &str, text: &str) {
+        let limit = MAX_LOG_BYTES.min((self.max / 2) as usize);
+        let end = (0..=limit.min(text.len()))
+            .rev()
+            .find(|&i| text.is_char_boundary(i))
+            .unwrap_or(0);
+        let _ = self.send(&Outgoing::Log {
+            level: level.to_string(),
+            text: text[..end].to_string(),
+        });
+    }
+}
+
+/// The helpers the bootstrap hands back; they are not reachable from scripts.
+pub struct Api<'js> {
+    deliver: Function<'js>,
+    norm: Function<'js>,
+    size: Function<'js>,
+    max: u32,
+}
+
+/// A value that may cross the boundary, after `norm`: a string (lone surrogates already replaced by
+/// U+FFFD, so it is valid UTF-8), an ArrayBuffer or a Uint8Array. The class is tested before
+/// anything is read, so no exception is left pending in the engine.
+fn payload_of(value: &Value<'_>) -> Option<Payload> {
+    if let Some(s) = value.as_string() {
+        return s.to_string().ok().map(Payload::Text);
+    }
+    let object = value.as_object()?;
+    // SAFETY (both arms): the bytes are copied before any JavaScript can run again.
+    if let Some(buffer) = object.as_array_buffer() {
+        return unsafe { buffer.as_bytes() }.map(|b| Payload::Bytes(b.to_vec()));
+    }
+    let array = object.as_typed_array::<u8>()?;
+    unsafe { array.as_bytes() }.map(|b| Payload::Bytes(b.to_vec()))
+}
+
 fn eval_options(filename: &str) -> EvalOptions {
     let mut options = EvalOptions::default();
+    // Global, sloppy-mode script, like `(0, eval)(code)`.
     options.strict = false;
     options.filename = Some(filename.to_string());
     options
 }
 
-/// A string argument of the bridge. Strings that do not convert (unpaired surrogates) become a
-/// placeholder instead of failing the whole script.
-fn string_arg(value: Option<&Value<'_>>) -> Option<String> {
-    let string = value?.as_string()?;
-    Some(
-        string
-            .to_string()
-            .unwrap_or_else(|_| "<string that is not valid UTF-8>".to_string()),
-    )
+/// Evaluates the bootstrap: installs `host` and `console` and returns the runner's helpers.
+pub fn install<'js>(ctx: &Ctx<'js>, out: &Rc<Out>) -> Result<Api<'js>, String> {
+    let post_out = Rc::clone(out);
+    let post = Func::from(move |value: Value<'js>| -> i32 {
+        match payload_of(&value) {
+            None => 1,
+            Some(Payload::Text(t)) if t.len() > post_out.max as usize => 2,
+            Some(Payload::Bytes(b)) if b.len() > post_out.max as usize => 2,
+            Some(payload) => match post_out.send(&Outgoing::Message(payload)) {
+                Ok(()) => 0,
+                Err(_) => 2,
+            },
+        }
+    });
+    let log_out = Rc::clone(out);
+    let log = Func::from(move |level: String, text: String| log_out.log(&level, &text));
+    let eval_as = Func::from(
+        |ctx: Ctx<'js>, code: String, filename: String| -> rquickjs::Result<Value<'js>> {
+            ctx.eval_with_options(code, eval_options(&filename))
+        },
+    );
+    let setup: Function = ctx
+        .eval_with_options(BOOTSTRAP, eval_options("<bootstrap>"))
+        .map_err(|e| js_error(ctx, e))?;
+    let api: Object = setup
+        .call((post, log, eval_as, out.max))
+        .map_err(|e| js_error(ctx, e))?;
+    let get = |name: &str| api.get::<_, Function>(name).map_err(|e| js_error(ctx, e));
+    Ok(Api {
+        deliver: get("deliver")?,
+        norm: get("norm")?,
+        size: get("size")?,
+        max: out.max,
+    })
 }
 
-/// Handles one `bridge(kind, a, b, c)` call from the prelude: the messages of
-/// `WorkerToHostMessage`, with `undefined` fields left out.
-fn handle_bridge(args: &[Value<'_>]) -> Result<(), String> {
-    if finished() {
-        return Ok(());
-    }
-    let arg = |i: usize| string_arg(args.get(i));
-    let text = |i: usize| arg(i).unwrap_or_default();
-    let kind = arg(0).ok_or("bridge called without a kind")?;
-    let message = match kind.as_str() {
-        "call" | "global" => {
-            let id = args
-                .get(1)
-                .and_then(|v| v.as_int().map(f64::from).or_else(|| v.as_float()))
-                .ok_or("call without an id")?;
-            let id = if id.fract() == 0.0 { json!(id as i64) } else { json!(id) };
-            let target = if kind == "call" { "tool" } else { "global" };
-            let mut message = json!({ "type": "call", "id": id, "target": target, "name": text(2) });
-            if let Some(json_args) = arg(3) {
-                message["args"] = json!(json_args);
-            }
-            message
-        }
-        "output" => {
-            let item = match arg(1).as_deref() {
-                Some("image") => json!({ "type": "image", "data": text(2), "mimeType": text(3) }),
-                Some("console") => json!({ "type": "text", "text": text(2), "console": true }),
-                _ => json!({ "type": "text", "text": text(2) }),
-            };
-            json!({ "type": "output", "item": item })
-        }
-        "done" => {
-            let ok = args.get(1).and_then(Value::as_bool).ok_or("done without ok")?;
-            let message = if ok {
-                let mut message =
-                    json!({ "type": "done", "ok": true, "writes": arg(3).unwrap_or_else(|| "[]".to_string()) });
-                if let Some(value) = arg(2) {
-                    message["value"] = json!(value);
-                }
-                message
-            } else {
-                json!({ "type": "done", "ok": false, "error": text(2) })
-            };
-            FINISHED.store(true, Ordering::Relaxed);
-            message
-        }
-        other => return Err(format!("unknown bridge kind {other:?}")),
-    };
-    protocol::send(&message)
+/// Replaces `Math.random` with a function that throws, and freezes `Math`.
+pub fn disable_random(ctx: &Ctx<'_>) -> Result<(), String> {
+    ctx.eval_with_options::<(), _>(DISABLE_RANDOM, eval_options("<init>"))
+        .map_err(|e| js_error(ctx, e))
 }
 
-/// An exception as JSON `{name, message, stack}`, with the stack prefixed by `name: message` like V8.
+/// The exception pending on `ctx` as text: `Name: message`, then the stack when there is one.
 fn describe_exception(ctx: &Ctx<'_>) -> String {
     let exception = ctx.catch();
-    let object = exception.as_object();
-    let text = |key: &str| {
-        object
-            .and_then(|o| o.get::<_, Option<String>>(key).ok().flatten())
-            .unwrap_or_default()
-    };
-    let (name, message, stack) = (text("name"), text("message"), text("stack"));
-    let head = if message.is_empty() {
-        name.clone()
-    } else {
-        format!("{name}: {message}")
-    };
-    let stack = match stack.trim_end() {
-        "" => head,
-        frames => format!("{head}\n{frames}"),
-    };
-    json!({ "name": name, "message": message, "stack": stack }).to_string()
+    let text = |object: &Object<'_>, key: &str| object.get::<_, Option<String>>(key).ok().flatten().unwrap_or_default();
+    match exception.as_object() {
+        Some(object) if object.is_error() => {
+            let (name, message, stack) = (text(object, "name"), text(object, "message"), text(object, "stack"));
+            let head = match message.is_empty() {
+                true => name,
+                false => format!("{name}: {message}"),
+            };
+            match stack.trim_end() {
+                "" => head,
+                frames => format!("{head}\n{frames}"),
+            }
+        }
+        _ => exception
+            .get::<Coerced<String>>()
+            .map(|c| c.0)
+            .unwrap_or_else(|_| "<exception that cannot be converted to a string>".to_string()),
+    }
 }
 
 fn js_error(ctx: &Ctx<'_>, error: Error) -> String {
-    if error.is_exception() {
-        describe_exception(ctx)
-    } else {
-        error.to_string()
+    match error.is_exception() {
+        true => describe_exception(ctx),
+        false => error.to_string(),
     }
 }
 
-/// Runs the script to its `done` message. Returns an error for failures of the VM itself, which
-/// the caller reports as `crash`. Whatever happens after `done` (the interrupt that stops a
-/// script which kept going, for one) is not a failure.
-pub fn run(ctx: &Ctx<'_>, start: &Start, input: &mut impl BufRead) -> Result<(), String> {
-    match run_script(ctx, start, input) {
-        Err(_) if finished() => Ok(()),
-        result => result,
+/// Runs queued promise jobs until there are none. A job that throws is dropped, like an
+/// unhandled rejection.
+fn drain_jobs(ctx: &Ctx<'_>) {
+    while ctx.execute_pending_job() {}
+}
+
+fn convert_result<'js>(api: &Api<'js>, value: Value<'js>) -> Result<Option<Payload>, String> {
+    const NOT_TRANSFERABLE: &str = "result is not transferable";
+    match value.is_undefined() || value.is_null() {
+        true => Ok(None),
+        false => {
+            // The size is checked before any copy: the cap would reject the frame anyway.
+            let size: f64 = api
+                .size
+                .call((value.clone(),))
+                .map_err(|_| NOT_TRANSFERABLE.to_string())?;
+            match size {
+                size if size < 0.0 => Err(NOT_TRANSFERABLE.to_string()),
+                size if size > f64::from(api.max) => Err(TOO_LARGE_RESULT.to_string()),
+                _ => {
+                    let normalized: Value = api.norm.call((value,)).map_err(|_| NOT_TRANSFERABLE.to_string())?;
+                    payload_of(&normalized)
+                        .map(Some)
+                        .ok_or_else(|| NOT_TRANSFERABLE.to_string())
+                }
+            }
+        }
     }
 }
 
-fn run_script(ctx: &Ctx<'_>, start: &Start, input: &mut impl BufRead) -> Result<(), String> {
-    let bridge = Function::new(ctx.clone(), move |args: Rest<Value<'_>>| {
-        if let Err(message) = handle_bridge(&args.0) {
-            protocol::send_crash(&message);
-            std::process::exit(1);
-        }
-    })
-    .map_err(|e| js_error(ctx, e))?;
-
-    let prelude: Function = ctx
-        .eval_with_options(PRELUDE, eval_options("codemode-prelude.js"))
-        .map_err(|e| js_error(ctx, e))?;
-    let api: Object = prelude
-        .call((
-            bridge,
-            start.tools_json.as_str(),
-            start.globals_json.as_str(),
-            start.store_json.as_str(),
-        ))
-        .map_err(|e| js_error(ctx, e))?;
-    let get = |name: &str| api.get::<_, Function>(name).map_err(|e| js_error(ctx, e));
-    let (settle, run, stalled) = (get("settle")?, get("run")?, get("stalled")?);
-
-    // The prefix shares the first line with the script so reported line numbers match.
-    let wrapped = format!("(async (tools, console) => {{{}\n}})", start.code);
-    let script: Function = match ctx.eval_with_options(wrapped, eval_options("codemode.js")) {
-        Ok(script) => script,
-        Err(error) if error.is_exception() => {
-            let error = describe_exception(ctx);
-            return protocol::send(&json!({ "type": "done", "ok": false, "error": error }));
-        }
-        Err(error) => return Err(error.to_string()),
+/// Evaluates one script. `Err` is a failure of the runtime itself (not a JS exception).
+fn handle_eval<'js>(ctx: &Ctx<'js>, api: &Api<'js>, code: String) -> Result<Result<Option<Payload>, String>, String> {
+    let result = match ctx.eval_with_options::<Value, _>(code, eval_options("<eval>")) {
+        Ok(value) => convert_result(api, value),
+        Err(error) if error.is_exception() => Err(describe_exception(ctx)),
+        Err(error) => return Err(format!("the VM failed: {error}")),
     };
+    drain_jobs(ctx);
+    Ok(result)
+}
 
-    // Run queued jobs, then fail a script that waits on nothing that can ever resume it.
-    let drain = || -> Result<(), String> {
-        while !finished() && ctx.execute_pending_job() {}
-        if finished() {
-            return Ok(());
-        }
-        stalled.call::<_, bool>(()).map(|_| ()).map_err(|e| js_error(ctx, e))
+fn handle_message<'js>(ctx: &Ctx<'js>, api: &Api<'js>, data: Payload) -> Result<(), String> {
+    let fail = |e: Error| format!("cannot deliver a message: {e}");
+    let value: Value = match data {
+        Payload::Text(text) => rquickjs::String::from_str(ctx.clone(), &text)
+            .map_err(fail)?
+            .into_value(),
+        Payload::Bytes(bytes) => ArrayBuffer::new(ctx.clone(), bytes).map_err(fail)?.into_value(),
     };
-
-    run.call::<_, ()>((script,)).map_err(|e| js_error(ctx, e))?;
-    drain()?;
-    while !finished() {
-        let line = protocol::read_line(input)
-            .map_err(|e| format!("cannot read from stdin: {e}"))?
-            .ok_or("host closed stdin before the script finished")?;
-        let result = parse_result(&line)?;
-        settle
-            .call::<_, ()>((result.id, result.ok, result.payload, result.properties))
-            .map_err(|e| js_error(ctx, e))?;
-        drain()?;
+    match api.deliver.call::<_, ()>((value,)) {
+        Ok(()) => {}
+        Err(error) if error.is_exception() => return Err(format!("the VM failed: {}", describe_exception(ctx))),
+        Err(error) => return Err(fail(error)),
     }
+    drain_jobs(ctx);
     Ok(())
+}
+
+fn send_eval_result(out: &Out, id: u64, result: Result<Option<Payload>, String>) {
+    let frame = Outgoing::EvalResult { id, result };
+    match out.send(&frame) {
+        Ok(()) => {}
+        Err(_) => out.send_uncapped(&Outgoing::EvalResult {
+            id,
+            result: Err(TOO_LARGE_RESULT.to_string()),
+        }),
+    }
+}
+
+/// The frame loop. `Ok` on clean EOF; `Err` carries the message for the `error` frame.
+pub fn serve<'js>(ctx: &Ctx<'js>, api: &Api<'js>, input: &mut impl Read, out: &Out, max: u32) -> Result<(), String> {
+    loop {
+        let payload = match read_frame(input, max).map_err(|e| e.to_string())? {
+            Some(payload) => payload,
+            None => return Ok(()),
+        };
+        match decode_incoming(&payload).map_err(|e| e.to_string())? {
+            Incoming::Eval { id, code } => {
+                let result = handle_eval(ctx, api, code)?;
+                send_eval_result(out, id, result);
+            }
+            Incoming::Message(data) => handle_message(ctx, api, data)?,
+        }
+    }
 }

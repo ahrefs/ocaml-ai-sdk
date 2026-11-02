@@ -63,28 +63,32 @@ pub fn set_resource_limits(cli: &Cli) -> Result<(), String> {
 }
 
 /// Applies the sandbox for `mode`. Any failure is an error; nothing is silently skipped.
-pub fn enter(mode: SandboxMode) -> Result<(), String> {
+/// `allow_clock` adds the clock syscalls to the seccomp allowlist.
+pub fn enter(mode: SandboxMode, allow_clock: bool) -> Result<(), String> {
     match mode {
         SandboxMode::None => Ok(()),
+        SandboxMode::Landlock => {
+            harden_process()?;
+            apply_landlock(true)
+        }
         SandboxMode::Seccomp => {
-            load_timezone();
             harden_process()?;
             limit_descriptors()?;
-            apply_seccomp()
+            apply_seccomp(allow_clock)
         }
         SandboxMode::Full => {
-            load_timezone();
             harden_process()?;
-            apply_landlock()?;
+            apply_landlock(false)?;
             limit_descriptors()?;
-            apply_seccomp()
+            apply_seccomp(allow_clock)
         }
     }
 }
 
 /// Reads the time zone now: libc loads `/etc/localtime` on the first local time conversion, which
-/// the sandbox forbids, and the process would die on `new Date().getFullYear()`.
-fn load_timezone() {
+/// the sandbox forbids, and the process would die on `new Date().getFullYear()`. Only needed
+/// when `Date` exists (`--allow-clock`). Call it before `enter`.
+pub fn preload_timezone() {
     extern "C" {
         fn tzset();
     }
@@ -113,8 +117,11 @@ fn limit_descriptors() -> Result<(), String> {
 }
 
 /// Landlock: handle every access right the kernel knows, allow none. ABI 1 (filesystem) is a
-/// hard requirement; network and scope rights are added when the kernel has them.
-pub fn apply_landlock() -> Result<(), String> {
+/// hard requirement; newer filesystem and scope rights are added when the kernel has them.
+/// The TCP rights (ABI 4, Linux 6.7) are a hard requirement when `require_network` (landlock is
+/// then the only barrier, so a kernel that cannot restrict TCP is refused) and best effort
+/// otherwise (`full` has the seccomp filter behind it).
+pub fn apply_landlock(require_network: bool) -> Result<(), String> {
     use landlock::{
         Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus, Scope, ABI,
     };
@@ -126,7 +133,13 @@ pub fn apply_landlock() -> Result<(), String> {
             r.set_compatibility(CompatLevel::BestEffort)
                 .handle_access(AccessFs::from_all(newest))
         })
-        .and_then(|r| r.handle_access(AccessNet::from_all(newest)))
+        .and_then(|r| match require_network {
+            true => r
+                .set_compatibility(CompatLevel::HardRequirement)
+                .handle_access(AccessNet::from_all(ABI::V4))
+                .map(|r| r.set_compatibility(CompatLevel::BestEffort)),
+            false => r.handle_access(AccessNet::from_all(newest)),
+        })
         .and_then(|r| r.scope(Scope::from_all(newest)))
         .and_then(|r| r.create())
         .and_then(|r| r.restrict_self())
@@ -154,6 +167,13 @@ const ALLOWED_SYSCALLS: [i64; 13] = [
     libc::SYS_rt_sigprocmask,
 ];
 
+/// Added to the allowlist by `--allow-clock`.
+const CLOCK_SYSCALLS: [i64; 3] = [
+    libc::SYS_clock_gettime,
+    libc::SYS_gettimeofday,
+    libc::SYS_clock_nanosleep,
+];
+
 /// Syscalls allowed only without `PROT_EXEC` in the given argument: the process never needs
 /// executable memory.
 const NON_EXECUTABLE_ONLY: [(i64, u8); 2] = [(libc::SYS_mmap, 2), (libc::SYS_mprotect, 2)];
@@ -162,9 +182,15 @@ fn seccomp_error(e: impl std::fmt::Display) -> String {
     format!("seccomp: {e}")
 }
 
-pub fn apply_seccomp() -> Result<(), String> {
-    let mut rules: BTreeMap<i64, Vec<SeccompRule>> =
-        ALLOWED_SYSCALLS.iter().map(|&syscall| (syscall, vec![])).collect();
+/// Installs the seccomp allowlist (plus the clock syscalls when `allow_clock`); everything else
+/// kills the process.
+pub fn apply_seccomp(allow_clock: bool) -> Result<(), String> {
+    let clock: &[i64] = if allow_clock { &CLOCK_SYSCALLS } else { &[] };
+    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = ALLOWED_SYSCALLS
+        .iter()
+        .chain(clock)
+        .map(|&syscall| (syscall, vec![]))
+        .collect();
     for (syscall, arg) in NON_EXECUTABLE_ONLY {
         let no_exec = SeccompCondition::new(
             arg,

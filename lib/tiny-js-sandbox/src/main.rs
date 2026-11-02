@@ -1,11 +1,21 @@
-//! Runs one codemode script in a sandboxed QuickJS VM, speaking JSONL on stdio. See `--help`.
+//! One sandboxed QuickJS VM per process, speaking length-prefixed CBOR on stdio. See `--help`
+//! and `PROTOCOL.md`.
 
-use ai_sdk_quickjs_runner::{cli, protocol, sandbox, vm};
-use rquickjs::{Context, Runtime};
+use rquickjs::{Ctx, Runtime};
+use std::io::Write;
+use tiny_js_sandbox::{
+    cli::{self, Cli},
+    envelope::{Outgoing, PROTO},
+    sandbox,
+    vm::{self, Out},
+};
 
 /// QuickJS's own stack guard, so deep recursion throws a catchable `RangeError`. pi's tests expect
 /// more than 1000 levels of recursion, at about 1.6 KiB each here.
 const MAX_STACK_SIZE: usize = 2 * 1024 * 1024;
+
+/// Longest `error` frame message.
+const MAX_ERROR_BYTES: usize = 4096;
 
 fn main() {
     std::process::exit(real_main());
@@ -16,52 +26,44 @@ fn real_main() -> i32 {
         Ok(cli) => cli,
         Err(e) => e.exit(),
     };
-    match run(&cli) {
+    let out = Out::new(std::io::stdout(), cli.max_frame_bytes);
+    match run(&cli, &out) {
         Ok(()) => 0,
-        Err(Failure::Setup(message)) => {
-            eprintln!("ai-sdk-quickjs-runner: {message}");
-            70
-        }
-        Err(Failure::Vm(message)) => {
-            protocol::send_crash(&message);
+        Err(message) => {
+            let end = (0..=MAX_ERROR_BYTES.min(message.len()))
+                .rev()
+                .find(|&i| message.is_char_boundary(i))
+                .unwrap_or(0);
+            // The frame goes first: stderr may be a full pipe or closed, and must not delay it.
+            out.send_uncapped(&Outgoing::Error {
+                message: message[..end].to_string(),
+            });
+            let _ = writeln!(std::io::stderr(), "tiny-js-sandbox: {}", &message[..end]);
             1
         }
     }
 }
 
-enum Failure {
-    /// Before the script could start; nothing is sent on stdout.
-    Setup(String),
-    /// While running it; reported to the host as `crash`.
-    Vm(String),
-}
+/// Setup, then the frame loop; everything that needs syscalls the filter forbids comes first.
+fn run(cli: &Cli, out: &std::rc::Rc<Out>) -> Result<(), String> {
+    sandbox::close_inherited_fds()?;
+    sandbox::set_resource_limits(cli)?;
 
-fn set_memory_limit(runtime: &Runtime, bytes: u64) {
-    runtime.set_memory_limit(usize::try_from(bytes).unwrap_or(usize::MAX));
-}
-
-fn run(cli: &cli::Cli) -> Result<(), Failure> {
-    sandbox::close_inherited_fds().map_err(Failure::Setup)?;
-    sandbox::set_resource_limits(cli).map_err(Failure::Setup)?;
-
-    let cannot_create = |e: rquickjs::Error| Failure::Setup(format!("cannot create the VM: {e}"));
+    let cannot_create = |e: rquickjs::Error| format!("cannot create the VM: {e}");
     let runtime = Runtime::new().map_err(cannot_create)?;
-    set_memory_limit(&runtime, cli.memory_limit_bytes);
+    runtime.set_memory_limit(usize::try_from(cli.memory_limit_bytes).unwrap_or(usize::MAX));
     runtime.set_max_stack_size(MAX_STACK_SIZE);
-    runtime.set_interrupt_handler(Some(Box::new(vm::finished)));
-    let context = Context::full(&runtime).map_err(cannot_create)?;
-
-    sandbox::enter(cli.sandbox).map_err(Failure::Setup)?;
-
-    let mut input = std::io::stdin().lock();
-    let line = protocol::read_line(&mut input)
-        .map_err(|e| Failure::Vm(format!("cannot read the start data: {e}")))?
-        .ok_or_else(|| Failure::Vm("no start data".to_string()))?;
-    let start = vm::Start::parse(&line).map_err(Failure::Vm)?;
-    if let Some(limit) = start.memory_limit_bytes {
-        set_memory_limit(&runtime, limit.min(cli.memory_limit_bytes));
-    }
-    context
-        .with(|ctx| vm::run(&ctx, &start, &mut input))
-        .map_err(Failure::Vm)
+    let context = vm::create_context(&runtime, cli.allow_clock).map_err(cannot_create)?;
+    context.with(|ctx: Ctx<'_>| {
+        let api = vm::install(&ctx, out)?;
+        if !cli.allow_random {
+            vm::disable_random(&ctx)?;
+        }
+        if cli.allow_clock {
+            sandbox::preload_timezone();
+        }
+        sandbox::enter(cli.sandbox, cli.allow_clock)?;
+        out.send_uncapped(&Outgoing::Hello { proto: PROTO });
+        vm::serve(&ctx, &api, &mut std::io::stdin().lock(), out, cli.max_frame_bytes)
+    })
 }

@@ -28,39 +28,48 @@ clean:
 top:
 	dune utop .
 
-# The codemode VM is a Rust program, built with cargo from sources vendored out of Cargo.lock into
-# lib/codemode-sandbox/vendor (not in git), then built offline. Dune does not build it: run these
+# The tiny-js sandbox VM is a Rust program, built with cargo from sources vendored out of Cargo.lock into
+# lib/tiny-js-sandbox/vendor (not in git), then built offline. Dune does not build it: run these
 # targets (needs a Rust toolchain, 1.87 or later).
-CODEMODE_DIR := lib/codemode-sandbox
-CODEMODE_TARGET_DIR := $(CURDIR)/_build/codemode-sandbox
-CODEMODE_BINARY := ai-sdk-quickjs-runner
-CODEMODE_CARGO_FLAGS := --config vendor/config.toml --frozen
+TINY_JS_DIR := lib/tiny-js-sandbox
+TINY_JS_TARGET_DIR := $(CURDIR)/_build/tiny-js-sandbox
+TINY_JS_BINARY := tiny-js-sandbox
+TINY_JS_CARGO_FLAGS := --config vendor/config.toml --frozen
 PREFIX ?= $(or $(OPAM_SWITCH_PREFIX),/usr/local)
 
 # Downloads exactly the crates (and checksums) pinned by Cargo.lock; rerun when Cargo.lock changes.
 # `cargo vendor` prints the source-replacement config, which the build targets pass to cargo.
 .PHONY: rust-vendor
 rust-vendor:
-	cd $(CODEMODE_DIR) && rm -rf vendor && cargo vendor --locked vendor > vendor.config.tmp \
+	cd $(TINY_JS_DIR) && rm -rf vendor && cargo vendor --locked vendor > vendor.config.tmp \
 	  && mv vendor.config.tmp vendor/config.toml
 
-$(CODEMODE_DIR)/vendor/config.toml: $(CODEMODE_DIR)/Cargo.lock
+$(TINY_JS_DIR)/vendor/config.toml: $(TINY_JS_DIR)/Cargo.lock
 	$(MAKE) rust-vendor
 
-.PHONY: build-codemode-binary
-build-codemode-binary: $(CODEMODE_DIR)/vendor/config.toml
-	cd $(CODEMODE_DIR) && CARGO_TARGET_DIR=$(CODEMODE_TARGET_DIR) cargo build --release $(CODEMODE_CARGO_FLAGS)
+.PHONY: build-tiny-js-binary
+build-tiny-js-binary: $(TINY_JS_DIR)/vendor/config.toml
+	cd $(TINY_JS_DIR) && CARGO_TARGET_DIR=$(TINY_JS_TARGET_DIR) cargo build --release $(TINY_JS_CARGO_FLAGS)
+	@# Also reachable at the conventional cargo location (git-ignored), where the OCaml tests look.
+	mkdir -p $(TINY_JS_DIR)/target/release
+	ln -sf $(TINY_JS_TARGET_DIR)/release/$(TINY_JS_BINARY) $(TINY_JS_DIR)/target/release/$(TINY_JS_BINARY)
 
-.PHONY: test-codemode-binary
-test-codemode-binary: $(CODEMODE_DIR)/vendor/config.toml
-	cd $(CODEMODE_DIR) && CARGO_TARGET_DIR=$(CODEMODE_TARGET_DIR) cargo test --release $(CODEMODE_CARGO_FLAGS)
+.PHONY: test-tiny-js-binary
+test-tiny-js-binary: $(TINY_JS_DIR)/vendor/config.toml
+	cd $(TINY_JS_DIR) && CARGO_TARGET_DIR=$(TINY_JS_TARGET_DIR) cargo test --release $(TINY_JS_CARGO_FLAGS)
+
+# Builds the runner binary, then runs the OCaml client tests (lib/tiny_js) against it, in addition to the
+# scripted-runner tests. Without the binary the integration tests skip themselves.
+.PHONY: test-tiny-js
+test-tiny-js: build-tiny-js-binary
+	TINY_JS_REQUIRE_BINARY=1 TINY_JS_SANDBOX_BIN=$(TINY_JS_TARGET_DIR)/release/$(TINY_JS_BINARY) dune test --force test/tiny_js
 
 # Runs pi-codemode's sandbox tests against the binary (needs node and pnpm).
-.PHONY: conformance-codemode-binary
-conformance-codemode-binary: build-codemode-binary
-	cd $(CODEMODE_DIR)/conformance && pnpm install --frozen-lockfile && pnpm check-prelude && \
-	  RUNNER=$(CODEMODE_TARGET_DIR)/release/$(CODEMODE_BINARY) pnpm test
+.PHONY: conformance-tiny-js-binary
+conformance-tiny-js-binary: build-tiny-js-binary
+	cd $(TINY_JS_DIR)/conformance && pnpm install --frozen-lockfile && pnpm check-prelude && \
+	  RUNNER=$(TINY_JS_TARGET_DIR)/release/$(TINY_JS_BINARY) pnpm test
 
-.PHONY: install-codemode-binary
-install-codemode-binary: build-codemode-binary
-	install -D -m 755 $(CODEMODE_TARGET_DIR)/release/$(CODEMODE_BINARY) $(DESTDIR)$(PREFIX)/bin/$(CODEMODE_BINARY)
+.PHONY: install-tiny-js-binary
+install-tiny-js-binary: build-tiny-js-binary
+	install -D -m 755 $(TINY_JS_TARGET_DIR)/release/$(TINY_JS_BINARY) $(DESTDIR)$(PREFIX)/bin/$(TINY_JS_BINARY)

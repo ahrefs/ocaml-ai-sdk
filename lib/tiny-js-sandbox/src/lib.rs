@@ -1,7 +1,8 @@
-//! A sandboxed QuickJS VM that runs one codemode script, speaking JSONL on stdio. The binary
-//! (`src/main.rs`) wires these together; the tests live in `tests/`.
+//! A sandboxed QuickJS VM, one per process, speaking length-prefixed CBOR frames on stdio (see
+//! `PROTOCOL.md`). The binary (`src/main.rs`) wires these together; the tests live in `tests/`.
 
 pub mod cli;
-pub mod protocol;
+pub mod envelope;
+pub mod frame;
 pub mod sandbox;
 pub mod vm;
