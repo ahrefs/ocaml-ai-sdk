@@ -1,0 +1,32 @@
+; A scripted stand-in for the runner, so that Vm is tested without the Rust binary.
+
+(executable
+ (name fake_runner)
+ (modules fake_runner)
+ (libraries tiny_js lwt lwt.unix)
+ (preprocess
+  (pps lwt_ppx)))
+
+(tests
+ (names test_cbor test_frame test_vm)
+ (modules test_cbor test_frame test_vm)
+ (package ocaml-ai-sdk)
+ (deps fake_runner.exe)
+ (libraries tiny_js alcotest lwt lwt.unix)
+ (preprocess
+  (pps lwt_ppx)))
+
+; Needs the real binary: TINY_JS_SANDBOX_BIN, or one of the default build locations (see `make test-tiny-js`).
+; Its cases are skipped when no binary is found, and fail when TINY_JS_REQUIRE_BINARY is set.
+
+(test
+ (name test_integration)
+ (modules test_integration)
+ (package ocaml-ai-sdk)
+ (deps
+  (env_var TINY_JS_SANDBOX_BIN)
+  (env_var TINY_JS_REQUIRE_BINARY)
+  (universe))
+ (libraries tiny_js alcotest lwt lwt.unix)
+ (preprocess
+  (pps lwt_ppx)))
