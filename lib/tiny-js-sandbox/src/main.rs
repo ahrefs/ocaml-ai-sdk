@@ -21,6 +21,34 @@ fn main() {
     std::process::exit(real_main());
 }
 
+/// Best effort: stderr may be a full pipe, and the process must still exit, so never block on it.
+fn report_to_stderr(message: &str) {
+    let _ = writeln!(std::io::stderr(), "tiny-js-sandbox: {message}");
+}
+
+/// Gives fd 2 its own non-blocking open file description, so that writes to a full pipe fail
+/// instead of blocking and the parent's flags are untouched (`fcntl` would change the shared
+/// description). When stderr cannot be reopened (a socket, say) it is replaced by `/dev/null`.
+/// Must run before the sandbox: it opens paths, and `fcntl` is not allowed afterwards.
+fn make_stderr_non_blocking() {
+    const REOPEN: &[u8] = b"/proc/self/fd/2\0";
+    const NULL: &[u8] = b"/dev/null\0";
+    for path in [REOPEN, NULL] {
+        // SAFETY: `path` is NUL-terminated; open and dup2 touch no other memory.
+        unsafe {
+            let fd = libc::open(
+                path.as_ptr().cast(),
+                libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            );
+            if fd >= 0 {
+                libc::dup2(fd, 2);
+                libc::close(fd);
+                return;
+            }
+        }
+    }
+}
+
 fn real_main() -> i32 {
     let cli = match cli::parse(std::env::args()) {
         Ok(cli) => cli,
@@ -38,7 +66,7 @@ fn real_main() -> i32 {
             out.send_uncapped(&Outgoing::Error {
                 message: message[..end].to_string(),
             });
-            let _ = writeln!(std::io::stderr(), "tiny-js-sandbox: {}", &message[..end]);
+            report_to_stderr(&message[..end]);
             1
         }
     }
@@ -47,6 +75,7 @@ fn real_main() -> i32 {
 /// Setup, then the frame loop; everything that needs syscalls the filter forbids comes first.
 fn run(cli: &Cli, out: &std::rc::Rc<Out>) -> Result<(), String> {
     sandbox::close_inherited_fds()?;
+    make_stderr_non_blocking();
     sandbox::set_resource_limits(cli)?;
 
     let cannot_create = |e: rquickjs::Error| format!("cannot create the VM: {e}");

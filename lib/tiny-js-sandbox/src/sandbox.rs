@@ -62,6 +62,15 @@ pub fn set_resource_limits(cli: &Cli) -> Result<(), String> {
     }
 }
 
+/// Whether landlock must be able to restrict TCP (ABI 4, Linux 6.7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkRights {
+    /// Refuse a kernel that cannot restrict TCP: landlock is the only barrier.
+    Required,
+    /// Restrict TCP when the kernel can; another layer (seccomp) backs it up.
+    BestEffort,
+}
+
 /// Applies the sandbox for `mode`. Any failure is an error; nothing is silently skipped.
 /// `allow_clock` adds the clock syscalls to the seccomp allowlist.
 pub fn enter(mode: SandboxMode, allow_clock: bool) -> Result<(), String> {
@@ -69,7 +78,7 @@ pub fn enter(mode: SandboxMode, allow_clock: bool) -> Result<(), String> {
         SandboxMode::None => Ok(()),
         SandboxMode::Landlock => {
             harden_process()?;
-            apply_landlock(true)
+            apply_landlock(NetworkRights::Required)
         }
         SandboxMode::Seccomp => {
             harden_process()?;
@@ -78,7 +87,7 @@ pub fn enter(mode: SandboxMode, allow_clock: bool) -> Result<(), String> {
         }
         SandboxMode::Full => {
             harden_process()?;
-            apply_landlock(false)?;
+            apply_landlock(NetworkRights::BestEffort)?;
             limit_descriptors()?;
             apply_seccomp(allow_clock)
         }
@@ -118,10 +127,10 @@ fn limit_descriptors() -> Result<(), String> {
 
 /// Landlock: handle every access right the kernel knows, allow none. ABI 1 (filesystem) is a
 /// hard requirement; newer filesystem and scope rights are added when the kernel has them.
-/// The TCP rights (ABI 4, Linux 6.7) are a hard requirement when `require_network` (landlock is
+/// The TCP rights (ABI 4, Linux 6.7) are a hard requirement when `network` is `Required` (landlock is
 /// then the only barrier, so a kernel that cannot restrict TCP is refused) and best effort
 /// otherwise (`full` has the seccomp filter behind it).
-pub fn apply_landlock(require_network: bool) -> Result<(), String> {
+pub fn apply_landlock(network: NetworkRights) -> Result<(), String> {
     use landlock::{
         Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetStatus, Scope, ABI,
     };
@@ -133,12 +142,12 @@ pub fn apply_landlock(require_network: bool) -> Result<(), String> {
             r.set_compatibility(CompatLevel::BestEffort)
                 .handle_access(AccessFs::from_all(newest))
         })
-        .and_then(|r| match require_network {
-            true => r
+        .and_then(|r| match network {
+            NetworkRights::Required => r
                 .set_compatibility(CompatLevel::HardRequirement)
                 .handle_access(AccessNet::from_all(ABI::V4))
                 .map(|r| r.set_compatibility(CompatLevel::BestEffort)),
-            false => r.handle_access(AccessNet::from_all(newest)),
+            NetworkRights::BestEffort => r.handle_access(AccessNet::from_all(newest)),
         })
         .and_then(|r| r.scope(Scope::from_all(newest)))
         .and_then(|r| r.create())

@@ -3,7 +3,7 @@
 //! something forbidden.
 
 use std::{fs::File, net::TcpStream, os::unix::process::ExitStatusExt, process::Command};
-use tiny_js_sandbox::sandbox::{apply_landlock, apply_seccomp};
+use tiny_js_sandbox::sandbox::{apply_landlock, apply_seccomp, NetworkRights};
 
 /// Exit code of a probe whose forbidden operation failed with a permission error.
 const DENIED: i32 = 42;
@@ -23,11 +23,11 @@ fn probe() {
     let Ok(what) = std::env::var("PROBE") else { return };
     let code = match what.as_str() {
         "landlock_open" => {
-            apply_landlock(true).expect("landlock");
+            apply_landlock(NetworkRights::Required).expect("landlock");
             File::open("/etc/passwd").map_or(DENIED, |_| ALLOWED)
         }
         "landlock_tcp" => {
-            apply_landlock(true).expect("landlock");
+            apply_landlock(NetworkRights::Required).expect("landlock");
             match TcpStream::connect("127.0.0.1:9") {
                 Ok(_) => ALLOWED,
                 Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => DENIED,

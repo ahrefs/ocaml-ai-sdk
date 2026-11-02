@@ -236,6 +236,7 @@ pub fn decode_incoming(payload: &[u8]) -> Result<Incoming, ProtocolError> {
 }
 
 /// Decodes a frame the runner sent (for tests and embedders written in Rust).
+#[doc(hidden)]
 pub fn decode_outgoing(payload: &[u8]) -> Result<Outgoing, ProtocolError> {
     let (t, mut f) = read_envelope(payload)?;
     let frame = match t.as_str() {
@@ -326,6 +327,7 @@ pub fn encode_outgoing(frame: &Outgoing) -> Vec<u8> {
 }
 
 /// Encodes a parent frame (used by tests and Rust embedders).
+#[doc(hidden)]
 pub fn encode_incoming(frame: &Incoming) -> Vec<u8> {
     build(|e| {
         match frame {
