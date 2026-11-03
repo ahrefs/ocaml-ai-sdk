@@ -58,6 +58,9 @@ build-tiny-js-binary: $(TINY_JS_DIR)/vendor/config.toml
 test-tiny-js-binary: $(TINY_JS_DIR)/vendor/config.toml
 	cd $(TINY_JS_DIR) && CARGO_TARGET_DIR=$(TINY_JS_TARGET_DIR) cargo test --release $(TINY_JS_CARGO_FLAGS)
 
+install-tiny-js-binary:
+	cargo install --path=$(TINY_JS_DIR) --locked
+
 # Builds the runner binary, then runs the OCaml client tests (lib/tiny_js) against it, in addition to the
 # scripted-runner tests. Without the binary the integration tests skip themselves.
 .PHONY: test-tiny-js
