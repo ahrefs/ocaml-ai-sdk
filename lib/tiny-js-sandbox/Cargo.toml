@@ -18,7 +18,7 @@ path = "src/main.rs"
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context"] }
 landlock = "0.4"
 libc = "0.2"
-rquickjs = "0.14"
+rquickjs = { version = "0.14", features = ["loader"] }
 seccompiler = "0.5"
 minicbor = { version = "2", default-features = false, features = ["alloc"] }
 

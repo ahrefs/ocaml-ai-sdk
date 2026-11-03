@@ -6,6 +6,7 @@ use std::io::Write;
 use tiny_js_sandbox::{
     cli::{self, Cli},
     envelope::{Outgoing, PROTO},
+    modules::Modules,
     sandbox,
     vm::{self, Out},
 };
@@ -82,6 +83,7 @@ fn run(cli: &Cli, out: &std::rc::Rc<Out>) -> Result<(), String> {
     let runtime = Runtime::new().map_err(cannot_create)?;
     runtime.set_memory_limit(usize::try_from(cli.memory_limit_bytes).unwrap_or(usize::MAX));
     runtime.set_max_stack_size(MAX_STACK_SIZE);
+    Modules::default().install(&runtime);
     let context = vm::create_context(&runtime, cli.allow_clock).map_err(cannot_create)?;
     context.with(|ctx: Ctx<'_>| {
         let api = vm::install(&ctx, out)?;

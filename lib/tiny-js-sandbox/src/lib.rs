@@ -4,5 +4,6 @@
 pub mod cli;
 pub mod envelope;
 pub mod frame;
+pub mod modules;
 pub mod sandbox;
 pub mod vm;
