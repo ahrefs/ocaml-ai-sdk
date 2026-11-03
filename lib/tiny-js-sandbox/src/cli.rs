@@ -1,5 +1,6 @@
 //! Command line: everything the runner needs besides the scripts it is sent.
 
+use crate::envelope::MIN_FRAME_BYTES;
 use clap::{value_parser, Arg, ArgAction, Command};
 use std::str::FromStr;
 
@@ -90,8 +91,8 @@ fn command() -> Command {
             Arg::new("max-frame-bytes")
                 .long("max-frame-bytes")
                 .value_name("N")
-                .value_parser(value_parser!(u32).range(1..=i64::from(MAX_FRAME_BYTES_LIMIT)))
-                .help("Largest frame accepted or written, in bytes (default 16777216, at most 1 GiB)."),
+                .value_parser(value_parser!(u32).range(i64::from(MIN_FRAME_BYTES)..=i64::from(MAX_FRAME_BYTES_LIMIT)))
+                .help("Largest frame accepted or written, in bytes (default 16777216, range 76..1073741824)."),
         )
         .arg(
             Arg::new("allow-clock")

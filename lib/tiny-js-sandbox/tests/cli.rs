@@ -45,7 +45,10 @@ fn flags_and_frame_cap() {
 
 #[test]
 fn frame_cap_range() {
-    assert!(parse_args(&["--memory-limit-mb=8", "--max-frame-bytes=0"]).is_err());
+    for cap in [0, 1, 75] {
+        assert!(parse_args(&["--memory-limit-mb=8", &format!("--max-frame-bytes={cap}")]).is_err());
+    }
+    assert!(parse_args(&["--memory-limit-mb=8", "--max-frame-bytes=76"]).is_ok());
     assert!(parse_args(&["--memory-limit-mb=8", "--max-frame-bytes=1073741824"]).is_ok());
     assert!(parse_args(&["--memory-limit-mb=8", "--max-frame-bytes=1073741825"]).is_err());
     assert!(parse_args(&["--memory-limit-mb=8", "--max-frame-bytes=-1"]).is_err());

@@ -2,7 +2,7 @@
 //! frames are handled strictly in order; after each one the promise job queue is drained.
 
 use crate::{
-    envelope::{decode_incoming, encode_outgoing, Incoming, Outgoing, Payload},
+    envelope::{decode_incoming, encode_outgoing, Incoming, Outgoing, Payload, TOO_LARGE_RESULT},
     frame::{read_frame, write_frame, FrameError},
 };
 use rquickjs::{
@@ -27,8 +27,6 @@ const BOOTSTRAP: &str = include_str!("../js/bootstrap.js");
 /// Replaces `Math.random` unless `--allow-random`.
 const DISABLE_RANDOM: &str =
     r#"Math.random=function random(){throw new Error("Math.random is disabled in this sandbox")};Object.freeze(Math);"#;
-
-const TOO_LARGE_RESULT: &str = "result exceeds the maximum frame size";
 
 /// Longest `log` text, further limited by the frame cap.
 const MAX_LOG_BYTES: usize = 64 * 1024;
@@ -73,18 +71,27 @@ impl Out {
     /// Writes `frame` unless it exceeds the cap (then nothing is written). An i/o failure ends
     /// the process: nobody is listening.
     pub fn send(&self, frame: &Outgoing) -> Result<(), FrameError> {
-        self.write(frame, self.max)
-    }
-
-    /// For small control frames (`hello`, `error`, error results) that must go out whatever the cap.
-    pub fn send_uncapped(&self, frame: &Outgoing) {
-        let _ = self.write(frame, u32::MAX);
-    }
-
-    fn write(&self, frame: &Outgoing, max: u32) -> Result<(), FrameError> {
-        match write_frame(&mut *self.sink.borrow_mut(), &encode_outgoing(frame), max) {
+        match write_frame(&mut *self.sink.borrow_mut(), &encode_outgoing(frame), self.max) {
             Err(FrameError::Io(_)) => std::process::exit(1),
             result => result,
+        }
+    }
+
+    /// Sends a fatal error, truncating its text to fit the cap at a UTF-8 boundary.
+    pub fn send_error(&self, message: &str) {
+        let mut end = message.len().min(4096);
+        loop {
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            match self.send(&Outgoing::Error {
+                message: message[..end].to_string(),
+            }) {
+                Err(FrameError::TooLarge { len, max }) if end > 0 => {
+                    end = end.saturating_sub((len - u64::from(max)) as usize);
+                }
+                _ => return,
+            }
         }
     }
 
@@ -268,10 +275,12 @@ fn send_eval_result(out: &Out, id: u64, result: Result<Option<Payload>, String>)
     let frame = Outgoing::EvalResult { id, result };
     match out.send(&frame) {
         Ok(()) => {}
-        Err(_) => out.send_uncapped(&Outgoing::EvalResult {
-            id,
-            result: Err(TOO_LARGE_RESULT.to_string()),
-        }),
+        Err(_) => {
+            let _ = out.send(&Outgoing::EvalResult {
+                id,
+                result: Err(TOO_LARGE_RESULT.to_string()),
+            });
+        }
     }
 }
 

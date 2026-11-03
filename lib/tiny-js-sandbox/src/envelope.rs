@@ -14,6 +14,9 @@ pub const MAX_UINT: u64 = (1 << 53) - 1;
 const MAX_KEYS: u64 = 4;
 /// Protocol version announced by `hello`.
 pub const PROTO: u64 = 1;
+/// Smallest cap that fits the fallback eval error with `MAX_UINT` as its id.
+pub const MIN_FRAME_BYTES: u32 = 76;
+pub const TOO_LARGE_RESULT: &str = "result exceeds the maximum frame size";
 
 /// Application data: what `host.post`, `host.onmessage` and eval results carry.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -2,7 +2,6 @@
 //! and `PROTOCOL.md`.
 
 use rquickjs::{Ctx, Runtime};
-use std::io::Write;
 use tiny_js_sandbox::{
     cli::{self, Cli},
     envelope::{Outgoing, PROTO},
@@ -15,39 +14,10 @@ use tiny_js_sandbox::{
 /// more than 1000 levels of recursion, at about 1.6 KiB each here.
 const MAX_STACK_SIZE: usize = 2 * 1024 * 1024;
 
-/// Longest `error` frame message.
-const MAX_ERROR_BYTES: usize = 4096;
-
 fn main() {
+    // SAFETY: closing stderr touches no Rust-owned memory.
+    unsafe { libc::close(libc::STDERR_FILENO) };
     std::process::exit(real_main());
-}
-
-/// Best effort: stderr may be a full pipe, and the process must still exit, so never block on it.
-fn report_to_stderr(message: &str) {
-    let _ = writeln!(std::io::stderr(), "tiny-js-sandbox: {message}");
-}
-
-/// Gives fd 2 its own non-blocking open file description, so that writes to a full pipe fail
-/// instead of blocking and the parent's flags are untouched (`fcntl` would change the shared
-/// description). When stderr cannot be reopened (a socket, say) it is replaced by `/dev/null`.
-/// Must run before the sandbox: it opens paths, and `fcntl` is not allowed afterwards.
-fn make_stderr_non_blocking() {
-    const REOPEN: &[u8] = b"/proc/self/fd/2\0";
-    const NULL: &[u8] = b"/dev/null\0";
-    for path in [REOPEN, NULL] {
-        // SAFETY: `path` is NUL-terminated; open and dup2 touch no other memory.
-        unsafe {
-            let fd = libc::open(
-                path.as_ptr().cast(),
-                libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            );
-            if fd >= 0 {
-                libc::dup2(fd, 2);
-                libc::close(fd);
-                return;
-            }
-        }
-    }
 }
 
 fn real_main() -> i32 {
@@ -59,15 +29,7 @@ fn real_main() -> i32 {
     match run(&cli, &out) {
         Ok(()) => 0,
         Err(message) => {
-            let end = (0..=MAX_ERROR_BYTES.min(message.len()))
-                .rev()
-                .find(|&i| message.is_char_boundary(i))
-                .unwrap_or(0);
-            // The frame goes first: stderr may be a full pipe or closed, and must not delay it.
-            out.send_uncapped(&Outgoing::Error {
-                message: message[..end].to_string(),
-            });
-            report_to_stderr(&message[..end]);
+            out.send_error(&message);
             1
         }
     }
@@ -76,7 +38,6 @@ fn real_main() -> i32 {
 /// Setup, then the frame loop; everything that needs syscalls the filter forbids comes first.
 fn run(cli: &Cli, out: &std::rc::Rc<Out>) -> Result<(), String> {
     sandbox::close_inherited_fds()?;
-    make_stderr_non_blocking();
     sandbox::set_resource_limits(cli)?;
 
     let cannot_create = |e: rquickjs::Error| format!("cannot create the VM: {e}");
@@ -94,7 +55,7 @@ fn run(cli: &Cli, out: &std::rc::Rc<Out>) -> Result<(), String> {
             sandbox::preload_timezone();
         }
         sandbox::enter(cli.sandbox, cli.allow_clock)?;
-        out.send_uncapped(&Outgoing::Hello { proto: PROTO });
+        out.send(&Outgoing::Hello { proto: PROTO }).map_err(|e| e.to_string())?;
         vm::serve(&ctx, &api, &mut std::io::stdin().lock(), out, cli.max_frame_bytes)
     })
 }

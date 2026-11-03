@@ -553,15 +553,24 @@ fn oversize_payloads_are_refused_without_a_runner_failure() {
 }
 
 #[test]
-fn a_fatal_error_frame_is_written_even_when_stderr_is_closed() {
-    use std::process::{Command, Stdio};
-    // An unknown frame type of 200 KiB: the echoed text is cut, and a stderr that fails (closed
-    // here by redirecting it to a full /dev/full) must not stop the error frame or panic.
+fn fatal_errors_leave_stderr_files_untouched() {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let path = std::env::temp_dir().join(format!("tiny-js-stderr-{}", std::process::id()));
+    let mut log = std::fs::OpenOptions::new()
+        .create_new(true)
+        .append(true)
+        .open(&path)
+        .unwrap();
+    let original = b"existing log entry\nexisting log entry\n";
+    log.write_all(original).unwrap();
     let mut child = Command::new(common::BIN)
         .args(["--sandbox=none", "--memory-limit-mb=64"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(std::fs::File::options().write(true).open("/dev/full").unwrap())
+        .stderr(log)
         .spawn()
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
@@ -587,4 +596,77 @@ fn a_fatal_error_frame_is_written_even_when_stderr_is_closed() {
     }
     let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(1), "no panic (101), no signal");
+    let contents = std::fs::read(&path).unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(contents, original);
+}
+
+#[test]
+fn control_frames_fit_the_minimum_cap() {
+    use std::process::{Command, Stdio};
+    use tiny_js_sandbox::{
+        envelope::{decode_outgoing, encode_incoming, MAX_UINT, MIN_FRAME_BYTES, TOO_LARGE_RESULT},
+        frame::{read_frame, write_frame},
+    };
+    assert_eq!(
+        tiny_js_sandbox::envelope::encode_outgoing(&Outgoing::EvalResult {
+            id: MAX_UINT,
+            result: Err(TOO_LARGE_RESULT.into()),
+        })
+        .len(),
+        MIN_FRAME_BYTES as usize,
+    );
+    let mut child = Command::new(common::BIN)
+        .args(["--sandbox=full", "--memory-limit-mb=64", "--max-frame-bytes=76"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let recv = |stdout: &mut std::process::ChildStdout| {
+        let bytes = read_frame(stdout, MIN_FRAME_BYTES).unwrap().unwrap();
+        decode_outgoing(&bytes).unwrap()
+    };
+    assert_eq!(recv(&mut stdout), Outgoing::Hello { proto: 1 });
+    let request = encode_incoming(&Incoming::Eval {
+        id: MAX_UINT,
+        code: "'x'.repeat(100)".into(),
+    });
+    write_frame(&mut stdin, &request, MIN_FRAME_BYTES).unwrap();
+    assert_eq!(
+        recv(&mut stdout),
+        Outgoing::EvalResult {
+            id: MAX_UINT,
+            result: Err(TOO_LARGE_RESULT.into()),
+        }
+    );
+    let mut encoder = minicbor::Encoder::new(Vec::new());
+    encoder.map(1).unwrap().str("t").unwrap().str(&"é".repeat(25)).unwrap();
+    write_frame(&mut stdin, &encoder.into_writer(), MIN_FRAME_BYTES).unwrap();
+    match recv(&mut stdout) {
+        Outgoing::Error { message } => {
+            assert!(message.starts_with("unknown frame type"));
+            assert!(message.ends_with('é'));
+        }
+        other => panic!("expected fatal error, got {other:?}"),
+    }
+    assert!(read_frame(&mut stdout, MIN_FRAME_BYTES).unwrap().is_none());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn unusable_frame_caps_are_rejected_without_stderr() {
+    for cap in [1, 75] {
+        let output = std::process::Command::new(common::BIN)
+            .args(["--memory-limit-mb=64", &format!("--max-frame-bytes={cap}")])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
 }

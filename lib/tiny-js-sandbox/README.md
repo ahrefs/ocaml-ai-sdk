@@ -30,14 +30,14 @@ tiny-js-sandbox --memory-limit-mb=N [--sandbox=none|landlock|seccomp|full] [--cp
 | `--sandbox` | `full` (default): landlock **and** seccomp, failing hard if either cannot be applied. `landlock`: no filesystem or TCP access plus `no_new_privs`; refused on kernels without Landlock ABI 4 (Linux 6.7), since nothing else would restrict TCP. `full` accepts older kernels for the network part (seccomp is behind it). `seccomp`: the syscall allowlist only (for containers whose profile blocks landlock). `none`: resource limits only (development). |
 | `--memory-limit-mb` | Required. QuickJS heap limit; `RLIMIT_AS` is heap + 256 MiB as a backstop. Exceeding the heap throws a catchable `InternalError: out of memory` in the VM. |
 | `--cpu-seconds` | Optional `RLIMIT_CPU`; the kernel kills the process when it is used up. |
-| `--max-frame-bytes` | Frame cap in both directions, default 16777216, range 1..1073741824. |
+| `--max-frame-bytes` | Frame cap in both directions, default 16777216, range 76..1073741824. |
 | `--allow-clock` | Provide `Date` and `Performance`; preload the time zone; add `clock_gettime`, `gettimeofday`, `clock_nanosleep` to the seccomp allowlist. |
 | `--allow-random` | Leave `Math.random` as QuickJS ships it. Does **not** allow `getrandom`. |
 
 By default the context has every intrinsic except `Date` and `Performance`, and `Math.random` throws
 `Error("Math.random is disabled in this sandbox")` with `Math` frozen. The two flags are independent.
 
-Startup order: close inherited descriptors, set rlimits, create the runtime and context, install `host`
+Startup order: close stderr and inherited descriptors, set rlimits, create the runtime and context, install `host`
 and `console`, the `Math.random` shim unless `--allow-random`, `tzset()` if `--allow-clock`, **then** enter
 the sandbox, then write `hello` and read frames. The process is single-threaded on purpose: landlock and
 seccomp apply to the calling thread.
@@ -48,6 +48,9 @@ Landlock handles every filesystem right (ABI 1 required) and, when the kernel ha
 rights, allowing none. Seccomp restricts the process to stdio, memory management, futex and exit (plus
 the clock syscalls with `--allow-clock`), kills it on anything else and on `PROT_EXEC` mappings. The
 process also sets `no_new_privs`, `dumpable=0` and `pdeathsig`, and limits its descriptors to stdio.
+
+Stderr is closed at startup. Runtime errors are reported only through capped `error` frames, with text truncated to fit.
+The minimum frame cap is 76 bytes, enough for control frames including an eval error with the largest valid id.
 
 The hard boundaries are the process sandbox, the memory and CPU limits, and the frame cap. Removing the
 clock and randomness is defense in depth against timing attacks, not a boundary: a script can still

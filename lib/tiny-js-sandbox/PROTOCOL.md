@@ -12,10 +12,8 @@ specific (for example codemode's tool protocol) is JavaScript that the embedder 
 
 ## 1. Transport and framing
 
-stdin carries parent-to-runner frames, stdout carries runner-to-parent frames. stderr is not part of
-the protocol (the runner MAY write human-readable diagnostics there, after the `error` frame and
-ignoring write failures; embedders SHOULD capture or discard it). Nothing else is ever written to
-stdout.
+stdin carries parent-to-runner frames, stdout carries runner-to-parent frames. The runner closes
+stderr at startup and writes no diagnostics there. Nothing else is ever written to stdout.
 
 The runner is single-threaded and its writes block. Output is limited per frame only (a script
 looping on `console.log` or `host.post` can produce unbounded output), so the parent **MUST read
@@ -35,11 +33,13 @@ Each frame is:
 - `length` is the payload size in bytes, little-endian, excluding the 4 length bytes.
 - The receiver MUST compare `length` with its `max_frame_bytes` **before allocating or reading**
   the payload. A length of 0 or above the cap is a framing violation.
-- The cap is `--max-frame-bytes` (default `16777216`, 16 MiB; the CLI rejects `0` and values above
+- The cap is `--max-frame-bytes` (default `16777216`, 16 MiB; the CLI rejects values below `76` and above
   `1073741824`, 1 GiB). The same cap applies to frames the runner writes: a `host.post` whose
   encoded frame would exceed it throws a `RangeError` in JavaScript and writes nothing. The parent
   applies its own cap on frames it receives; it SHOULD use the same value it passed to the runner,
-  and MUST NOT send frames larger than the runner's cap.
+  and MUST NOT send frames larger than the runner's cap. The minimum cap fits all control frames,
+  including the fallback eval error with the largest valid id. Fatal-error text is truncated at a
+  UTF-8 boundary to fit the cap; control frames never bypass it.
 - The payload MUST contain exactly one CBOR item and no trailing bytes.
 - Clean EOF on stdin at a frame boundary means "no more frames": the runner exits with status 0.
   EOF in the middle of a length prefix or payload is a framing violation.
@@ -242,12 +242,12 @@ Other options (all CLI flags, no config file, no environment variables):
 |-------------------------|-----------------------------------------------------------------------------------|
 | `--memory-limit-mb <n>` | QuickJS heap limit. `RLIMIT_AS` is set to heap + 256 MiB.                          |
 | `--cpu-seconds <n>`     | Optional `RLIMIT_CPU`; the kernel kills the process on expiry (the parent sees a signal exit and must fail pending evals). |
-| `--max-frame-bytes <n>` | Frame cap, default 16777216, valid range 1 .. 1073741824.                          |
+| `--max-frame-bytes <n>` | Frame cap, default 16777216, valid range 76 .. 1073741824.                          |
 | `--allow-clock`         | See section 6.                                                                    |
 | `--allow-random`        | See section 6.                                                                    |
 | `--help`                | Print help; there is no `--version`.                                              |
 
-Startup order: close inherited file descriptors above stderr, set rlimits, create the runtime and
+Startup order: close stderr and inherited file descriptors above it, set rlimits, create the runtime and
 the context (with the intrinsic set of section 6), install the `Math.random` shim unless
 `--allow-random`, `tzset()` if `--allow-clock`, **then** enter the sandbox, then write `hello`, then
 enter the frame loop. Everything that needs syscalls the filter later forbids therefore happens
