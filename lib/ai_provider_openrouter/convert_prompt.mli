@@ -76,4 +76,4 @@ val convert_messages :
   openrouter_message list * Ai_provider.Warning.t list
 
 (** Serialize an OpenRouter message to JSON. *)
-val openrouter_message_to_json : openrouter_message -> Yojson.Basic.t
+val openrouter_message_to_json : openrouter_message -> Jsonkit.t

@@ -74,8 +74,8 @@
    (>= 2.2))
   (jsonschema
    (>= 0.1))
-  (melange-json-native
-   (>= 2.0))
+  (jsonkit
+   (>= 1.1.0))
   (curl
    (>= 0.10.0))
   (curl_lwt

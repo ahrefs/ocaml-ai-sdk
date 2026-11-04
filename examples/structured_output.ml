@@ -2,10 +2,9 @@
 
     Exercises native [output_config.format = json_schema] on Sonnet 4.6.
 
-    The schema is derived from an OCaml type via [ppx_deriving_jsonschema], and the
-    provider response is decoded back into the same OCaml type via [melange-json-native]'s
-    [of_json] deriver. This exercises the full type-safe round-trip: schema → wire →
-    parsed record.
+    The schema is derived from an OCaml type with jsonkit's [jsonschema] deriver, and the
+    provider response is decoded back into the same OCaml type with its [of_json] deriver.
+    This exercises the full type-safe round-trip: schema → wire → parsed record.
 
     Usage:
       ANTHROPIC_API_KEY=your-api-key \
@@ -13,18 +12,14 @@
 
     Exit code: 0 if the response decodes into a valid [person] record, 1 otherwise. *)
 
-open Melange_json.Primitives
-
-(** Convert a ppx_deriving_jsonschema schema (Yojson.Safe.t) to Yojson.Basic.t for use
-    with [Ai_core.Output.object_] / [Core_tool.parameters]. *)
-let json_of_schema schema = Yojson.Safe.to_basic (Ppx_deriving_jsonschema_runtime.json_schema schema)
+open Jsonkit.Primitives
 
 type person = {
   name : string;
   age : int;
   hobbies : string list;
 }
-[@@deriving jsonschema, of_json]
+[@@disallow_extra_fields] [@@deriving jsonschema, of_json]
 
 let prompt_text =
   "Invent a fictional person and respond with their name, age, and a short list of hobbies. Keep the hobbies list to \
@@ -33,7 +28,7 @@ let prompt_text =
 let run_case ~label ~model_id =
   Printf.printf "\n=== %s (model: %s) ===\n" label model_id;
   let claude = Ai_provider_anthropic.model model_id in
-  let output = Ai_core.Output.object_ ~name:"person" ~schema:(json_of_schema person_jsonschema) () in
+  let output = Ai_core.Output.object_ ~name:"person" ~schema:(Jsonkit.Jsonschema.make person_jsonschema) () in
   let opts =
     {
       (Ai_provider.Call_options.default

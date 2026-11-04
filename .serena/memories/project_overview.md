@@ -31,17 +31,17 @@ ocaml-ai-sdk (package)
 - **test/**: Comprehensive test suites
 
 ## Tech Stack
-- **Language**: OCaml (4.14+)
+- **Language**: OCaml (5.4+)
 - **Async**: Lwt (5.9+) for promises and async I/O
-- **JSON**: Yojson + Melange.json-native for serialization
+- **JSON**: Yojson + jsonkit for serialization
 - **HTTP**: libcurl (curl + curl_lwt) for provider requests. The ai_core server handler is framework-agnostic: it returns plain response records, and apps bring their own web server
 - **Schema**: Jsonschema (0.1+) for validation
 - **Build**: Dune 3.21+ with Melange support
-- **PPX**: Lwt_ppx (let%lwt syntax), ppx_deriving.show, melange-json-native.ppx
+- **PPX**: Lwt_ppx (let%lwt syntax), ppx_deriving.show, jsonkit.ppx
 
 ## Code Style & Conventions
 - Use `Option.map`, `Option.bind` and Result combinators over pattern matching
 - Use `let*` and `let+` (monadic syntax) for chaining operations
 - First-class modules extensively for runtime dispatch
 - GADT-based extensible records for provider-specific options
-- Type-safe JSON serialization via Melange.json-native
+- Type-safe JSON serialization via jsonkit (`[@@deriving json]`)

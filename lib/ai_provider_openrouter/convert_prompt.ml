@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* --- Typed JSON records for serialization ---
 
@@ -12,7 +12,7 @@ open Melange_json.Primitives
 type text_part_json = {
   type_ : string; [@json.key "type"]
   text : string;
-  cache_control : Melange_json.t option; [@json.option] [@json.drop_default]
+  cache_control : Jsonkit.t option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -21,7 +21,7 @@ type image_url_detail = { url : string } [@@deriving to_json]
 type image_url_part_json = {
   type_ : string; [@json.key "type"]
   image_url : image_url_detail;
-  cache_control : Melange_json.t option; [@json.option] [@json.drop_default]
+  cache_control : Jsonkit.t option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -62,7 +62,7 @@ type user_msg_string_json = {
 
 type user_msg_parts_json = {
   role : string;
-  content : Melange_json.t list;
+  content : Jsonkit.t list;
 }
 [@@deriving to_json]
 
@@ -70,14 +70,14 @@ type assistant_msg_with_tools_json = {
   role : string;
   content : string option; [@json.option] [@json.drop_default]
   tool_calls : tool_call_json list;
-  cache_control : Melange_json.t option; [@json.option] [@json.drop_default]
+  cache_control : Jsonkit.t option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
 type assistant_msg_text_json = {
   role : string;
   content : string option; [@json.option] [@json.drop_default]
-  cache_control : Melange_json.t option; [@json.option] [@json.drop_default]
+  cache_control : Jsonkit.t option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -86,7 +86,7 @@ type tool_msg_json = {
   tool_call_id : string;
   content : string;
   name : string;
-  cache_control : Melange_json.t option; [@json.option] [@json.drop_default]
+  cache_control : Jsonkit.t option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -146,7 +146,7 @@ let file_data_to_url ~media_type (data : Ai_provider.Prompt.file_data) =
   | Base64 s -> Printf.sprintf "data:%s;base64,%s" media_type s
   | Url u -> u
 
-let cache_control_json (cc : Cache_control.t option) : Melange_json.t option = Option.map Cache_control.to_json cc
+let cache_control_json (cc : Cache_control.t option) : Jsonkit.t option = Option.map Cache_control.to_json cc
 
 (* --- User message conversion --- *)
 

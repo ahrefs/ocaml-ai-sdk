@@ -44,7 +44,7 @@ val cors_headers : (string * string) list
 
     Returns an empty list on parse failure. Unknown part types are skipped.
     {!parse_chat_request} reports the failure instead. *)
-val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
+val parse_messages_from_body : Jsonkit.t -> Ai_provider.Prompt.message list
 
 (** Collect pending tool approvals from re-submitted messages.
 
@@ -52,7 +52,7 @@ val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
     [state = "approval-responded"], returning full tool call details.
     Approved tools should be executed directly before calling the LLM;
     denied tools should produce error results. *)
-val collect_pending_tool_approvals : Yojson.Basic.t -> Generate_text_result.pending_tool_approval list
+val collect_pending_tool_approvals : Jsonkit.t -> Generate_text_result.pending_tool_approval list
 
 (** A parsed [useChat()] request. *)
 type chat_request = {
@@ -60,7 +60,7 @@ type chat_request = {
   pending_tool_approvals : Generate_text_result.pending_tool_approval list;
     (** As {!collect_pending_tool_approvals} finds them. Pass them to
           {!Stream_text.stream_text}. *)
-  body : Yojson.Basic.t;
+  body : Jsonkit.t;
     (** The whole request body, for other fields [useChat()] sends, such as
           [id], [trigger] or custom [body] fields. *)
 }
@@ -125,7 +125,7 @@ val handle_chat :
   ?stop_when:Stop_condition.t list ->
   ?system:string ->
   ?system_provider_options:Ai_provider.Provider_options.t ->
-  ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
+  ?output:(Jsonkit.t, Jsonkit.t) Output.t ->
   ?send_reasoning:bool ->
   ?max_output_tokens:int ->
   ?cors:bool ->

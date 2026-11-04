@@ -76,13 +76,13 @@ Key dependencies managed by Dune:
 - lwt (>= 5.9) - Async programming
 - yojson (>= 2.2) - JSON parsing
 - curl, curl_lwt (>= 0.10.0) - provider HTTP client, needs a system libcurl
-- melange-json-native (>= 2.0) - Type-safe JSON
+- jsonkit (>= 1.1.0) - Type-safe JSON (`[@@deriving json]`), ignores unknown object fields by default
 - base64 - Base64 encoding (for file data)
 - jsonschema (>= 0.1) - JSON Schema validation
 
 ## Ocaml Language Server Setup
 
-The project uses OCaml 4.14+ with Opam. Language server requires:
+The project uses OCaml 5.4+ with Opam. Language server requires:
 ```bash
 opam switch show
 opam exec -- ocaml -version
@@ -99,7 +99,7 @@ opam switch create ocaml-ai-sdk 5.2.0  # Create new switch
 - Format: `ocamlformat` (auto-formatting via `dune fmt`)
 - Linting: Static analysis tools in test suite
 - Dialects: Project uses MLX dialect (Melange) in some files
-- PPX Extensions: lwt_ppx, melange-json-native.ppx, ppx_deriving.show
+- PPX Extensions: lwt_ppx, jsonkit.ppx, ppx_deriving.show
 
 ## File Organization
 

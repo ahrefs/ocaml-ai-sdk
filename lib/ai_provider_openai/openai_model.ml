@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* --- Response format types --- *)
 
@@ -6,7 +6,7 @@ type json_object_format = { type_ : string [@json.key "type"] } [@@deriving to_j
 
 type json_schema_detail = {
   name : string;
-  schema : Melange_json.t;
+  schema : Jsonkit.t;
   strict : bool;
 }
 [@@deriving to_json]

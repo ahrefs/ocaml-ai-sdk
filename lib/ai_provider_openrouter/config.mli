@@ -15,7 +15,7 @@ type fetch_fn =
   url:string ->
   headers:(string * string) list ->
   body:string ->
-  Yojson.Basic.t Lwt.t
+  Jsonkit.t Lwt.t
 
 type t = {
   api_key : string option;
@@ -26,7 +26,7 @@ type t = {
   app_url : string option;
   compatibility : compatibility;
   api_keys : (string * string) list;
-  extra_body : (string * Yojson.Basic.t) list;
+  extra_body : (string * Jsonkit.t) list;
   timeouts : Ai_provider.Http_timeouts.t;
 }
 
@@ -45,7 +45,7 @@ val create :
   ?app_url:string ->
   ?compatibility:compatibility ->
   ?api_keys:(string * string) list ->
-  ?extra_body:(string * Yojson.Basic.t) list ->
+  ?extra_body:(string * Jsonkit.t) list ->
   ?timeouts:Ai_provider.Http_timeouts.t ->
   unit ->
   t

@@ -303,7 +303,7 @@ let expect_fetch_raced call () =
   let received = ref None in
   let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
     received := Some abort_signal;
-    let promise, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
+    let promise, (_ : Jsonkit.t Lwt.u) = Lwt.task () in
     fetched := Some promise;
     promise
   in

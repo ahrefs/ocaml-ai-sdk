@@ -2,13 +2,13 @@
 
 type request_body
 
-val request_body_to_json : request_body -> Melange_json.t
+val request_body_to_json : request_body -> Jsonkit.t
 
 (** Build a typed request body for the Chat Completions API.
     Extends OpenAI-compatible parameters with OpenRouter-specific fields. *)
 val make_request_body :
   model:string ->
-  messages:Melange_json.t list ->
+  messages:Jsonkit.t list ->
   ?models:string list ->
   ?temperature:float ->
   ?top_p:float ->
@@ -18,29 +18,29 @@ val make_request_body :
   ?presence_penalty:float ->
   ?stop:string list ->
   ?seed:int ->
-  ?response_format:Melange_json.t ->
-  ?tools:Melange_json.t list ->
-  ?tool_choice:Melange_json.t ->
+  ?response_format:Jsonkit.t ->
+  ?tools:Jsonkit.t list ->
+  ?tool_choice:Jsonkit.t ->
   ?parallel_tool_calls:bool ->
-  ?logit_bias:Melange_json.t ->
-  ?logprobs:Melange_json.t ->
-  ?top_logprobs:Melange_json.t ->
+  ?logit_bias:Jsonkit.t ->
+  ?logprobs:Jsonkit.t ->
+  ?top_logprobs:Jsonkit.t ->
   ?user:string ->
   ?include_reasoning:bool ->
-  ?reasoning:Melange_json.t ->
-  ?usage:Melange_json.t ->
-  ?plugins:Melange_json.t list ->
-  ?web_search_options:Melange_json.t ->
-  ?provider:Melange_json.t ->
-  ?debug:Melange_json.t ->
-  ?cache_control:Melange_json.t ->
+  ?reasoning:Jsonkit.t ->
+  ?usage:Jsonkit.t ->
+  ?plugins:Jsonkit.t list ->
+  ?web_search_options:Jsonkit.t ->
+  ?provider:Jsonkit.t ->
+  ?debug:Jsonkit.t ->
+  ?cache_control:Jsonkit.t ->
   stream:bool ->
   compatibility:Config.compatibility ->
   unit ->
   request_body
 
 (** Merge extra_body key-value pairs into the serialized request JSON. *)
-val merge_extra_body : Yojson.Basic.t -> (string * Yojson.Basic.t) list -> Yojson.Basic.t
+val merge_extra_body : Jsonkit.t -> (string * Jsonkit.t) list -> Jsonkit.t
 
 (** Convert a non-successful HTTP response, preserving Retry-After metadata. *)
 val provider_error_of_http_response : body:string -> Ai_provider.Http_client.response -> Ai_provider.Provider_error.t
@@ -54,8 +54,8 @@ val chat_completions :
   ?abort_signal:Ai_provider.Abort_signal.t ->
   config:Config.t ->
   body:request_body ->
-  extra_body:(string * Yojson.Basic.t) list ->
+  extra_body:(string * Jsonkit.t) list ->
   extra_headers:(string * string) list ->
   stream:bool ->
   unit ->
-  [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t
+  [ `Json of Jsonkit.t | `Stream of string Lwt_stream.t ] Lwt.t

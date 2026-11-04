@@ -21,4 +21,4 @@ val of_response_with_retry_after :
     Pass [status] on the HTTP error path so retryability keys off the real
     gateway status; omit it for 200-embedded, choice-level, and streaming
     errors, where the status is derived from [error.code] (default 200). *)
-val of_error_json : ?status:int -> ?retry_after_s:float -> Yojson.Basic.t -> Ai_provider.Provider_error.t
+val of_error_json : ?status:int -> ?retry_after_s:float -> Jsonkit.t -> Ai_provider.Provider_error.t

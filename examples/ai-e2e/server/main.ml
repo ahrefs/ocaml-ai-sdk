@@ -8,7 +8,7 @@
 
     Set ANTHROPIC_API_KEY and/or OPENAI_API_KEY environment variables. *)
 
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* --- Provider selection --- *)
 
@@ -25,9 +25,7 @@ let provider_of_request req =
 
 (* --- Tools (same pattern as chat_server) --- *)
 
-let json_of_schema schema = Yojson.Safe.to_basic (Ppx_deriving_jsonschema_runtime.json_schema schema)
-
-type city_args = { city : string } [@@deriving jsonschema, of_json]
+type city_args = { city : string } [@@disallow_extra_fields] [@@deriving jsonschema, of_json]
 
 type weather_result = {
   city : string;
@@ -39,7 +37,7 @@ type weather_result = {
 
 let get_weather : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create ~description:"Get the current weather for a city. Returns temperature and conditions."
-    ~parameters:(json_of_schema city_args_jsonschema)
+    ~parameters:(Jsonkit.Jsonschema.make city_args_jsonschema)
     ~execute:(fun args _ ->
       let city = try (city_args_of_json args).city with _ -> "unknown" in
       let temperature, condition =
@@ -57,7 +55,7 @@ type search_args = {
   query : string;
   num_results : int;
 }
-[@@deriving jsonschema, of_json]
+[@@disallow_extra_fields] [@@deriving jsonschema, of_json]
 
 type search_result_item = {
   title : string;
@@ -70,7 +68,7 @@ type search_results = { results : search_result_item list } [@@deriving to_json]
 
 let search_web : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create ~description:"Search the web for information. Returns a list of relevant results."
-    ~parameters:(json_of_schema search_args_jsonschema)
+    ~parameters:(Jsonkit.Jsonschema.make search_args_jsonschema)
     ~execute:(fun args _ ->
       let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
       let results =
@@ -91,7 +89,7 @@ let tools = [ "get_weather", get_weather; "search_web", search_web ]
 let approval_weather : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval
     ~description:"Get the current weather for a city. Requires user approval before execution."
-    ~parameters:(json_of_schema city_args_jsonschema)
+    ~parameters:(Jsonkit.Jsonschema.make city_args_jsonschema)
     ~execute:(fun args _ ->
       let city = try (city_args_of_json args).city with _ -> "unknown" in
       let temperature, condition =
@@ -122,16 +120,16 @@ type data_point = {
   label : string;
   value : string;
 }
-[@@deriving jsonschema]
+[@@jsonschema.disallow_extra_fields] [@@deriving jsonschema]
 
 type structured_response = {
   summary : string;
   data : data_point list;
 }
-[@@deriving jsonschema]
+[@@jsonschema.disallow_extra_fields] [@@deriving jsonschema]
 
 let output =
-  Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
+  Ai_core.Output.object_ ~name:"structured_response" ~schema:(Jsonkit.Jsonschema.make structured_response_jsonschema) ()
 
 (* --- System prompts --- *)
 

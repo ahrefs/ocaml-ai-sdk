@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type tool_call_state = {
   id : string;
@@ -9,14 +9,14 @@ type delta_tool_call_function_json = {
   name : string option; [@json.default None]
   arguments : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type delta_tool_call_json = {
   index : int;
   id : string option; [@json.default None]
   function_ : delta_tool_call_function_json option; [@json.key "function"] [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type delta_json = {
   content : string option; [@json.default None]
@@ -27,14 +27,14 @@ type delta_json = {
      explicit [null] here; OpenAI's own client types it Optional[List[...]]. *)
   annotations : Convert_response.annotation_json list option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type choice_json = {
   index : int; [@json.default 0]
   delta : delta_json;
   finish_reason : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type chunk_json = {
   id : string option; [@json.default None]
@@ -44,7 +44,7 @@ type chunk_json = {
   usage : Convert_usage.openrouter_usage option; [@json.default None]
   images : Convert_response.image_json list; [@json.default []]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 let empty_usage = { Ai_provider.Usage.input_tokens = 0; output_tokens = 0; total_tokens = None }
 
@@ -57,7 +57,7 @@ let response_info_of_event (event : Sse.event) =
       match chunk.choices, chunk.id, chunk.model with
       | [], _, _ | _, None, None -> None
       | _ :: _, id, model -> Some { Ai_provider.Generate_result.id; model; headers = []; body }
-    with Yojson.Json_error _ | Melange_json.Of_json_error _ -> None)
+    with Yojson.Json_error _ | Jsonkit.Of_json_error _ -> None)
 
 let response_info events =
   let events = Lwt_stream.clone events in

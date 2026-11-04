@@ -9,7 +9,7 @@
 
     Set OPENROUTER_API_KEY environment variable. *)
 
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* --- Config types for JSON deserialization --- *)
 
@@ -17,20 +17,20 @@ type parsed_web_search = {
   enabled : bool; [@json.default false]
   max_results : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type parsed_provider_routing = {
   order : string list; [@json.default []]
   allow_fallbacks : bool option; [@json.default None]
   sort : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type parsed_reasoning = {
   effort : string option; [@json.default None]
   max_tokens : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type parsed_config = {
   model : string; [@json.default "openai/gpt-4o-mini"]
@@ -39,9 +39,9 @@ type parsed_config = {
   provider_routing : parsed_provider_routing option; [@json.default None]
   usage : bool; [@json.default false]
   reasoning : parsed_reasoning option; [@json.default None]
-  extra_body : Melange_json.t option; [@json.default None]
+  extra_body : Jsonkit.t option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 (* --- Config parsing --- *)
 
@@ -100,7 +100,7 @@ let build_reasoning_budget (r : parsed_reasoning) =
   | None, None -> No_budget
 
 let build_extra_body = function
-  | Some (`Assoc fields) -> List.map (fun (k, v) -> k, (v : Melange_json.t :> Yojson.Basic.t)) fields
+  | Some (`Assoc fields) -> fields
   | Some _ | None -> []
 
 let build_provider_options (config : parsed_config) =

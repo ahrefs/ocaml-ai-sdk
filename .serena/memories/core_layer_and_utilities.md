@@ -14,7 +14,7 @@ val generate_text : model:Ai_provider.Language_model.t
   -> ?messages:Ai_provider.Prompt.message list
   -> ?tools:(string * Core_tool.t) list
   -> ?tool_choice:Ai_provider.Tool_choice.t
-  -> ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t
+  -> ?output:(Jsonkit.t, Jsonkit.t) Output.t
   -> ?max_steps:int
   -> ?max_output_tokens:int
   -> ?temperature:float
@@ -43,8 +43,8 @@ Features:
 ```ocaml
 type t = {
   description : string option;
-  parameters : Yojson.Basic.t;  (* JSON Schema *)
-  execute : Yojson.Basic.t -> (Yojson.Basic.t, string) result Lwt.t;
+  parameters : Jsonkit.t;  (* JSON Schema *)
+  execute : Jsonkit.t -> (Jsonkit.t, string) result Lwt.t;
 }
 ```
 
@@ -64,7 +64,7 @@ type t = {
 ### Mode.t (lib/ai_provider/mode.mli)
 Controls output format:
 ```ocaml
-type json_schema = { name : string; schema : Yojson.Basic.t }
+type json_schema = { name : string; schema : Jsonkit.t }
 
 type t =
   | Regular                           (* Default mode *)
@@ -107,8 +107,8 @@ type t = {
 (library
  (name ai_provider)
  (public_name ocaml-ai-sdk.ai_provider)
- (libraries lwt yojson melange-json-native)
- (preprocess (pps melange-json-native.ppx ppx_deriving.show)))
+ (libraries lwt lwt.unix curl curl_lwt yojson jsonkit)
+ (preprocess (pps lwt_ppx jsonkit.ppx ppx_deriving.show)))
 ```
 
 ### lib/ai_provider_anthropic/dune
@@ -116,8 +116,8 @@ type t = {
 (library
  (name ai_provider_anthropic)
  (public_name ocaml-ai-sdk.ai_provider_anthropic)
- (libraries ai_provider lwt lwt.unix yojson melange-json-native base64)
- (preprocess (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
+ (libraries ai_provider lwt lwt.unix yojson jsonkit base64)
+ (preprocess (pps lwt_ppx jsonkit.ppx ppx_deriving.show)))
 ```
 
 Key Dependencies:

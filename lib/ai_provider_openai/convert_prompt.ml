@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* --- Typed JSON records for serialization --- *)
 
@@ -37,7 +37,7 @@ type role_content_msg = {
 
 type role_parts_msg = {
   role : string;
-  content : Melange_json.t list;
+  content : Jsonkit.t list;
 }
 [@@deriving to_json]
 

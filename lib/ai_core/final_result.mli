@@ -10,6 +10,6 @@ val make :
   ?warnings:Ai_provider.Warning.t list ->
   finish_reason:Ai_provider.Finish_reason.t ->
   usage:Ai_provider.Usage.t ->
-  output:Yojson.Basic.t option ->
+  output:Jsonkit.t option ->
   Generate_text_result.step list ->
   Generate_text_result.t

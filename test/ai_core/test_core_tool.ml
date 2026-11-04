@@ -91,7 +91,7 @@ let test_failure_after_signal_is_abort () =
 (* Cancelling [execute_tool] fails it with [Canceled] and cancels the tool,
    even though the tool's own [Canceled] would be its result. *)
 let test_cancel_of_execute_tool () =
-  let work, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
+  let work, (_ : Jsonkit.t Lwt.u) = Lwt.task () in
   let outcome = execute (fun _ _ -> work) in
   Lwt.cancel outcome;
   (check string) "outcome" "raised Canceled" (outcome_name outcome);

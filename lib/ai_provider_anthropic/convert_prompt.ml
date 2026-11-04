@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type image_source =
   | Base64_image of {
@@ -33,7 +33,7 @@ type anthropic_content =
   | A_tool_use of {
       id : string;
       name : string;
-      input : Yojson.Basic.t;
+      input : Jsonkit.t;
     }
   | A_tool_result of {
       tool_use_id : string;
@@ -241,7 +241,7 @@ let system_to_json ?validator parts =
 
 type source_content_json = {
   type_ : string; [@json.key "type"]
-  source : Melange_json.t;
+  source : Jsonkit.t;
   cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
@@ -250,14 +250,14 @@ type tool_use_json = {
   type_ : string; [@json.key "type"]
   id : string;
   name : string;
-  input : Melange_json.t;
+  input : Jsonkit.t;
 }
 [@@deriving to_json]
 
 type tool_result_json = {
   type_ : string; [@json.key "type"]
   tool_use_id : string;
-  content : Melange_json.t list;
+  content : Jsonkit.t list;
   is_error : bool;
   cache_control : cc option; [@json.option] [@json.drop_default]
 }
@@ -298,7 +298,7 @@ let anthropic_content_to_json = function
 
 type message_json = {
   role : string;
-  content : Melange_json.t list;
+  content : Jsonkit.t list;
 }
 [@@deriving to_json]
 

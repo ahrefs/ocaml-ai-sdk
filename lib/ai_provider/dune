@@ -1,9 +1,9 @@
 (library
  (name ai_provider)
  (public_name ocaml-ai-sdk.ai_provider)
- (libraries lwt lwt.unix curl curl_lwt yojson melange-json-native)
+ (libraries lwt lwt.unix curl curl_lwt yojson jsonkit)
  (preprocess
-  (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
+  (pps lwt_ppx jsonkit.ppx ppx_deriving.show)))
 
 (rule
  (target user_agent.ml)

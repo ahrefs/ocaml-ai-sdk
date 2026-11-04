@@ -193,11 +193,11 @@ module Ending : sig
 
   type outputs = {
     full_stream : Text_stream_part.t Lwt_stream.t;
-    partial_output_stream : Yojson.Basic.t Lwt_stream.t;
+    partial_output_stream : Jsonkit.t Lwt_stream.t;
     usage : Ai_provider.Usage.t Lwt.t;
     finish_reason : Ai_provider.Finish_reason.t Lwt.t;
     steps : Generate_text_result.step list Lwt.t;
-    output : Yojson.Basic.t option Lwt.t;
+    output : Jsonkit.t option Lwt.t;
     provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
     outcome : Stream_text_result.outcome Lwt.t;
   }
@@ -219,7 +219,7 @@ module Ending : sig
   val emit_start : t -> unit
 
   (** Pushes to the partial output stream. Only call it while running. *)
-  val push_partial_output : t -> Yojson.Basic.t -> unit
+  val push_partial_output : t -> Jsonkit.t -> unit
 
   (** Records the step in progress for [on_abort], once its model response
       is complete. Call it again to update the step's tool results. *)
@@ -266,22 +266,22 @@ end = struct
     on_chunk : (Text_stream_part.t -> unit) option;
     on_abort : (steps:Generate_text_result.step list -> unit) option;
     full_push : Text_stream_part.t option -> unit;
-    partial_output_push : Yojson.Basic.t option -> unit;
+    partial_output_push : Jsonkit.t option -> unit;
     usage_resolver : Ai_provider.Usage.t Lwt.u;
     finish_reason_resolver : Ai_provider.Finish_reason.t Lwt.u;
     steps_resolver : Generate_text_result.step list Lwt.u;
-    output_resolver : Yojson.Basic.t option Lwt.u;
+    output_resolver : Jsonkit.t option Lwt.u;
     provider_metadata_resolver : Ai_provider.Provider_options.t option Lwt.u;
     outcome_resolver : Stream_text_result.outcome Lwt.u;
   }
 
   type outputs = {
     full_stream : Text_stream_part.t Lwt_stream.t;
-    partial_output_stream : Yojson.Basic.t Lwt_stream.t;
+    partial_output_stream : Jsonkit.t Lwt_stream.t;
     usage : Ai_provider.Usage.t Lwt.t;
     finish_reason : Ai_provider.Finish_reason.t Lwt.t;
     steps : Generate_text_result.step list Lwt.t;
-    output : Yojson.Basic.t option Lwt.t;
+    output : Jsonkit.t option Lwt.t;
     provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
     outcome : Stream_text_result.outcome Lwt.t;
   }
@@ -418,9 +418,9 @@ end = struct
 end
 
 let stream_text ~model ?system ?system_provider_options ?prompt ?messages ?tools
-  ?(tool_choice : Ai_provider.Tool_choice.t option) ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option)
-  ?(max_steps = 1) ?max_retries ?max_retry_delay_ms ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k
-  ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish ?on_abort ?transform ?telemetry
+  ?(tool_choice : Ai_provider.Tool_choice.t option) ?(output : (Jsonkit.t, Jsonkit.t) Output.t option) ?(max_steps = 1)
+  ?max_retries ?max_retry_delay_ms ?stop_when ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed
+  ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish ?on_abort ?transform ?telemetry
   ?(pending_tool_approvals = []) ?abort_signal () =
   (* Build initial messages. Tools get the step's messages without the system
      prompt, as upstream does, so the loop prepends it only for the model call. *)

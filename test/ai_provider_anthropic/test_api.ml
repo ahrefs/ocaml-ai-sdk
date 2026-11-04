@@ -1,6 +1,6 @@
 (* make_request_body tests *)
 
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
 type thinking_json = {
@@ -12,21 +12,21 @@ type thinking_json = {
 
 type request_fields = {
   model : string;
-  messages : Melange_json.t list;
+  messages : Jsonkit.t list;
   max_tokens : int;
   system : string option; [@json.default None]
   temperature : float option; [@json.default None]
   top_p : float option; [@json.default None]
   top_k : int option; [@json.default None]
   stream : bool option; [@json.default None]
-  tools : Melange_json.t list option; [@json.default None]
-  tool_choice : Melange_json.t option; [@json.default None]
+  tools : Jsonkit.t list option; [@json.default None]
+  tool_choice : Jsonkit.t option; [@json.default None]
   stop_sequences : string list option; [@json.default None]
   thinking : thinking_json option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type mock_response_fields = { id : string } [@@json.allow_extra_fields] [@@deriving of_json]
+type mock_response_fields = { id : string } [@@deriving of_json]
 
 let request_json ?thinking ?output_config () =
   let body =

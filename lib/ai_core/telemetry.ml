@@ -33,7 +33,7 @@ and on_tool_call_start_event = {
   model : model_info;
   tool_name : string;
   tool_call_id : string;
-  args : Yojson.Basic.t;
+  args : Jsonkit.t;
   function_id : string option;
   metadata : (string * Trace_core.user_data) list;
 }
@@ -43,7 +43,7 @@ and on_tool_call_finish_event = {
   model : model_info;
   tool_name : string;
   tool_call_id : string;
-  args : Yojson.Basic.t;
+  args : Jsonkit.t;
   result : tool_call_outcome;
   duration_ms : float;
   function_id : string option;
@@ -51,7 +51,7 @@ and on_tool_call_finish_event = {
 }
 
 and tool_call_outcome =
-  | Success of Yojson.Basic.t
+  | Success of Jsonkit.t
   | Error of string
 
 and on_finish_event = {

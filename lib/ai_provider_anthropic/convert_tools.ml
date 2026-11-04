@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type cc = Cache_control.t
 
@@ -7,7 +7,7 @@ let cc_to_json (cc : cc) = Cache_control.to_json cc
 type anthropic_tool = {
   name : string;
   description : string option; [@json.option] [@json.drop_default]
-  input_schema : Melange_json.t;
+  input_schema : Jsonkit.t;
   cache_control : cc option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]

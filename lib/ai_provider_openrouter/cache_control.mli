@@ -26,5 +26,5 @@ val ephemeral : t
 (** Ephemeral cache control with explicit 1-hour TTL. *)
 val ephemeral_1h : t
 
-val to_json : t -> Yojson.Basic.t
-val of_json : Yojson.Basic.t -> t
+val to_json : t -> Jsonkit.t
+val of_json : Jsonkit.t -> t

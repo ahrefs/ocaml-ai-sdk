@@ -19,7 +19,7 @@ type openrouter_usage = {
   cost_details : cost_details option;
 }
 
-val openrouter_usage_of_json : Melange_json.t -> openrouter_usage
+val openrouter_usage_of_json : Jsonkit.t -> openrouter_usage
 
 (** Extended usage metadata for OpenRouter responses. *)
 type openrouter_usage_metadata = {

@@ -8,7 +8,7 @@ type reasoning_detail_json = {
   data : string option; [@json.default None]
   summary : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 (** Provider metadata keys. *)
 type _ Ai_provider.Provider_options.key +=
@@ -26,14 +26,14 @@ type annotation_json = {
   start_index : int option; [@json.default None]
   end_index : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 (** Convert a url_citation annotation to a Source content part.
     [~index] is used to generate a unique ID for the source. *)
 val convert_annotation : index:int -> annotation_json -> Ai_provider.Content.t option
 
 (** JSON representation of an image in the response. *)
-type image_json = { url : string } [@@json.allow_extra_fields] [@@deriving of_json]
+type image_json = { url : string } [@@deriving of_json]
 
 (** Convert an image response to a File content part. *)
 val convert_image : image_json -> Ai_provider.Content.t option
@@ -45,4 +45,4 @@ val has_encrypted_reasoning : reasoning_detail_json list -> bool
 val map_finish_reason : string option -> Ai_provider.Finish_reason.t
 
 (** Parse a JSON response into a generate result. *)
-val parse_response : Yojson.Basic.t -> Ai_provider.Generate_result.t
+val parse_response : Jsonkit.t -> Ai_provider.Generate_result.t

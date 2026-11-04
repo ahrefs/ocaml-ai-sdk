@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
 type content_json = {
@@ -6,9 +6,10 @@ type content_json = {
   text : string option; [@json.default None]
   cache_control : cache_control_json option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-and cache_control_json = { cc_type : string [@json.key "type"] } [@@deriving of_json]
+(* Strict, so tests fail if the default breakpoint serializes more than "type". *)
+and cache_control_json = { cc_type : string [@json.key "type"] } [@@json.disallow_extra_fields] [@@deriving of_json]
 
 let po = Ai_provider.Provider_options.empty
 

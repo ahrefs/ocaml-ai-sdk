@@ -1,13 +1,13 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type t =
   | Start of {
       message_id : string option;
-      message_metadata : Yojson.Basic.t option;
+      message_metadata : Jsonkit.t option;
     }
   | Finish of {
       finish_reason : Ai_provider.Finish_reason.t option;
-      message_metadata : Yojson.Basic.t option;
+      message_metadata : Jsonkit.t option;
     }
   | Abort of { reason : string option }
   | Start_step
@@ -20,16 +20,16 @@ type t =
   | Text_end of { id : string }
   | Reasoning_start of {
       id : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Reasoning_delta of {
       id : string;
       delta : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Reasoning_end of {
       id : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Tool_input_start of {
       tool_call_id : string;
@@ -42,17 +42,17 @@ type t =
   | Tool_input_available of {
       tool_call_id : string;
       tool_name : string;
-      input : Yojson.Basic.t;
+      input : Jsonkit.t;
     }
   | Tool_output_available of {
       tool_call_id : string;
-      output : Yojson.Basic.t;
-      provider_metadata : Yojson.Basic.t option;
+      output : Jsonkit.t;
+      provider_metadata : Jsonkit.t option;
     }
   | Tool_output_error of {
       tool_call_id : string;
       error_text : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Source_url of {
       source_id : string;
@@ -63,11 +63,11 @@ type t =
       url : string;
       media_type : string;
     }
-  | Message_metadata of { message_metadata : Yojson.Basic.t }
+  | Message_metadata of { message_metadata : Jsonkit.t }
   | Tool_input_error of {
       tool_call_id : string;
       tool_name : string;
-      input : Yojson.Basic.t;
+      input : Jsonkit.t;
       error_text : string;
     }
   | Tool_output_denied of { tool_call_id : string }
@@ -85,7 +85,7 @@ type t =
   | Data of {
       data_type : string;
       id : string option;
-      data : Yojson.Basic.t;
+      data : Jsonkit.t;
     }
 
 (* JSON record types for serialization — field order matches wire format *)
@@ -95,14 +95,14 @@ type type_only_json = { type_ : string [@json.key "type"] } [@@deriving to_json]
 type start_json = {
   type_ : string; [@json.key "type"]
   message_id : string option; [@json.key "messageId"] [@json.option] [@json.drop_default]
-  message_metadata : Melange_json.t option; [@json.key "messageMetadata"] [@json.option] [@json.drop_default]
+  message_metadata : Jsonkit.t option; [@json.key "messageMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
 type finish_json = {
   type_ : string; [@json.key "type"]
   finish_reason : string option; [@json.key "finishReason"] [@json.option] [@json.drop_default]
-  message_metadata : Melange_json.t option; [@json.key "messageMetadata"] [@json.option] [@json.drop_default]
+  message_metadata : Jsonkit.t option; [@json.key "messageMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -128,7 +128,7 @@ type id_delta_json = {
 type reasoning_id_json = {
   type_ : string; [@json.key "type"]
   id : string;
-  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
+  provider_metadata : Jsonkit.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -136,7 +136,7 @@ type reasoning_id_delta_json = {
   type_ : string; [@json.key "type"]
   id : string;
   delta : string;
-  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
+  provider_metadata : Jsonkit.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -158,15 +158,15 @@ type tool_input_available_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
   tool_name : string; [@json.key "toolName"]
-  input : Melange_json.t;
+  input : Jsonkit.t;
 }
 [@@deriving to_json]
 
 type tool_output_available_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
-  output : Melange_json.t;
-  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
+  output : Jsonkit.t;
+  provider_metadata : Jsonkit.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -174,7 +174,7 @@ type tool_output_error_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
   error_text : string; [@json.key "errorText"]
-  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
+  provider_metadata : Jsonkit.t option; [@json.key "providerMetadata"] [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
 
@@ -202,7 +202,7 @@ type file_json = {
 
 type message_metadata_json = {
   type_ : string; [@json.key "type"]
-  message_metadata : Melange_json.t; [@json.key "messageMetadata"]
+  message_metadata : Jsonkit.t; [@json.key "messageMetadata"]
 }
 [@@deriving to_json]
 
@@ -210,7 +210,7 @@ type tool_input_error_json = {
   type_ : string; [@json.key "type"]
   tool_call_id : string; [@json.key "toolCallId"]
   tool_name : string; [@json.key "toolName"]
-  input : Melange_json.t;
+  input : Jsonkit.t;
   error_text : string; [@json.key "errorText"]
 }
 [@@deriving to_json]
@@ -239,7 +239,7 @@ type error_json = {
 type data_json = {
   type_ : string; [@json.key "type"]
   id : string option; [@json.option] [@json.drop_default]
-  data : Melange_json.t;
+  data : Jsonkit.t;
 }
 [@@deriving to_json]
 

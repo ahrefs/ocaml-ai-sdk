@@ -12,6 +12,6 @@
   cohttp-lwt
   cohttp-lwt-unix
   yojson
-  melange-json-native)
+  jsonkit)
  (preprocess
-  (pps lwt_ppx melange-json-native.ppx)))
+  (pps lwt_ppx jsonkit.ppx)))

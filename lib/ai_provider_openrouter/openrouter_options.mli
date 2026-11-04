@@ -115,7 +115,7 @@ type t = {
   cache_control : cache_control option;
   debug : debug_config option;
   usage : usage_config option;
-  extra_body : (string * Yojson.Basic.t) list;
+  extra_body : (string * Jsonkit.t) list;
   strict_json_schema : bool;
   system_message_mode : Model_catalog.system_message_mode option;
 }
@@ -130,14 +130,14 @@ val of_provider_options : Ai_provider.Provider_options.t -> t option
 (** JSON serialization functions. *)
 
 val reasoning_effort_to_string : reasoning_effort -> string
-val reasoning_config_to_json : reasoning_config -> Melange_json.t
-val cache_control_to_json : cache_control -> Melange_json.t
-val debug_config_to_json : debug_config -> Melange_json.t
-val web_search_options_to_json : web_search_options -> Melange_json.t
-val usage_config_to_json : usage_config -> Melange_json.t
-val max_price_to_json : max_price -> Melange_json.t
-val provider_prefs_to_json : provider_prefs -> Melange_json.t
-val plugin_to_json : plugin -> Melange_json.t
-val plugins_to_json : plugin list -> Melange_json.t list
-val logit_bias_to_json : (int * float) list -> Melange_json.t
-val logprobs_to_json : [ `Bool of bool | `Int of int ] -> Melange_json.t * Melange_json.t option
+val reasoning_config_to_json : reasoning_config -> Jsonkit.t
+val cache_control_to_json : cache_control -> Jsonkit.t
+val debug_config_to_json : debug_config -> Jsonkit.t
+val web_search_options_to_json : web_search_options -> Jsonkit.t
+val usage_config_to_json : usage_config -> Jsonkit.t
+val max_price_to_json : max_price -> Jsonkit.t
+val provider_prefs_to_json : provider_prefs -> Jsonkit.t
+val plugin_to_json : plugin -> Jsonkit.t
+val plugins_to_json : plugin list -> Jsonkit.t list
+val logit_bias_to_json : (int * float) list -> Jsonkit.t
+val logprobs_to_json : [ `Bool of bool | `Int of int ] -> Jsonkit.t * Jsonkit.t option

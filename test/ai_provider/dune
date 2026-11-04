@@ -13,6 +13,6 @@
   test_stream_pump
   test_abort_signal)
  (package ocaml-ai-sdk)
- (libraries ai_provider alcotest lwt lwt.unix yojson melange-json-native)
+ (libraries ai_provider alcotest lwt lwt.unix yojson jsonkit)
  (preprocess
   (pps lwt_ppx)))

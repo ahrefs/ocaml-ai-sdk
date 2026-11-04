@@ -1,11 +1,11 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 module Http_client = Ai_provider.Http_client
 
 type stream_options = { include_usage : bool } [@@deriving to_json]
 
 type request_body = {
   model : string;
-  messages : Melange_json.t list;
+  messages : Jsonkit.t list;
   temperature : float option; [@json.option] [@json.drop_default]
   top_p : float option; [@json.option] [@json.drop_default]
   max_tokens : int option; [@json.option] [@json.drop_default]
@@ -14,18 +14,18 @@ type request_body = {
   presence_penalty : float option; [@json.option] [@json.drop_default]
   stop : string list option; [@json.option] [@json.drop_default]
   seed : int option; [@json.option] [@json.drop_default]
-  response_format : Melange_json.t option; [@json.option] [@json.drop_default]
-  tools : Melange_json.t list option; [@json.option] [@json.drop_default]
-  tool_choice : Melange_json.t option; [@json.option] [@json.drop_default]
+  response_format : Jsonkit.t option; [@json.option] [@json.drop_default]
+  tools : Jsonkit.t list option; [@json.option] [@json.drop_default]
+  tool_choice : Jsonkit.t option; [@json.option] [@json.drop_default]
   parallel_tool_calls : bool option; [@json.option] [@json.drop_default]
-  logit_bias : Melange_json.t option; [@json.option] [@json.drop_default]
+  logit_bias : Jsonkit.t option; [@json.option] [@json.drop_default]
   logprobs : bool option; [@json.option] [@json.drop_default]
   top_logprobs : int option; [@json.option] [@json.drop_default]
   user : string option; [@json.option] [@json.drop_default]
   reasoning_effort : string option; [@json.option] [@json.drop_default]
   store : bool option; [@json.option] [@json.drop_default]
-  metadata : Melange_json.t option; [@json.option] [@json.drop_default]
-  prediction : Melange_json.t option; [@json.option] [@json.drop_default]
+  metadata : Jsonkit.t option; [@json.option] [@json.drop_default]
+  prediction : Jsonkit.t option; [@json.option] [@json.drop_default]
   service_tier : string option; [@json.option] [@json.drop_default]
   stream : bool option; [@json.option] [@json.drop_default]
   stream_options : stream_options option; [@json.option] [@json.drop_default]

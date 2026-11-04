@@ -26,7 +26,7 @@ val mode_of_output : (_, _) t option -> Ai_provider.Mode.t
 
 (** Parse the final output from completed steps. Returns [None] if no
     output spec, text mode, or parse failure. *)
-val parse_output : (Yojson.Basic.t, _) t option -> Generate_text_result.step list -> Yojson.Basic.t option
+val parse_output : (Jsonkit.t, _) t option -> Generate_text_result.step list -> Jsonkit.t option
 
 (** Default text output — no structured format, returns raw text. *)
 val text : (string, string) t
@@ -35,21 +35,21 @@ val text : (string, string) t
     [name] is passed to the provider for context.
     Complete output is validated against the schema.
     Partial output uses repair-and-parse (no validation). *)
-val object_ : name:string -> schema:Yojson.Basic.t -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
+val object_ : name:string -> schema:Jsonkit.t -> unit -> (Jsonkit.t, Jsonkit.t) t
 
 (** Array output — model produces an array of elements matching the schema.
     Wraps in [{"elements":[...]}] envelope for the model, unwraps on parse.
     Complete output validates every element against the schema.
     Partial output drops the last element on repaired parses and
     silently skips invalid elements. *)
-val array : name:string -> element_schema:Yojson.Basic.t -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
+val array : name:string -> element_schema:Jsonkit.t -> unit -> (Jsonkit.t, Jsonkit.t) t
 
 (** Choice output — model picks one of the given string options.
     Wraps in [{"result":"..."}] envelope for the model, unwraps on parse.
     Complete output validates the choice is in the allowed list.
     Partial output uses prefix matching: on repaired parses, only returns
     when exactly one option matches the prefix (unambiguous). *)
-val choice : name:string -> string list -> (Yojson.Basic.t, Yojson.Basic.t) t
+val choice : name:string -> string list -> (Jsonkit.t, Jsonkit.t) t
 
 (** @deprecated Use [choice] instead. Alias kept for backwards compatibility. *)
-val enum : name:string -> string list -> (Yojson.Basic.t, Yojson.Basic.t) t
+val enum : name:string -> string list -> (Jsonkit.t, Jsonkit.t) t

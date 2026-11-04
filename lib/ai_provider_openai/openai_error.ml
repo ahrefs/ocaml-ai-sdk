@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type openai_error_type =
   | Invalid_request_error
@@ -12,9 +12,9 @@ type error_detail = {
   typ : string; [@json.key "type"] [@json.default "unknown"]
   message : string; [@json.default ""]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type error_envelope = { error : error_detail } [@@json.allow_extra_fields] [@@deriving of_json]
+type error_envelope = { error : error_detail } [@@deriving of_json]
 
 let error_type_of_string = function
   | "invalid_request_error" -> Invalid_request_error
@@ -34,9 +34,7 @@ let of_response ?(retry_after_ms = None) ?(retry_after = None) ~status ~body () 
       let json = Yojson.Basic.from_string body in
       let { error = { typ; message } } = error_envelope_of_json json in
       Some (error_type_of_string typ), message
-    with
-    | Yojson.Json_error _ -> None, body
-    | Melange_json.Of_json_error _ -> None, body
+    with Yojson.Json_error _ | Jsonkit.Of_json_error _ -> None, body
   in
   let is_retryable = Option.map is_retryable error_type in
   let retry_after_s = Ai_provider.Retry_after.parse ~retry_after_ms ~retry_after in

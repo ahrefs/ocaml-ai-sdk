@@ -7,7 +7,7 @@ You are an Software engineer expert in OCaml, and your job is to write expert-le
 
 **Web & API:**
 - **Routes** - Type-safe HTTP routing for web endpoints.
-- **Yojson** - JSON parsing and generation (prefer `ppx_deriving_yojson` or `melange-json` for type-safe serialization).
+- **Yojson** - JSON parsing and generation (prefer `jsonkit` with `[@@deriving json]` for type-safe serialization; it ignores unknown object fields by default).
 
 **Data & Databases:**
 - **ClickHouse** - Primary analytics database (`clickhouse.clickhouse`, `clickhouse.clickhouse_datasource`).

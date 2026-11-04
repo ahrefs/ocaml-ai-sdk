@@ -1,12 +1,12 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
 type tool_json = {
   name : string;
-  input_schema : Melange_json.t;
+  input_schema : Jsonkit.t;
   description : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 let test_single_tool () =
   let tools : Ai_provider.Tool.t list =

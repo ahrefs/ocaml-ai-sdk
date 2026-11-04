@@ -11,4 +11,4 @@ type parse_status =
     Returns [Some (json, status)] on success, [None] if input is empty or
     cannot be repaired. Repair strategy: close unclosed strings, arrays,
     objects; drop trailing incomplete key-value pairs. *)
-val parse : string -> (Yojson.Basic.t * parse_status) option
+val parse : string -> (Jsonkit.t * parse_status) option

@@ -9,21 +9,21 @@ type t =
   | Text_end of { id : string }
   | Reasoning_start of {
       id : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Reasoning_delta of {
       id : string;
       text : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Reasoning_end of {
       id : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Tool_call of {
       tool_call_id : string;
       tool_name : string;
-      args : Yojson.Basic.t;
+      args : Jsonkit.t;
     }
   | Tool_call_delta of {
       tool_call_id : string;
@@ -33,16 +33,16 @@ type t =
   | Tool_result of {
       tool_call_id : string;
       tool_name : string;
-      result : Yojson.Basic.t;
+      result : Jsonkit.t;
       is_error : bool;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Tool_output_denied of { tool_call_id : string }
   | Tool_approval_request of {
       approval_id : string;
       tool_call_id : string;
       tool_name : string;
-      args : Yojson.Basic.t;
+      args : Jsonkit.t;
     }
   | Source of {
       source_id : string;

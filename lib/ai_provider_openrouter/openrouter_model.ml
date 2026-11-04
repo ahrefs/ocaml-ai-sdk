@@ -1,10 +1,10 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type json_object_format = { type_ : string [@json.key "type"] } [@@deriving to_json]
 
 type json_schema_detail = {
   name : string;
-  schema : Melange_json.t;
+  schema : Jsonkit.t;
   strict : bool;
 }
 [@@deriving to_json]
@@ -41,16 +41,16 @@ let build_tools_and_choice ~strict (opts : Ai_provider.Call_options.t) =
 (** OpenRouter-specific fields derived from provider options. *)
 type openrouter_fields = {
   models : string list option;
-  logit_bias : Yojson.Basic.t option;
-  logprobs : Yojson.Basic.t option;
-  top_logprobs : Yojson.Basic.t option;
-  reasoning : Yojson.Basic.t option;
-  plugins : Yojson.Basic.t list option;
-  web_search_options : Yojson.Basic.t option;
-  provider : Yojson.Basic.t option;
-  debug : Yojson.Basic.t option;
-  cache_control : Yojson.Basic.t option;
-  usage : Yojson.Basic.t option;
+  logit_bias : Jsonkit.t option;
+  logprobs : Jsonkit.t option;
+  top_logprobs : Jsonkit.t option;
+  reasoning : Jsonkit.t option;
+  plugins : Jsonkit.t list option;
+  web_search_options : Jsonkit.t option;
+  provider : Jsonkit.t option;
+  debug : Jsonkit.t option;
+  cache_control : Jsonkit.t option;
+  usage : Jsonkit.t option;
 }
 
 (** Build the OpenRouter-specific optional fields from provider options. *)

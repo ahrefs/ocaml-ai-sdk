@@ -22,7 +22,7 @@ val model : string -> Ai_provider.Language_model.t
 ## Configuration (lib/ai_provider_anthropic/config.ml(i))
 
 ```ocaml
-type fetch_fn = url:string -> headers:(string*string) list -> body:string -> Yojson.Basic.t Lwt.t
+type fetch_fn = url:string -> headers:(string*string) list -> body:string -> Jsonkit.t Lwt.t
 
 type t = {
   api_key : string option;           (* Defaults to ANTHROPIC_API_KEY env var *)
@@ -158,7 +158,7 @@ Converts SDK tools to Anthropic format:
 type anthropic_tool = {
   name : string;
   description : string option;
-  input_schema : Yojson.Basic.t;
+  input_schema : Jsonkit.t;
   cache_control : Cache_control.t option;
 }
 
@@ -173,7 +173,7 @@ Parses Anthropic Messages API JSON responses:
 - `content_block_json` - Anthropic content block representation
 - `anthropic_response_json` - Full Anthropic response
 - `map_stop_reason : string option -> Ai_provider.Finish_reason.t`
-- `parse_response : Yojson.Basic.t -> Ai_provider.Generate_result.t`
+- `parse_response : Jsonkit.t -> Ai_provider.Generate_result.t`
 
 ### convert_stream.ml(i)
 Transforms Anthropic SSE events to SDK stream parts:
@@ -191,17 +191,17 @@ val make_request_body : model:string -> messages:Convert_prompt.anthropic_messag
                         -> ?tool_choice:Convert_tools.anthropic_tool_choice
                         -> ?max_tokens:int -> ?temperature:float -> ?top_p:float -> ?top_k:int
                         -> ?stop_sequences:string list -> ?thinking:Thinking.t
-                        -> ?stream:bool -> unit -> Yojson.Basic.t
+                        -> ?stream:bool -> unit -> Jsonkit.t
 
-val messages : config:Config.t -> body:Yojson.Basic.t -> extra_headers:(string*string) list 
-               -> stream:bool -> [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t
+val messages : config:Config.t -> body:Jsonkit.t -> extra_headers:(string*string) list 
+               -> stream:bool -> [ `Json of Jsonkit.t | `Stream of string Lwt_stream.t ] Lwt.t
 ```
 
 ## SSE Streaming (lib/ai_provider_anthropic/sse.ml(i))
 
 Server-sent events parsing:
 ```ocaml
-type event = { event : string; data : Yojson.Basic.t }
+type event = { event : string; data : Jsonkit.t }
 val parse_events : string Lwt_stream.t -> event Lwt_stream.t
 ```
 

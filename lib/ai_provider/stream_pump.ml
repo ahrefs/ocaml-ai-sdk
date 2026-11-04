@@ -8,7 +8,7 @@ let pump ?abort_signal ?(on_end = fun () -> ()) ~provider ~push f events =
     with
     | ( Yojson.Json_error _ | Yojson.End_of_array | Yojson.End_of_object | Yojson.End_of_input
       | Yojson.Basic.Util.Type_error _ | Yojson.Basic.Util.Undefined _ | Yojson.Safe.Util.Type_error _
-      | Yojson.Safe.Util.Undefined _ | Melange_json.Of_json_error _ | Melange_json.Of_string_error _ ) as exn
+      | Yojson.Safe.Util.Undefined _ | Jsonkit.Of_json_error _ | Jsonkit.Of_string_error _ ) as exn
     ->
       fail (non_retryable ~provider (Deserialization_error { message = Printexc.to_string exn; raw = evt.data }))
   in

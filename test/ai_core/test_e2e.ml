@@ -1,14 +1,14 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
-type city_args = { city : string } [@@json.allow_extra_fields] [@@deriving of_json]
+type city_args = { city : string } [@@deriving of_json]
 
 type weather_result = {
   city : string;
   temperature : int;
   condition : string;
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 (** End-to-end tests for the Core SDK.
 

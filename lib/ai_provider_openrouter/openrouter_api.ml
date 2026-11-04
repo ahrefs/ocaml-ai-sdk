@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 module Http_client = Ai_provider.Http_client
 
 type stream_options = { include_usage : bool } [@@deriving to_json]
@@ -6,7 +6,7 @@ type stream_options = { include_usage : bool } [@@deriving to_json]
 type request_body = {
   model : string;
   models : string list option; [@json.option] [@json.drop_default]
-  messages : Melange_json.t list;
+  messages : Jsonkit.t list;
   temperature : float option; [@json.option] [@json.drop_default]
   top_p : float option; [@json.option] [@json.drop_default]
   top_k : int option; [@json.option] [@json.drop_default]
@@ -15,23 +15,23 @@ type request_body = {
   presence_penalty : float option; [@json.option] [@json.drop_default]
   stop : string list option; [@json.option] [@json.drop_default]
   seed : int option; [@json.option] [@json.drop_default]
-  response_format : Melange_json.t option; [@json.option] [@json.drop_default]
-  tools : Melange_json.t list option; [@json.option] [@json.drop_default]
-  tool_choice : Melange_json.t option; [@json.option] [@json.drop_default]
+  response_format : Jsonkit.t option; [@json.option] [@json.drop_default]
+  tools : Jsonkit.t list option; [@json.option] [@json.drop_default]
+  tool_choice : Jsonkit.t option; [@json.option] [@json.drop_default]
   parallel_tool_calls : bool option; [@json.option] [@json.drop_default]
-  logit_bias : Melange_json.t option; [@json.option] [@json.drop_default]
-  logprobs : Melange_json.t option; [@json.option] [@json.drop_default]
-  top_logprobs : Melange_json.t option; [@json.option] [@json.drop_default]
+  logit_bias : Jsonkit.t option; [@json.option] [@json.drop_default]
+  logprobs : Jsonkit.t option; [@json.option] [@json.drop_default]
+  top_logprobs : Jsonkit.t option; [@json.option] [@json.drop_default]
   user : string option; [@json.option] [@json.drop_default]
   (* OpenRouter-specific *)
   include_reasoning : bool option; [@json.option] [@json.drop_default]
-  reasoning : Melange_json.t option; [@json.option] [@json.drop_default]
-  usage : Melange_json.t option; [@json.option] [@json.drop_default]
-  plugins : Melange_json.t list option; [@json.option] [@json.drop_default]
-  web_search_options : Melange_json.t option; [@json.option] [@json.drop_default]
-  provider : Melange_json.t option; [@json.option] [@json.drop_default]
-  debug : Melange_json.t option; [@json.option] [@json.drop_default]
-  cache_control : Melange_json.t option; [@json.option] [@json.drop_default]
+  reasoning : Jsonkit.t option; [@json.option] [@json.drop_default]
+  usage : Jsonkit.t option; [@json.option] [@json.drop_default]
+  plugins : Jsonkit.t list option; [@json.option] [@json.drop_default]
+  web_search_options : Jsonkit.t option; [@json.option] [@json.drop_default]
+  provider : Jsonkit.t option; [@json.option] [@json.drop_default]
+  debug : Jsonkit.t option; [@json.option] [@json.drop_default]
+  cache_control : Jsonkit.t option; [@json.option] [@json.drop_default]
   stream : bool option; [@json.option] [@json.drop_default]
   stream_options : stream_options option; [@json.option] [@json.drop_default]
 }
@@ -95,7 +95,7 @@ let make_request_body ~model ~messages ?models ?temperature ?top_p ?top_k ?max_t
     stream_options;
   }
 
-let merge_extra_body body_json (extra_body : (string * Yojson.Basic.t) list) =
+let merge_extra_body body_json (extra_body : (string * Jsonkit.t) list) =
   match extra_body with
   | [] -> body_json
   | _ ->

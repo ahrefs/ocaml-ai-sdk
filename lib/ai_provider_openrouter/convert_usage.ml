@@ -1,16 +1,14 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type prompt_tokens_details = {
   cached_tokens : int option; [@json.default None]
   cache_write_tokens : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type completion_tokens_details = { reasoning_tokens : int option [@json.default None] }
-[@@json.allow_extra_fields] [@@deriving of_json]
+type completion_tokens_details = { reasoning_tokens : int option [@json.default None] } [@@deriving of_json]
 
-type cost_details = { upstream_inference_cost : float option [@json.default None] }
-[@@json.allow_extra_fields] [@@deriving of_json]
+type cost_details = { upstream_inference_cost : float option [@json.default None] } [@@deriving of_json]
 
 type openrouter_usage = {
   prompt_tokens : int option; [@json.default None]
@@ -21,7 +19,7 @@ type openrouter_usage = {
   cost : float option; [@json.default None]
   cost_details : cost_details option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type openrouter_usage_metadata = {
   cache_read_tokens : int;

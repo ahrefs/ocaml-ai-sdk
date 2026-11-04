@@ -35,7 +35,7 @@ type anthropic_content =
   | A_tool_use of {
       id : string;
       name : string;
-      input : Yojson.Basic.t;
+      input : Jsonkit.t;
     }
   | A_tool_result of {
       tool_use_id : string;
@@ -64,7 +64,7 @@ val extract_system :
     array-of-blocks form (one text block per system message), matching
     upstream [@ai-sdk/anthropic]'s [convertToAnthropicPrompt]. *)
 val system_to_json :
-  ?validator:Cache_control_validator.t -> (string * Ai_provider.Provider_options.t) list -> Yojson.Basic.t option
+  ?validator:Cache_control_validator.t -> (string * Ai_provider.Provider_options.t) list -> Jsonkit.t option
 
 (** Convert SDK messages to Anthropic format with message grouping
     for alternating user/assistant roles. Pass [~validator] to share the
@@ -72,7 +72,7 @@ val system_to_json :
 val convert_messages : ?validator:Cache_control_validator.t -> Ai_provider.Prompt.message list -> anthropic_message list
 
 (** Serialize a content block to JSON. *)
-val anthropic_content_to_json : anthropic_content -> Yojson.Basic.t
+val anthropic_content_to_json : anthropic_content -> Jsonkit.t
 
 (** Serialize a message to JSON. *)
-val anthropic_message_to_json : anthropic_message -> Yojson.Basic.t
+val anthropic_message_to_json : anthropic_message -> Jsonkit.t

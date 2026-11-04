@@ -122,6 +122,30 @@ let test_error_parsing () =
   | Ai_provider.Provider_error.Api_error { status; _ } -> (check int) "status" 401 status
   | _ -> fail "expected Api_error"
 
+(* Anthropic's real error bodies carry top-level "type" and "request_id" next to "error". *)
+let test_error_parsing_real_body () =
+  let err =
+    Ai_provider_anthropic.Anthropic_error.of_response ~status:529
+      ~body:
+        {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CSHoEeqs5C35K2UUqR7Fy"}|}
+      ()
+  in
+  match err.kind with
+  | Ai_provider.Provider_error.Api_error { body; _ } ->
+    (check string) "message" "overloaded_error: Overloaded (request_id: req_011CSHoEeqs5C35K2UUqR7Fy)" body
+  | _ -> fail "expected Api_error"
+
+(* A retryable type forces a retry; otherwise the status rule decides, as upstream retries every 5xx. *)
+let test_error_retry_follows_status () =
+  let retryable ~status ~typ =
+    let body = Printf.sprintf {|{"type":"error","error":{"type":"%s","message":"m"}}|} typ in
+    (Ai_provider_anthropic.Anthropic_error.of_response ~status ~body ()).is_retryable
+  in
+  (check bool) "400 overloaded_error" true (retryable ~status:400 ~typ:"overloaded_error");
+  (check bool) "500 api_error" true (retryable ~status:500 ~typ:"api_error");
+  (check bool) "504 timeout_error" true (retryable ~status:504 ~typ:"timeout_error");
+  (check bool) "400 invalid_request_error" false (retryable ~status:400 ~typ:"invalid_request_error")
+
 let test_is_retryable () =
   (check bool) "rate limit" true (Ai_provider_anthropic.Anthropic_error.is_retryable Rate_limit_error);
   (check bool) "overloaded" true (Ai_provider_anthropic.Anthropic_error.is_retryable Overloaded_error);
@@ -179,7 +203,13 @@ let () =
           test_case "thinking" `Quick test_parse_thinking_response;
           test_case "redacted_thinking" `Quick test_parse_redacted_thinking_response;
         ] );
-      "error", [ test_case "parsing" `Quick test_error_parsing; test_case "retryable" `Quick test_is_retryable ];
+      ( "error",
+        [
+          test_case "parsing" `Quick test_error_parsing;
+          test_case "parsing real body" `Quick test_error_parsing_real_body;
+          test_case "retry follows status" `Quick test_error_retry_follows_status;
+          test_case "retryable" `Quick test_is_retryable;
+        ] );
       ( "usage",
         [
           test_case "conversion" `Quick test_usage_conversion;
