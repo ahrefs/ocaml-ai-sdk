@@ -8,7 +8,7 @@
     parsed record.
 
     Usage:
-      ANTHROPIC_API_KEY=$(passage get anthropic/staging/api_key) \
+      ANTHROPIC_API_KEY=your-api-key \
         dune exec examples/structured_output.exe
 
     Exit code: 0 if the response decodes into a valid [person] record, 1 otherwise. *)

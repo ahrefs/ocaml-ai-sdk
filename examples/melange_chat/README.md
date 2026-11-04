@@ -11,7 +11,7 @@ in a pure OCaml/Melange frontend.
 npm install
 
 # Start the chat_server backend first
-ANTHROPIC_API_KEY=$(passage get anthropic/staging/api_key) dune exec examples/chat_server/main.exe
+ANTHROPIC_API_KEY=your-api-key dune exec examples/chat_server/main.exe
 
 # Start frontend (in a separate terminal)
 npm run dev
