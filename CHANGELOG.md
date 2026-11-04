@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9 — 2026-11-04
+
 ### Breaking changes
 
 - The JSON dependency is now `jsonkit` (>= 1.1.0), the renamed successor of
