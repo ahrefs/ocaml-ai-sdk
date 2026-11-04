@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 let empty_opts = Ai_provider.Provider_options.empty
 
@@ -55,41 +55,41 @@ let tool_state_of_string = function
   | "approval-responded" -> Approval_responded
   | _ -> Unknown_state
 
-(** A parsed v6 UIMessage part. Derived from JSON via melange-json PPX. *)
+(** A parsed v6 UIMessage part. Derived from JSON via the jsonkit PPX. *)
 type parsed_approval = {
   id : string option; [@json.option]
   approved : bool option; [@json.option]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type parsed_part = {
   type_ : string; [@json.key "type"]
   text : string option; [@json.option]
   media_type : string option; [@json.key "mediaType"] [@json.option]
   url : string option; [@json.option]
-  data : Melange_json.t option; [@json.option]
+  data : Jsonkit.t option; [@json.option]
   filename : string option; [@json.option]
   tool_call_id : string option; [@json.key "toolCallId"] [@json.option]
   tool_name : string option; [@json.key "toolName"] [@json.option]
   state : string option; [@json.option]
-  input : Melange_json.t option; [@json.option]
-  output : Melange_json.t option; [@json.option]
+  input : Jsonkit.t option; [@json.option]
+  output : Jsonkit.t option; [@json.option]
   error_text : string option; [@json.key "errorText"] [@json.option]
   approved : bool option; [@json.option]
   approval : parsed_approval option; [@json.option]
-  provider_metadata : Melange_json.t option; [@json.key "providerMetadata"] [@json.option]
-  result_provider_metadata : Melange_json.t option; [@json.key "resultProviderMetadata"] [@json.option]
-  call_provider_metadata : Melange_json.t option; [@json.key "callProviderMetadata"] [@json.option]
+  provider_metadata : Jsonkit.t option; [@json.key "providerMetadata"] [@json.option]
+  result_provider_metadata : Jsonkit.t option; [@json.key "resultProviderMetadata"] [@json.option]
+  call_provider_metadata : Jsonkit.t option; [@json.key "callProviderMetadata"] [@json.option]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type chat_message = {
   role : string;
   parts : parsed_part list; [@json.default []]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type ui_request = { messages : chat_message list } [@@json.allow_extra_fields] [@@deriving of_json]
+type ui_request = { messages : chat_message list } [@@deriving of_json]
 
 (** Extract tool name from [toolName] field, falling back to the type prefix
     (e.g. ["tool-get_weather"] -> ["get_weather"]). *)
@@ -115,7 +115,7 @@ let resolve_approved (p : parsed_part) =
 
 (** Resolve provider metadata: prefer [resultProviderMetadata], fall back to
     [callProviderMetadata]. Matches upstream [convert-to-model-messages.ts]. *)
-let resolve_provider_metadata (p : parsed_part) : Yojson.Basic.t option =
+let resolve_provider_metadata (p : parsed_part) : Jsonkit.t option =
   match p.result_provider_metadata with
   | Some _ as m -> m
   | None -> p.call_provider_metadata
@@ -278,11 +278,7 @@ let approvals_of_request ({ messages } : ui_request) =
           | Tool_invocation _, Some Approval_responded ->
             (match p.tool_call_id, resolve_tool_name p, resolve_approved p with
             | Some tool_call_id, Some tool_name, Some approved ->
-              let args =
-                match p.input with
-                | Some json -> (json : Melange_json.t :> Yojson.Basic.t)
-                | None -> `Null
-              in
+              let args = Option.value p.input ~default:`Null in
               Some { Generate_text_result.tool_call_id; tool_name; args; approved }
             | _ -> None)
           | _ -> None)
@@ -290,22 +286,22 @@ let approvals_of_request ({ messages } : ui_request) =
     messages
 
 let parse_messages_from_body body_json =
-  try messages_of_request (ui_request_of_json body_json) with Melange_json.Of_json_error _ -> []
+  try messages_of_request (ui_request_of_json body_json) with Jsonkit.Of_json_error _ -> []
 
 let collect_pending_tool_approvals body_json =
-  try approvals_of_request (ui_request_of_json body_json) with Melange_json.Of_json_error _ -> []
+  try approvals_of_request (ui_request_of_json body_json) with Jsonkit.Of_json_error _ -> []
 
 type chat_request = {
   messages : Ai_provider.Prompt.message list;
   pending_tool_approvals : Generate_text_result.pending_tool_approval list;
-  body : Yojson.Basic.t;
+  body : Jsonkit.t;
 }
 
 (* The message-level checks of upstream's validateUIMessages (ai v6), with its
    wording where it has one. It also requires a message [id], which nothing
    here reads, so that check is left out. Parts stay lenient: unknown part
    types are skipped. *)
-let validate_message i (message : Yojson.Basic.t) =
+let validate_message i (message : Jsonkit.t) =
   match message with
   | `Assoc fields ->
     (match List.assoc_opt "role" fields, List.assoc_opt "parts" fields with
@@ -319,7 +315,7 @@ let validate_message i (message : Yojson.Basic.t) =
     | (None | Some _), _ -> Error (Printf.sprintf "messages[%d].role must be a string" i))
   | _ -> Error (Printf.sprintf "messages[%d] must be an object" i)
 
-let validate_request (body : Yojson.Basic.t) =
+let validate_request (body : Jsonkit.t) =
   match body with
   | `Assoc fields ->
     (match List.assoc_opt "messages" fields with
@@ -340,7 +336,7 @@ let parse_chat_request body =
   match ui_request_of_json json with
   | request ->
     Ok { messages = messages_of_request request; pending_tool_approvals = approvals_of_request request; body = json }
-  | exception Melange_json.Of_json_error (Json_error msg | Unexpected_variant msg) -> Error ("Invalid messages: " ^ msg)
+  | exception Jsonkit.Of_json_error (Json_error msg | Unexpected_variant msg) -> Error ("Invalid messages: " ^ msg)
 
 let cors_headers =
   [

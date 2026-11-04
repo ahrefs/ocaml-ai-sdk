@@ -6,17 +6,17 @@ type content_block_json = {
   text : string option;
   id : string option;
   name : string option;
-  input : Yojson.Basic.t option;
+  input : Jsonkit.t option;
   thinking : string option;
   signature : string option;
   data : string option;
 }
 
 (** Parse a content block from JSON. *)
-val content_block_json_of_json : Yojson.Basic.t -> content_block_json
+val content_block_json_of_json : Jsonkit.t -> content_block_json
 
 (** Convert a content block to JSON. *)
-val content_block_json_to_json : content_block_json -> Yojson.Basic.t
+val content_block_json_to_json : content_block_json -> Jsonkit.t
 
 (** A full Anthropic Messages API response. *)
 type anthropic_response_json = {
@@ -28,10 +28,10 @@ type anthropic_response_json = {
 }
 
 (** Parse an Anthropic response from JSON. *)
-val anthropic_response_json_of_json : Yojson.Basic.t -> anthropic_response_json
+val anthropic_response_json_of_json : Jsonkit.t -> anthropic_response_json
 
 (** Convert an Anthropic response to JSON. *)
-val anthropic_response_json_to_json : anthropic_response_json -> Yojson.Basic.t
+val anthropic_response_json_to_json : anthropic_response_json -> Jsonkit.t
 
 (** Map Anthropic stop reasons to SDK finish reasons. *)
 val map_stop_reason : string option -> Ai_provider.Finish_reason.t
@@ -43,4 +43,4 @@ val reasoning_provider_options : string option -> Ai_provider.Provider_options.t
 val redacted_reasoning_provider_options : string -> Ai_provider.Provider_options.t
 
 (** Parse a full Anthropic Messages API response into a Generate_result. *)
-val parse_response : Yojson.Basic.t -> Ai_provider.Generate_result.t
+val parse_response : Jsonkit.t -> Ai_provider.Generate_result.t

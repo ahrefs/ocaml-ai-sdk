@@ -1,6 +1,6 @@
 (library
  (name ai_provider_anthropic)
  (public_name ocaml-ai-sdk.ai_provider_anthropic)
- (libraries ai_provider lwt lwt.unix yojson melange-json-native base64)
+ (libraries ai_provider lwt lwt.unix yojson jsonkit base64)
  (preprocess
-  (pps lwt_ppx melange-json-native.ppx ppx_deriving.show)))
+  (pps lwt_ppx jsonkit.ppx ppx_deriving.show)))

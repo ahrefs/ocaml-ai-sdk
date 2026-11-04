@@ -1,9 +1,9 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type openai_function_def = {
   name : string;
   description : string option; [@json.option] [@json.drop_default]
-  parameters : Melange_json.t;
+  parameters : Jsonkit.t;
   strict : bool option; [@json.option] [@json.drop_default]
 }
 [@@deriving to_json]
@@ -35,7 +35,7 @@ let convert_single_tool ~strict (tool : Ai_provider.Tool.t) : openai_tool =
 
 let convert_tools ~strict tools = List.map (convert_single_tool ~strict) tools
 
-let convert_tool_choice (tc : Ai_provider.Tool_choice.t) : Melange_json.t =
+let convert_tool_choice (tc : Ai_provider.Tool_choice.t) : Jsonkit.t =
   match tc with
   | Auto -> `String "auto"
   | Required -> `String "required"

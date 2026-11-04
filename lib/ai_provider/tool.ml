@@ -1,6 +1,6 @@
 type t = {
   name : string;
   description : string option;
-  parameters : Yojson.Basic.t;
+  parameters : Jsonkit.t;
   provider_options : Provider_options.t;
 }

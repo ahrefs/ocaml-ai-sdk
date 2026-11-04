@@ -36,4 +36,4 @@ val convert_messages :
   openai_message list * Ai_provider.Warning.t list
 
 (** Serialize an OpenAI message to JSON. *)
-val openai_message_to_json : openai_message -> Yojson.Basic.t
+val openai_message_to_json : openai_message -> Jsonkit.t

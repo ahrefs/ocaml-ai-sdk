@@ -122,6 +122,19 @@ let test_error_parsing () =
   | Ai_provider.Provider_error.Api_error { status; _ } -> (check int) "status" 401 status
   | _ -> fail "expected Api_error"
 
+(* Anthropic's real error bodies carry top-level "type" and "request_id" next to "error". *)
+let test_error_parsing_real_body () =
+  let err =
+    Ai_provider_anthropic.Anthropic_error.of_response ~status:529
+      ~body:
+        {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CSHoEeqs5C35K2UUqR7Fy"}|}
+      ()
+  in
+  (check bool) "retryable" true err.is_retryable;
+  match err.kind with
+  | Ai_provider.Provider_error.Api_error { body; _ } -> (check string) "message" "Overloaded" body
+  | _ -> fail "expected Api_error"
+
 let test_is_retryable () =
   (check bool) "rate limit" true (Ai_provider_anthropic.Anthropic_error.is_retryable Rate_limit_error);
   (check bool) "overloaded" true (Ai_provider_anthropic.Anthropic_error.is_retryable Overloaded_error);
@@ -179,7 +192,12 @@ let () =
           test_case "thinking" `Quick test_parse_thinking_response;
           test_case "redacted_thinking" `Quick test_parse_redacted_thinking_response;
         ] );
-      "error", [ test_case "parsing" `Quick test_error_parsing; test_case "retryable" `Quick test_is_retryable ];
+      ( "error",
+        [
+          test_case "parsing" `Quick test_error_parsing;
+          test_case "parsing real body" `Quick test_error_parsing_real_body;
+          test_case "retryable" `Quick test_is_retryable;
+        ] );
       ( "usage",
         [
           test_case "conversion" `Quick test_usage_conversion;

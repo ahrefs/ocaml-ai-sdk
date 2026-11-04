@@ -1,6 +1,6 @@
 type json_schema = {
   name : string;
-  schema : Yojson.Basic.t;
+  schema : Jsonkit.t;
 }
 
 type t =

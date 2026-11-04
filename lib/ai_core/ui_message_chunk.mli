@@ -7,11 +7,11 @@
 type t =
   | Start of {
       message_id : string option;
-      message_metadata : Yojson.Basic.t option;
+      message_metadata : Jsonkit.t option;
     }
   | Finish of {
       finish_reason : Ai_provider.Finish_reason.t option;
-      message_metadata : Yojson.Basic.t option;
+      message_metadata : Jsonkit.t option;
     }
   | Abort of { reason : string option }
   | Start_step
@@ -24,16 +24,16 @@ type t =
   | Text_end of { id : string }
   | Reasoning_start of {
       id : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Reasoning_delta of {
       id : string;
       delta : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Reasoning_end of {
       id : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Tool_input_start of {
       tool_call_id : string;
@@ -46,17 +46,17 @@ type t =
   | Tool_input_available of {
       tool_call_id : string;
       tool_name : string;
-      input : Yojson.Basic.t;
+      input : Jsonkit.t;
     }
   | Tool_output_available of {
       tool_call_id : string;
-      output : Yojson.Basic.t;
-      provider_metadata : Yojson.Basic.t option;
+      output : Jsonkit.t;
+      provider_metadata : Jsonkit.t option;
     }
   | Tool_output_error of {
       tool_call_id : string;
       error_text : string;
-      provider_metadata : Yojson.Basic.t option;
+      provider_metadata : Jsonkit.t option;
     }
   | Source_url of {
       source_id : string;
@@ -67,11 +67,11 @@ type t =
       url : string;
       media_type : string;
     }
-  | Message_metadata of { message_metadata : Yojson.Basic.t }
+  | Message_metadata of { message_metadata : Jsonkit.t }
   | Tool_input_error of {
       tool_call_id : string;
       tool_name : string;
-      input : Yojson.Basic.t;
+      input : Jsonkit.t;
       error_text : string;
     }
   | Tool_output_denied of { tool_call_id : string }
@@ -89,8 +89,8 @@ type t =
   | Data of {
       data_type : string;
       id : string option;
-      data : Yojson.Basic.t;
+      data : Jsonkit.t;
     }
 
 (** Serialize to JSON with camelCase field names matching the Vercel AI SDK. *)
-val to_json : t -> Yojson.Basic.t
+val to_json : t -> Jsonkit.t

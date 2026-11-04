@@ -122,7 +122,7 @@ Can implement logging, caching, retries, etc.
 type t = {
   name : string;
   description : string option;
-  parameters : Yojson.Basic.t;  (* JSON Schema *)
+  parameters : Jsonkit.t;  (* JSON Schema *)
 }
 ```
 

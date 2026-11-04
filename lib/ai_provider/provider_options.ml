@@ -57,7 +57,7 @@ let find_exn k opts =
 (** Raw provider metadata from upstream re-submissions.
     Stores [Record<string, Record<string, JsonValue>>] — each provider
     reads its own namespace (e.g. ["anthropic"]). *)
-type _ key += Provider_metadata : Yojson.Basic.t key
+type _ key += Provider_metadata : Jsonkit.t key
 
 let of_provider_metadata json = set Provider_metadata json empty
 

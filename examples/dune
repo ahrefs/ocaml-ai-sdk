@@ -20,10 +20,9 @@
   lwt
   lwt.unix
   yojson
-  melange-json-native
-  ppx_deriving_jsonschema.runtime
+  jsonkit
   re2
   trace.core
   trace-tef)
  (preprocess
-  (pps lwt_ppx melange-json-native.ppx ppx_deriving_jsonschema)))
+  (pps lwt_ppx jsonkit.ppx)))

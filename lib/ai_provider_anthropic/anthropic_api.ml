@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 module Http_client = Ai_provider.Http_client
 
 type thinking_config = {
@@ -10,7 +10,7 @@ type thinking_config = {
 
 type output_format = {
   type_ : string; [@json.key "type"]
-  schema : Melange_json.t;
+  schema : Jsonkit.t;
 }
 [@@deriving to_json]
 
@@ -22,10 +22,10 @@ type output_config = {
 
 type request_body = {
   model : string;
-  messages : Melange_json.t list;
-  system : Melange_json.t option; [@json.option] [@json.drop_default]
-  tools : Melange_json.t list option; [@json.option] [@json.drop_default]
-  tool_choice : Melange_json.t option; [@json.option] [@json.drop_default]
+  messages : Jsonkit.t list;
+  system : Jsonkit.t option; [@json.option] [@json.drop_default]
+  tools : Jsonkit.t list option; [@json.option] [@json.drop_default]
+  tool_choice : Jsonkit.t option; [@json.option] [@json.drop_default]
   max_tokens : int;
   temperature : float option; [@json.option] [@json.drop_default]
   top_p : float option; [@json.option] [@json.drop_default]

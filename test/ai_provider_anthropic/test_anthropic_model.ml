@@ -1,42 +1,42 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
 type output_format_json = {
   type_ : string; [@json.key "type"]
-  schema : Melange_json.t;
+  schema : Jsonkit.t;
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type output_config_json = {
   format : output_format_json option; [@json.default None]
   effort : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type thinking_json = {
   type_ : string; [@json.key "type"]
   display : string option; [@json.default None]
   budget_tokens : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type tool_json = {
   name : string;
-  input_schema : Melange_json.t;
+  input_schema : Jsonkit.t;
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type tool_choice_json = {
   type_ : string; [@json.key "type"]
   name : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type system_block_json = {
   type_ : string; [@json.key "type"]
   text : string;
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type request_body_json = {
   system : system_block_json list option; [@json.default None]
@@ -48,7 +48,7 @@ type request_body_json = {
   tools : tool_json list option; [@json.default None]
   tool_choice : tool_choice_json option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 (* Helper for tests: concatenate text from system blocks like Anthropic does. *)
 let system_text_of_blocks blocks = List.map (fun (b : system_block_json) -> b.text) blocks |> String.concat ""
@@ -719,7 +719,7 @@ let expect_fetch_raced call () =
   let received = ref None in
   let fetch ~abort_signal ~url:_ ~headers:_ ~body:_ =
     received := Some abort_signal;
-    let promise, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
+    let promise, (_ : Jsonkit.t Lwt.u) = Lwt.task () in
     fetched := Some promise;
     promise
   in

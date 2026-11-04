@@ -1,7 +1,7 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
-type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
+type query_args = { query : string } [@@deriving of_json]
 
 module Mock = Ai_mock.Language_model
 
@@ -870,7 +870,7 @@ let counting_search_tool ?abort runs =
     search_tool with
     execute =
       Some
-        (fun (_ : Yojson.Basic.t) _ ->
+        (fun (_ : Jsonkit.t) _ ->
           incr runs;
           Option.iter (fun abort -> abort ()) abort;
           Lwt.return (`String "results"));
@@ -930,7 +930,7 @@ let run_abort_in_tool ~abort_in () =
       search_tool with
       execute =
         Some
-          (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
+          (fun (_ : Jsonkit.t) (options : Ai_core.Core_tool.execute_options) ->
             ran := options.tool_call_id :: !ran;
             if String.equal options.tool_call_id abort_in then abort ();
             Lwt.return (`String "results"));
@@ -1140,8 +1140,8 @@ let test_on_abort_only_for_signal () =
       ~on_abort:(fun ~steps:(_ : Ai_core.Generate_text_result.step list) -> reported := true)
       ()
   in
-  let waiting, (_ : Yojson.Basic.t Lwt.u) = Lwt.task () in
-  let call = generate (fun (_ : Yojson.Basic.t) _ -> waiting) in
+  let waiting, (_ : Jsonkit.t Lwt.u) = Lwt.task () in
+  let call = generate (fun (_ : Jsonkit.t) _ -> waiting) in
   Lwt.cancel call;
   (check bool) "cancelled" true
     (match Lwt.state call with
@@ -1149,7 +1149,7 @@ let test_on_abort_only_for_signal () =
     | Lwt.Fail _ | Lwt.Return _ | Lwt.Sleep -> false);
   let outcome =
     generate_outcome (fun () ->
-      generate (fun (_ : Yojson.Basic.t) _ -> Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = None })))
+      generate (fun (_ : Jsonkit.t) _ -> Lwt.fail (Ai_provider.Abort_signal.Aborted { reason = None })))
   in
   (check string) "outcome" "finished" outcome;
   (check bool) "on_abort not called" false !reported
@@ -1172,7 +1172,7 @@ let recording_search_tool seen =
     search_tool with
     execute =
       Some
-        (fun (_ : Yojson.Basic.t) (options : Ai_core.Core_tool.execute_options) ->
+        (fun (_ : Jsonkit.t) (options : Ai_core.Core_tool.execute_options) ->
           seen := options :: !seen;
           Lwt.return (`String "results"));
   }
@@ -1218,7 +1218,7 @@ let waiting_search_tool runs run =
     search_tool with
     execute =
       Some
-        (fun (_ : Yojson.Basic.t) _ ->
+        (fun (_ : Jsonkit.t) _ ->
           incr runs;
           let%lwt () = run () in
           Lwt.return (`String "results"));
@@ -1398,7 +1398,7 @@ let test_on_abort_before_failure () =
       search_tool with
       execute =
         Some
-          (fun (_ : Yojson.Basic.t) _ ->
+          (fun (_ : Jsonkit.t) _ ->
             let%lwt () = Lwt.pause () in
             abort ();
             Lwt.return (`String "results"));

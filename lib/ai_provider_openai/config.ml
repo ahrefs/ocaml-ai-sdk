@@ -3,7 +3,7 @@ type fetch_fn =
   url:string ->
   headers:(string * string) list ->
   body:string ->
-  Yojson.Basic.t Lwt.t
+  Jsonkit.t Lwt.t
 
 type t = {
   api_key : string option;

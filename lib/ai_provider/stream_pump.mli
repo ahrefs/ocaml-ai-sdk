@@ -12,8 +12,8 @@
     is the event's data is pushed, and the next event is processed. The decode
     errors are [Yojson.Json_error], Yojson's [End_of_array], [End_of_object]
     and [End_of_input], the [Type_error] and [Undefined] of both
-    [Yojson.Basic.Util] and [Yojson.Safe.Util], [Melange_json.Of_json_error]
-    and [Melange_json.Of_string_error].
+    [Yojson.Basic.Util] and [Yojson.Safe.Util], [Jsonkit.Of_json_error]
+    and [Jsonkit.Of_string_error].
 
     Any other exception, raised by [events] or by [f], is pushed as an [Error]
     part and ends the stream. A [Provider_error] is pushed as it is. Anything

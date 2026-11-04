@@ -3,7 +3,7 @@
 type tool_call = {
   tool_call_id : string;
   tool_name : string;
-  args : Yojson.Basic.t;
+  args : Jsonkit.t;
 }
 
 (** A tool approval that was responded to by the user.
@@ -11,16 +11,16 @@ type tool_call = {
 type pending_tool_approval = {
   tool_call_id : string;
   tool_name : string;
-  args : Yojson.Basic.t;
+  args : Jsonkit.t;
   approved : bool;
 }
 
 type tool_result = {
   tool_call_id : string;
   tool_name : string;
-  result : Yojson.Basic.t;
+  result : Jsonkit.t;
   is_error : bool;
-  provider_metadata : Yojson.Basic.t option;
+  provider_metadata : Jsonkit.t option;
 }
 
 type step = {
@@ -47,7 +47,7 @@ type t = {
   usage : Ai_provider.Usage.t;
   response : Ai_provider.Generate_result.response_info;
   warnings : Ai_provider.Warning.t list;
-  output : Yojson.Basic.t option;
+  output : Jsonkit.t option;
 }
 
 (** Concatenate text from all steps, separated by newlines. *)

@@ -44,7 +44,7 @@ type assistant_part =
   | Tool_call of {
       id : string;
       name : string;
-      args : Yojson.Basic.t;
+      args : Jsonkit.t;
       provider_options : Provider_options.t;
     }
 
@@ -60,7 +60,7 @@ type tool_result_content =
 type tool_result = {
   tool_call_id : string;
   tool_name : string;
-  result : Yojson.Basic.t;
+  result : Jsonkit.t;
   is_error : bool;
   content : tool_result_content list;
   provider_options : Provider_options.t;

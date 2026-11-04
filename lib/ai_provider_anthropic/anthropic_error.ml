@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type anthropic_error_type =
   | Invalid_request_error
@@ -46,7 +46,7 @@ let of_response ?(retry_after_ms = None) ?(retry_after = None) ~status ~body () 
       Some (error_type_of_string typ), message
     with
     | Yojson.Json_error _ -> None, body
-    | Melange_json.Of_json_error _ -> None, body
+    | Jsonkit.Of_json_error _ -> None, body
   in
   let is_retryable = Option.map is_retryable error_type in
   let retry_after_s = Ai_provider.Retry_after.parse ~retry_after_ms ~retry_after in

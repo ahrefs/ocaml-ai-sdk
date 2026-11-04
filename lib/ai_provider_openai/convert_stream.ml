@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* Tool call state for accumulating streamed tool calls by index *)
 type tool_call_state = {
@@ -12,33 +12,33 @@ type delta_tool_call_function_json = {
   name : string option; [@json.default None]
   arguments : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type delta_tool_call_json = {
   index : int;
   id : string option; [@json.default None]
   function_ : delta_tool_call_function_json option; [@json.key "function"] [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type delta_json = {
   content : string option; [@json.default None]
   tool_calls : delta_tool_call_json list; [@json.default []]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type choice_json = {
   index : int; [@json.default 0]
   delta : delta_json;
   finish_reason : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type chunk_json = {
   choices : choice_json list; [@json.default []]
   usage : Convert_usage.openai_usage option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 let transform ?abort_signal events ~warnings =
   let tool_calls : (int, tool_call_state) Hashtbl.t = Hashtbl.create 4 in

@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type breakpoint = Ephemeral
 type ttl =
@@ -12,7 +12,7 @@ let ttl_to_string = function
 let ttl_of_string = function
   | "5m" -> Ttl_5m
   | "1h" -> Ttl_1h
-  | other -> raise (Melange_json.Of_json_error (Melange_json.Unexpected_variant ("Unknown cache TTL: " ^ other)))
+  | other -> raise (Jsonkit.Of_json_error (Jsonkit.Unexpected_variant ("Unknown cache TTL: " ^ other)))
 
 (* JSON shape we serialize/deserialize: { "type": "ephemeral", "ttl"?: "5m"|"1h" } *)
 type breakpoint_json = {
@@ -38,8 +38,7 @@ let of_json json =
   let cache_type =
     match type_ with
     | "ephemeral" -> Ephemeral
-    | other ->
-      raise (Melange_json.Of_json_error (Melange_json.Unexpected_variant ("Unknown cache breakpoint type: " ^ other)))
+    | other -> raise (Jsonkit.Of_json_error (Jsonkit.Unexpected_variant ("Unknown cache breakpoint type: " ^ other)))
   in
   { cache_type; ttl = Option.map ttl_of_string ttl }
 

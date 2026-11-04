@@ -148,7 +148,7 @@ and on_tool_call_start_event = {
   model : model_info;
   tool_name : string;
   tool_call_id : string;
-  args : Yojson.Basic.t;
+  args : Jsonkit.t;
   function_id : string option;
   metadata : (string * Trace_core.user_data) list;
 }
@@ -158,7 +158,7 @@ and on_tool_call_finish_event = {
   model : model_info;
   tool_name : string;
   tool_call_id : string;
-  args : Yojson.Basic.t;
+  args : Jsonkit.t;
   result : tool_call_outcome;
   duration_ms : float;
   function_id : string option;
@@ -166,7 +166,7 @@ and on_tool_call_finish_event = {
 }
 
 and tool_call_outcome =
-  | Success of Yojson.Basic.t
+  | Success of Jsonkit.t
   | Error of string
 
 and on_finish_event = {
@@ -385,12 +385,12 @@ val tool_call_span_data :
   model_info:model_info ->
   tool_name:string ->
   tool_call_id:string ->
-  args:Yojson.Basic.t ->
+  args:Jsonkit.t ->
   t ->
   (string * Trace_core.user_data) list
 
 (** Build result attributes to add to a tool call span after execution. *)
-val tool_call_result_attrs : result:Yojson.Basic.t -> t -> (string * Trace_core.user_data) list
+val tool_call_result_attrs : result:Jsonkit.t -> t -> (string * Trace_core.user_data) list
 
 (** {1 Integration Values} *)
 

@@ -33,7 +33,7 @@ let decode (evt : Ai_provider.Sse.event) =
   | `String text -> text
   | json -> Yojson.Basic.to_string json
 
-(* Every JSON decode error, from Yojson or melange-json, is a
+(* Every JSON decode error, from Yojson or jsonkit, is a
    [Deserialization_error] carrying the event's data. *)
 let test_decode_errors_carry_raw_data () =
   let decoders =
@@ -46,8 +46,8 @@ let test_decode_errors_carry_raw_data () =
       ("basic_undefined", fun () -> raise (Yojson.Basic.Util.Undefined ("missing", `Null)));
       ("safe_type", fun () -> Yojson.Safe.Util.to_string (`Int 1));
       ("safe_undefined", fun () -> raise (Yojson.Safe.Util.Undefined ("missing", `Null)));
-      ("of_json", fun () -> raise (Melange_json.Of_json_error (Json_error "expected a string")));
-      ("of_string", fun () -> raise (Melange_json.Of_string_error "bad input"));
+      ("of_json", fun () -> raise (Jsonkit.Of_json_error (Json_error "expected a string")));
+      ("of_string", fun () -> raise (Jsonkit.Of_string_error "bad input"));
     ]
   in
   let f (evt : Ai_provider.Sse.event) =

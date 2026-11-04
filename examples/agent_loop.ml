@@ -7,7 +7,7 @@
 
     Usage: dune exec examples/agent_loop.exe *)
 
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type search_args = { query : string } [@@deriving of_json]
 type summarize_args = { summary : string } [@@deriving of_json]

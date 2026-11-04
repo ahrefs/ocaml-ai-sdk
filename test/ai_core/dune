@@ -27,9 +27,9 @@
   lwt
   lwt.unix
   yojson
-  melange-json-native
+  jsonkit
   re2
   uuseg.string
   trace.core)
  (preprocess
-  (pps lwt_ppx melange-json-native.ppx)))
+  (pps lwt_ppx jsonkit.ppx)))

@@ -1,16 +1,16 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type content_block_json = {
   type_ : string; [@json.key "type"]
   text : string option; [@json.default None]
   id : string option; [@json.default None]
   name : string option; [@json.default None]
-  input : Melange_json.t option; [@json.default None]
+  input : Jsonkit.t option; [@json.default None]
   thinking : string option; [@json.default None]
   signature : string option; [@json.default None]
   data : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving json]
+[@@deriving json]
 
 type anthropic_response_json = {
   id : string option; [@json.default None]
@@ -19,7 +19,7 @@ type anthropic_response_json = {
   stop_reason : string option; [@json.default None]
   usage : Convert_usage.anthropic_usage;
 }
-[@@json.allow_extra_fields] [@@deriving json]
+[@@deriving json]
 
 let map_stop_reason = function
   | Some ("end_turn" | "pause_turn" | "stop_sequence") -> Ai_provider.Finish_reason.Stop

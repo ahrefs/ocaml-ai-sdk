@@ -31,10 +31,10 @@ val find_exn : 'a key -> t -> 'a
     Stores the upstream [providerMetadata] JSON blob
     ([Record<string, Record<string, JsonValue>>]). Each provider reads
     its own namespace (e.g. ["anthropic"]). *)
-type _ key += Provider_metadata : Yojson.Basic.t key
+type _ key += Provider_metadata : Jsonkit.t key
 
 (** Create a [t] containing only raw provider metadata. *)
-val of_provider_metadata : Yojson.Basic.t -> t
+val of_provider_metadata : Jsonkit.t -> t
 
 (** Extract raw provider metadata if present. *)
-val provider_metadata : t -> Yojson.Basic.t option
+val provider_metadata : t -> Jsonkit.t option

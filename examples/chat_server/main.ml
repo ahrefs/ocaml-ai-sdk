@@ -1,7 +1,7 @@
 (** Multi-tool chat agent with structured output using the Core SDK.
 
     Demonstrates:
-    - Multiple tools with JSON Schema derived from OCaml types (ppx_deriving_jsonschema)
+    - Multiple tools with JSON Schema derived from OCaml types (jsonkit's [@@deriving jsonschema])
     - Structured output (Output.object_) with schema derived from OCaml types
     - Tools + Output together: model calls tools, then responds with validated JSON
     - Multi-step tool execution (agent loop with max_steps:5)
@@ -20,7 +20,7 @@
         -H "Content-Type: application/json" \
         -d '{"messages":[{"role":"user","parts":[{"type":"text","text":"What is the weather in Paris?"}]}]}' *)
 
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 let model =
   match Sys.getenv_opt "AI_PROVIDER" with
@@ -28,13 +28,9 @@ let model =
   | Some "anthropic" | None -> Ai_provider_anthropic.model "claude-sonnet-4-6"
   | Some other -> failwith (Printf.sprintf "Unknown AI_PROVIDER: %s (expected 'anthropic' or 'openai')" other)
 
-(** Convert a ppx_deriving_jsonschema schema (Yojson.Safe.t) to Yojson.Basic.t
-    for use as Core_tool.parameters. *)
-let json_of_schema schema = Yojson.Safe.to_basic (Ppx_deriving_jsonschema_runtime.json_schema schema)
-
 (* --- Tool: get_weather --- *)
 
-type city_args = { city : string } [@@deriving jsonschema, of_json]
+type city_args = { city : string } [@@disallow_extra_fields] [@@deriving jsonschema, of_json]
 
 type weather_result = {
   city : string;
@@ -47,7 +43,7 @@ type weather_result = {
 let get_weather : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create_with_approval
     ~description:"Get the current weather for a city. Returns temperature and conditions."
-    ~parameters:(json_of_schema city_args_jsonschema)
+    ~parameters:(Jsonkit.Jsonschema.make city_args_jsonschema)
     ~execute:(fun args _ ->
       let city = try (city_args_of_json args).city with _ -> "unknown" in
       let temperature, condition =
@@ -67,7 +63,7 @@ type search_args = {
   query : string;
   num_results : int;
 }
-[@@deriving jsonschema, of_json]
+[@@disallow_extra_fields] [@@deriving jsonschema, of_json]
 
 type search_result_item = {
   title : string;
@@ -80,7 +76,7 @@ type search_results = { results : search_result_item list } [@@deriving to_json]
 
 let search_web : Ai_core.Core_tool.t =
   Ai_core.Core_tool.create ~description:"Search the web for information. Returns a list of relevant results."
-    ~parameters:(json_of_schema search_args_jsonschema)
+    ~parameters:(Jsonkit.Jsonschema.make search_args_jsonschema)
     ~execute:(fun args _ ->
       let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
       let n = num_results in
@@ -108,16 +104,16 @@ type data_point = {
   label : string;
   value : string;
 }
-[@@deriving jsonschema]
+[@@jsonschema.disallow_extra_fields] [@@deriving jsonschema]
 
 type structured_response = {
   summary : string;
   data : data_point list;
 }
-[@@deriving jsonschema]
+[@@jsonschema.disallow_extra_fields] [@@deriving jsonschema]
 
 let output =
-  Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
+  Ai_core.Output.object_ ~name:"structured_response" ~schema:(Jsonkit.Jsonschema.make structured_response_jsonschema) ()
 
 (* --- System prompt --- *)
 

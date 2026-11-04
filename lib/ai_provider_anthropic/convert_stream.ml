@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (* Content block tracking state *)
 type block_state =
@@ -17,13 +17,13 @@ type content_block_info = {
   name : string option; [@json.default None]
   data : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type content_block_start_event = {
   index : int;
   content_block : content_block_info;
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type delta_info = {
   type_ : string; [@json.key "type"]
@@ -32,37 +32,35 @@ type delta_info = {
   thinking : string option; [@json.default None]
   signature : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type content_block_delta_event = {
   index : int;
   delta : delta_info;
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type content_block_stop_event = { index : int } [@@json.allow_extra_fields] [@@deriving of_json]
+type content_block_stop_event = { index : int } [@@deriving of_json]
 
-type message_delta_info = { stop_reason : string option [@json.default None] }
-[@@json.allow_extra_fields] [@@deriving of_json]
+type message_delta_info = { stop_reason : string option [@json.default None] } [@@deriving of_json]
 
 type message_delta_event = {
   delta : message_delta_info;
   usage : Convert_usage.anthropic_usage option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type message_start_message = { usage : Convert_usage.anthropic_usage option [@json.default None] }
-[@@json.allow_extra_fields] [@@deriving of_json]
+type message_start_message = { usage : Convert_usage.anthropic_usage option [@json.default None] } [@@deriving of_json]
 
-type message_start_event = { message : message_start_message } [@@json.allow_extra_fields] [@@deriving of_json]
+type message_start_event = { message : message_start_message } [@@deriving of_json]
 
 type error_info = {
   type_ : string; [@json.key "type"] [@json.default "unknown"]
   message : string; [@json.default ""]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type error_event = { error : error_info } [@@json.allow_extra_fields] [@@deriving of_json]
+type error_event = { error : error_info } [@@deriving of_json]
 
 let transform ?abort_signal events ~warnings =
   let blocks : (int, block_state) Hashtbl.t = Hashtbl.create 8 in
@@ -81,7 +79,7 @@ let transform ?abort_signal events ~warnings =
         (try
            let evt = message_start_event_of_json json in
            start_usage := evt.message.usage
-         with Melange_json.Of_json_error _ -> ());
+         with Jsonkit.Of_json_error _ -> ());
         if !is_first then begin
           push (Some (Ai_provider.Stream_part.Stream_start { warnings }));
           is_first := false
@@ -199,7 +197,7 @@ let transform ?abort_signal events ~warnings =
           try
             let { error = { type_; message } } = error_event_of_json json in
             type_, message
-          with Melange_json.Of_json_error _ -> "unknown", evt.data
+          with Jsonkit.Of_json_error _ -> "unknown", evt.data
         in
         push
           (Some

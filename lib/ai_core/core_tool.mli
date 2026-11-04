@@ -32,11 +32,11 @@ val execute_options :
 
 type t = {
   description : string option;
-  parameters : Yojson.Basic.t;  (** JSON Schema for tool parameters *)
-  execute : (Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) option;
+  parameters : Jsonkit.t;  (** JSON Schema for tool parameters *)
+  execute : (Jsonkit.t -> execute_options -> Jsonkit.t Lwt.t) option;
     (** Execute the tool server-side. [None] for client-side tools
         where the frontend provides results. *)
-  needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
+  needs_approval : (Jsonkit.t -> bool Lwt.t) option;
     (** If [Some f], call [f args] before execution. If [true], emit an approval
         request instead of executing. [None] means execute immediately. *)
   provider_options : Ai_provider.Provider_options.t;
@@ -51,10 +51,10 @@ type t = {
     require approval when the predicate returns [true]. *)
 val create :
   ?description:string ->
-  ?needs_approval:(Yojson.Basic.t -> bool Lwt.t) ->
+  ?needs_approval:(Jsonkit.t -> bool Lwt.t) ->
   ?provider_options:Ai_provider.Provider_options.t ->
-  parameters:Yojson.Basic.t ->
-  execute:(Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) ->
+  parameters:Jsonkit.t ->
+  execute:(Jsonkit.t -> execute_options -> Jsonkit.t Lwt.t) ->
   unit ->
   t
 
@@ -62,8 +62,8 @@ val create :
 val create_with_approval :
   ?description:string ->
   ?provider_options:Ai_provider.Provider_options.t ->
-  parameters:Yojson.Basic.t ->
-  execute:(Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) ->
+  parameters:Jsonkit.t ->
+  execute:(Jsonkit.t -> execute_options -> Jsonkit.t Lwt.t) ->
   unit ->
   t
 
@@ -71,14 +71,14 @@ val create_with_approval :
     does not execute the tool. The frontend provides results via [onToolCall]
     and [addToolOutput]. *)
 val create_client_tool :
-  ?description:string -> ?provider_options:Ai_provider.Provider_options.t -> parameters:Yojson.Basic.t -> unit -> t
+  ?description:string -> ?provider_options:Ai_provider.Provider_options.t -> parameters:Jsonkit.t -> unit -> t
 
 (** Parse a JSON string, falling back to [`String s] on parse error. *)
-val safe_parse_json_args : string -> Yojson.Basic.t
+val safe_parse_json_args : string -> Jsonkit.t
 
 (** JSON result for denied tool executions.
     Matches upstream's [{type: "execution-denied"}] format. *)
-val denied_result : Yojson.Basic.t
+val denied_result : Jsonkit.t
 
 (** Execute a tool by name from the tools list. The tool gets
     [abort_signal], [messages] and [tool_call_id] in its {!execute_options}.
@@ -98,7 +98,7 @@ val execute_tool :
   messages:Ai_provider.Prompt.message list ->
   tool_call_id:string ->
   tool_name:string ->
-  args:Yojson.Basic.t ->
+  args:Jsonkit.t ->
   unit ->
   Generate_text_result.tool_result Lwt.t
 

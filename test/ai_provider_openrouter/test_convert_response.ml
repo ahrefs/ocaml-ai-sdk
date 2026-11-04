@@ -429,7 +429,7 @@ let test_parse_response_with_malformed_annotations () =
       }|}
   in
   check_raises "non-null malformed annotations still rejected"
-    (Melange_json.Of_json_error (Json_error {|expected array but got string: "nope"|})) (fun () ->
+    (Jsonkit.Of_json_error (Json_error {|expected array but got string: "nope"|})) (fun () ->
     ignore (Ai_provider_openrouter.Convert_response.parse_response json : Ai_provider.Generate_result.t))
 
 let test_reasoning_details_in_provider_metadata () =

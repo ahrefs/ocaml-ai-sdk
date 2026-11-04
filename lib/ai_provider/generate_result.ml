@@ -1,10 +1,10 @@
-type request_info = { body : Yojson.Basic.t }
+type request_info = { body : Jsonkit.t }
 
 type response_info = {
   id : string option;
   model : string option;
   headers : (string * string) list;
-  body : Yojson.Basic.t;
+  body : Jsonkit.t;
 }
 
 type t = {

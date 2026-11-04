@@ -2,7 +2,7 @@
 
 type output_format = {
   type_ : string;
-  schema : Melange_json.t;
+  schema : Jsonkit.t;
 }
 
 type output_config = {
@@ -12,13 +12,13 @@ type output_config = {
 
 type request_body
 
-val request_body_to_json : request_body -> Melange_json.t
+val request_body_to_json : request_body -> Jsonkit.t
 
 (** Build a typed request body for the Messages API. *)
 val make_request_body :
   model:string ->
   messages:Convert_prompt.anthropic_message list ->
-  ?system:Yojson.Basic.t ->
+  ?system:Jsonkit.t ->
   ?tools:Convert_tools.anthropic_tool list ->
   ?tool_choice:Convert_tools.anthropic_tool_choice ->
   ?max_tokens:int ->
@@ -43,4 +43,4 @@ val messages :
   extra_headers:(string * string) list ->
   stream:bool ->
   unit ->
-  [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t
+  [ `Json of Jsonkit.t | `Stream of string Lwt_stream.t ] Lwt.t

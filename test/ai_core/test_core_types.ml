@@ -1,7 +1,7 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 open Alcotest
 
-type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
+type query_args = { query : string } [@@deriving of_json]
 
 (* Core_tool tests *)
 let test_tool_construction () =

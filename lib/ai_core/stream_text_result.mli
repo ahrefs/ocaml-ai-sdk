@@ -23,14 +23,14 @@ type outcome =
 type t = {
   text_stream : string Lwt_stream.t;  (** Just the text deltas. *)
   full_stream : Text_stream_part.t Lwt_stream.t;  (** All events including tool calls, reasoning, finish. *)
-  partial_output_stream : Yojson.Basic.t Lwt_stream.t;
+  partial_output_stream : Jsonkit.t Lwt_stream.t;
     (** Parsed partial JSON objects as text accumulates.
           Only emits when [?output] with a schema is provided. *)
   usage : Ai_provider.Usage.t Lwt.t;  (** Resolves when stream completes with aggregated usage. *)
   finish_reason : Ai_provider.Finish_reason.t Lwt.t;  (** Resolves when stream completes. *)
   steps : Generate_text_result.step list Lwt.t;  (** All steps, resolves when complete. *)
   warnings : Ai_provider.Warning.t list;
-  output : Yojson.Basic.t option Lwt.t;
+  output : Jsonkit.t option Lwt.t;
     (** Final parsed and validated output. Resolves to [Some json] when
           [?output] with a schema was provided and parsing succeeds, [None] otherwise.
           Fails like [usage] when the call fails or is aborted. *)

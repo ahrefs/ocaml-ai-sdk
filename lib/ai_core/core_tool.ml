@@ -8,9 +8,9 @@ let execute_options ?abort_signal ?(messages = []) ~tool_call_id () = { tool_cal
 
 type t = {
   description : string option;
-  parameters : Yojson.Basic.t;
-  execute : (Yojson.Basic.t -> execute_options -> Yojson.Basic.t Lwt.t) option;
-  needs_approval : (Yojson.Basic.t -> bool Lwt.t) option;
+  parameters : Jsonkit.t;
+  execute : (Jsonkit.t -> execute_options -> Jsonkit.t Lwt.t) option;
+  needs_approval : (Jsonkit.t -> bool Lwt.t) option;
   provider_options : Ai_provider.Provider_options.t;
 }
 

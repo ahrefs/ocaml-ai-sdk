@@ -9,12 +9,12 @@ type outcome =
 type t = {
   text_stream : string Lwt_stream.t;
   full_stream : Text_stream_part.t Lwt_stream.t;
-  partial_output_stream : Yojson.Basic.t Lwt_stream.t;
+  partial_output_stream : Jsonkit.t Lwt_stream.t;
   usage : Ai_provider.Usage.t Lwt.t;
   finish_reason : Ai_provider.Finish_reason.t Lwt.t;
   steps : Generate_text_result.step list Lwt.t;
   warnings : Ai_provider.Warning.t list;
-  output : Yojson.Basic.t option Lwt.t;
+  output : Jsonkit.t option Lwt.t;
   provider_metadata : Ai_provider.Provider_options.t option Lwt.t;
   outcome : outcome Lwt.t;
 }

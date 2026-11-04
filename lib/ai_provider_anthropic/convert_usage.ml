@@ -1,10 +1,10 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type cache_creation = {
   ephemeral_5m_input_tokens : int; [@json.default 0]
   ephemeral_1h_input_tokens : int; [@json.default 0]
 }
-[@@json.allow_extra_fields] [@@deriving json]
+[@@deriving json]
 
 type anthropic_usage = {
   input_tokens : int; [@json.default 0]
@@ -15,7 +15,7 @@ type anthropic_usage = {
   service_tier : string option; [@json.default None]
   inference_geo : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving json]
+[@@deriving json]
 
 let to_usage u =
   {

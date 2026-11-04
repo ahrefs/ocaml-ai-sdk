@@ -1,11 +1,11 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type openai_usage = {
   prompt_tokens : int; [@json.default 0]
   completion_tokens : int; [@json.default 0]
   total_tokens : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving json]
+[@@deriving json]
 
 let to_usage u =
   {

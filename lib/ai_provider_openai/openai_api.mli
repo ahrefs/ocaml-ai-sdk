@@ -2,12 +2,12 @@
 
 type request_body
 
-val request_body_to_json : request_body -> Melange_json.t
+val request_body_to_json : request_body -> Jsonkit.t
 
 (** Build a typed request body for the Chat Completions API. *)
 val make_request_body :
   model:string ->
-  messages:Melange_json.t list ->
+  messages:Jsonkit.t list ->
   ?temperature:float ->
   ?top_p:float ->
   ?max_tokens:int ->
@@ -16,18 +16,18 @@ val make_request_body :
   ?presence_penalty:float ->
   ?stop:string list ->
   ?seed:int ->
-  ?response_format:Melange_json.t ->
-  ?tools:Melange_json.t list ->
-  ?tool_choice:Melange_json.t ->
+  ?response_format:Jsonkit.t ->
+  ?tools:Jsonkit.t list ->
+  ?tool_choice:Jsonkit.t ->
   ?parallel_tool_calls:bool ->
-  ?logit_bias:Melange_json.t ->
+  ?logit_bias:Jsonkit.t ->
   ?logprobs:bool ->
   ?top_logprobs:int ->
   ?user:string ->
   ?reasoning_effort:string ->
   ?store:bool ->
-  ?metadata:Melange_json.t ->
-  ?prediction:Melange_json.t ->
+  ?metadata:Jsonkit.t ->
+  ?prediction:Jsonkit.t ->
   ?service_tier:string ->
   stream:bool ->
   unit ->
@@ -44,4 +44,4 @@ val chat_completions :
   extra_headers:(string * string) list ->
   stream:bool ->
   unit ->
-  [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t
+  [ `Json of Jsonkit.t | `Stream of string Lwt_stream.t ] Lwt.t

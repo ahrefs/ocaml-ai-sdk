@@ -1,17 +1,17 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type function_call_json = {
   name : string; [@json.default ""]
   arguments : string; [@json.default ""]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type tool_call_json = {
   id : string; [@json.default ""]
   type_ : string; [@json.key "type"] [@json.default "function"]
   function_ : function_call_json; [@json.key "function"]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type reasoning_detail_json = {
   type_ : string; [@json.key "type"] [@json.default ""]
@@ -20,7 +20,7 @@ type reasoning_detail_json = {
   data : string option; [@json.default None]
   summary : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type annotation_json = {
   type_ : string; [@json.key "type"] [@json.default ""]
@@ -29,9 +29,9 @@ type annotation_json = {
   start_index : int option; [@json.default None]
   end_index : int option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
-type image_json = { url : string } [@@json.allow_extra_fields] [@@deriving of_json]
+type image_json = { url : string } [@@deriving of_json]
 
 type choice_message_json = {
   role : string option; [@json.default None]
@@ -44,25 +44,25 @@ type choice_message_json = {
   annotations : annotation_json list option; [@json.default None]
   images : image_json list; [@json.default []]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type choice_json = {
   index : int; [@json.default 0]
   message : choice_message_json;
   finish_reason : string option; [@json.default None]
-  error : Melange_json.t option; [@json.default None]
+  error : Jsonkit.t option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type openrouter_response_json = {
   id : string option; [@json.default None]
   model : string option; [@json.default None]
   provider : string option; [@json.default None]
-  error : Melange_json.t option; [@json.default None]
+  error : Jsonkit.t option; [@json.default None]
   choices : choice_json list; [@json.default []]
   usage : Convert_usage.openrouter_usage option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type _ Ai_provider.Provider_options.key +=
   | Openrouter_provider : string Ai_provider.Provider_options.key

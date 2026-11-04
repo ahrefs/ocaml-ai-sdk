@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Breaking changes
+
+- The JSON dependency is now `jsonkit` (>= 1.1.0), the renamed successor of
+  `melange-json-native`. The package no longer depends on
+  `melange-json-native`. In dune stanzas, `melange-json-native` becomes
+  `jsonkit` and `melange-json-native.ppx` becomes `jsonkit.ppx`. In code,
+  `Melange_json` becomes `Jsonkit`. `[@@deriving json]` and the `[@json.*]`
+  attributes keep their names.
+- Public signatures name the JSON type `Jsonkit.t` where they used to say
+  `Yojson.Basic.t` or `Melange_json.t`. All three are the same type, so values
+  pass through unchanged. Code that names `Melange_json` without depending on
+  `melange-json-native` itself has to switch to `Jsonkit`.
+- `Stream_pump.pump` turns `Jsonkit.Of_json_error` and
+  `Jsonkit.Of_string_error` into a `Deserialization_error`. A custom provider
+  whose converter raises `Melange_json.Of_json_error` now gets an
+  `Unexpected_error` that ends the stream.
+- Every decoder in the SDK ignores unknown JSON object fields, which is
+  jsonkit's default. Before, the Anthropic error envelope and the
+  `cache_control` decoders of the Anthropic and OpenRouter providers rejected
+  them.
+
+### Fixes
+
+- Anthropic API errors decode again. The error envelope rejected the
+  top-level `type` and `request_id` fields that Anthropic sends, so every API
+  error kept the raw response body as its message and lost its error type.
+  Retryability now comes from the error type, as it was meant to.
+
+### Examples
+
+- The examples derive their JSON Schemas with jsonkit's
+  `[@@deriving jsonschema]` instead of `ppx_deriving_jsonschema`, and pass
+  `Jsonkit.Jsonschema.make <type>_jsonschema` straight to the SDK. The
+  schemas they send are unchanged, still with `"additionalProperties": false`.
+
 ## 0.8 — 2026-10-30
 
 ### Breaking changes

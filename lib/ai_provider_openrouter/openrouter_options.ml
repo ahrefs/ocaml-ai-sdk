@@ -1,4 +1,4 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 (** Reasoning effort levels matching upstream OpenRouter API. *)
 type reasoning_effort =
@@ -122,7 +122,7 @@ type t = {
   (* Usage accounting *)
   usage : usage_config option;
   (* Extra body passthrough -- merged into request JSON *)
-  extra_body : (string * Yojson.Basic.t) list;
+  extra_body : (string * Jsonkit.t) list;
   (* Local-only settings (not sent in request body) *)
   strict_json_schema : bool;
   system_message_mode : Model_catalog.system_message_mode option;

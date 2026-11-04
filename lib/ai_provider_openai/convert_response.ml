@@ -1,31 +1,31 @@
-open Melange_json.Primitives
+open Jsonkit.Primitives
 
 type function_call_json = {
   name : string; [@json.default ""]
   arguments : string; [@json.default ""]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type tool_call_json = {
   id : string; [@json.default ""]
   type_ : string; [@json.key "type"] [@json.default "function"]
   function_ : function_call_json; [@json.key "function"]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type choice_message_json = {
   role : string option; [@json.default None]
   content : string option; [@json.default None]
   tool_calls : tool_call_json list; [@json.default []]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type choice_json = {
   index : int; [@json.default 0]
   message : choice_message_json;
   finish_reason : string option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 type openai_response_json = {
   id : string option; [@json.default None]
@@ -33,7 +33,7 @@ type openai_response_json = {
   choices : choice_json list; [@json.default []]
   usage : Convert_usage.openai_usage option; [@json.default None]
 }
-[@@json.allow_extra_fields] [@@deriving of_json]
+[@@deriving of_json]
 
 let map_finish_reason = function
   | Some "stop" -> Ai_provider.Finish_reason.Stop
