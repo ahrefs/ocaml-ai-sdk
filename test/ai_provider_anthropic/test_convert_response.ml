@@ -130,18 +130,18 @@ let test_error_parsing_real_body () =
         {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CSHoEeqs5C35K2UUqR7Fy"}|}
       ()
   in
-  (check bool) "retryable" true err.is_retryable;
   match err.kind with
   | Ai_provider.Provider_error.Api_error { body; _ } ->
     (check string) "message" "overloaded_error: Overloaded (request_id: req_011CSHoEeqs5C35K2UUqR7Fy)" body
   | _ -> fail "expected Api_error"
 
-(* A non-retryable error type must not override the status rule: upstream retries every 5xx. *)
+(* A retryable type forces a retry; otherwise the status rule decides, as upstream retries every 5xx. *)
 let test_error_retry_follows_status () =
   let retryable ~status ~typ =
     let body = Printf.sprintf {|{"type":"error","error":{"type":"%s","message":"m"}}|} typ in
     (Ai_provider_anthropic.Anthropic_error.of_response ~status ~body ()).is_retryable
   in
+  (check bool) "400 overloaded_error" true (retryable ~status:400 ~typ:"overloaded_error");
   (check bool) "500 api_error" true (retryable ~status:500 ~typ:"api_error");
   (check bool) "504 timeout_error" true (retryable ~status:504 ~typ:"timeout_error");
   (check bool) "400 invalid_request_error" false (retryable ~status:400 ~typ:"invalid_request_error")

@@ -21,10 +21,9 @@ type anthropic_error = {
 
     When the body is Anthropic's error envelope, the [Api_error] body reads
     ["<type>: <message> (request_id: <id>)"]; otherwise it is the raw body.
-    A retryable error type ({!is_retryable}) marks the error retryable. Any
-    other error uses the status rule of
-    {!Ai_provider.Provider_error.make_api_error}, so 408, 409, 429 and 5xx
-    retry. *)
+    A retryable error type ({!is_retryable}) marks the error retryable. For
+    any other error, the status rule of
+    {!Ai_provider.Provider_error.make_api_error} decides. *)
 val of_response :
   ?retry_after_ms:string option ->
   ?retry_after:string option ->

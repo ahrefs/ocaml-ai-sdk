@@ -34,9 +34,7 @@ let of_response ?(retry_after_ms = None) ?(retry_after = None) ~status ~body () 
       let json = Yojson.Basic.from_string body in
       let { error = { typ; message } } = error_envelope_of_json json in
       Some (error_type_of_string typ), message
-    with
-    | Yojson.Json_error _ -> None, body
-    | Jsonkit.Of_json_error _ -> None, body
+    with Yojson.Json_error _ | Jsonkit.Of_json_error _ -> None, body
   in
   let is_retryable = Option.map is_retryable error_type in
   let retry_after_s = Ai_provider.Retry_after.parse ~retry_after_ms ~retry_after in
