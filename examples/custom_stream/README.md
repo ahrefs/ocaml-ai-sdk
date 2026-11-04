@@ -10,7 +10,7 @@ Data parts with LLM output. Shows how to write custom metadata alongside model r
 npm install
 
 # Start backend
-ANTHROPIC_API_KEY=$(passage get anthropic/staging/api_key) dune exec examples/custom_stream/main.exe
+ANTHROPIC_API_KEY=your-api-key dune exec examples/custom_stream/main.exe
 
 # Start frontend (in a separate terminal)
 npm run dev

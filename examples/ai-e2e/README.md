@@ -13,7 +13,7 @@ npm install
 npm run dev
 
 # Start server (in a separate terminal)
-ANTHROPIC_API_KEY=$(passage get anthropic/staging/api_key) dune exec examples/ai-e2e/server/main.exe
+ANTHROPIC_API_KEY=your-api-key dune exec examples/ai-e2e/server/main.exe
 ```
 
 Open http://localhost:28601 in your browser.
