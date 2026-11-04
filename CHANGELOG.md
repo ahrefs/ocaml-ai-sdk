@@ -30,7 +30,10 @@ All notable changes to this project will be documented in this file.
 - Anthropic API errors decode again. The error envelope rejected the
   top-level `type` and `request_id` fields that Anthropic sends, so every API
   error kept the raw response body as its message and lost its error type.
-  Retryability now comes from the error type, as it was meant to.
+  The message now reads `<type>: <message> (request_id: <id>)`. A
+  `rate_limit_error` or `overloaded_error` is always retryable. Other errors
+  still retry on 408, 409, 429 and 5xx, as upstream does, so a 500
+  `api_error` keeps retrying.
 
 ### Examples
 

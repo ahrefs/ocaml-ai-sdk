@@ -17,7 +17,14 @@ type anthropic_error = {
 
 (** Parse an Anthropic error HTTP response. Optional [retry_after_ms] and
     [retry_after] response headers populate [retry_after_s] on the result;
-    [retry_after_ms] takes precedence (see {!Ai_provider.Retry_after.parse}). *)
+    [retry_after_ms] takes precedence (see {!Ai_provider.Retry_after.parse}).
+
+    When the body is Anthropic's error envelope, the [Api_error] body reads
+    ["<type>: <message> (request_id: <id>)"]; otherwise it is the raw body.
+    A retryable error type ({!is_retryable}) marks the error retryable. Any
+    other error uses the status rule of
+    {!Ai_provider.Provider_error.make_api_error}, so 408, 409, 429 and 5xx
+    retry. *)
 val of_response :
   ?retry_after_ms:string option ->
   ?retry_after:string option ->
